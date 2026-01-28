@@ -1,0 +1,181 @@
+# Cloud Run Service Configuration
+# Declarative configuration for the Insights Agent service
+#
+# This deploys the agent with the MCP server as a sidecar container.
+# The MCP server provides tools for interacting with Red Hat Insights APIs.
+#
+# Usage:
+#   gcloud run services replace deploy/cloudrun/service.yaml \
+#     --region=us-central1 --project=YOUR_PROJECT_ID
+#
+# Note: Replace ${PROJECT_ID} and ${REGION} with actual values before applying
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: insights-agent
+  labels:
+    app: insights-agent
+    managed-by: cloud-build
+  annotations:
+    run.googleapis.com/description: "Red Hat Insights Agent - A2A-ready agent using Google ADK"
+    run.googleapis.com/ingress: all
+    run.googleapis.com/launch-stage: GA
+spec:
+  template:
+    metadata:
+      annotations:
+        # Scaling configuration
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "10"
+        # CPU allocation
+        run.googleapis.com/cpu-throttling: "false"
+        # Startup probe
+        run.googleapis.com/startup-cpu-boost: "true"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      serviceAccountName: insights-agent@${PROJECT_ID}.iam.gserviceaccount.com
+      containers:
+        - name: insights-agent
+          image: gcr.io/${PROJECT_ID}/insights-agent:latest
+          ports:
+            - name: http1
+              containerPort: 8000
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          env:
+            # Google AI Configuration
+            - name: GOOGLE_GENAI_USE_VERTEXAI
+              value: "TRUE"
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "${PROJECT_ID}"
+            - name: GOOGLE_CLOUD_LOCATION
+              value: "${REGION}"
+            - name: GEMINI_MODEL
+              value: "gemini-2.5-flash"
+            # Agent Configuration
+            - name: AGENT_HOST
+              value: "0.0.0.0"
+            - name: AGENT_PORT
+              value: "8000"
+            - name: AGENT_NAME
+              value: "insights-agent"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            # Red Hat SSO Configuration
+            - name: RED_HAT_SSO_ISSUER
+              value: "https://sso.redhat.com/auth/realms/redhat-external"
+            # MCP Configuration
+            # The agent connects to the MCP sidecar container over HTTP
+            - name: MCP_TRANSPORT_MODE
+              value: "http"
+            - name: MCP_SERVER_URL
+              value: "http://localhost:8080"
+            - name: MCP_READ_ONLY
+              value: "true"
+            # Secrets from Secret Manager
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: google-api-key
+                  key: latest
+            - name: LIGHTSPEED_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: lightspeed-client-id
+                  key: latest
+            - name: LIGHTSPEED_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: lightspeed-client-secret
+                  key: latest
+            - name: RED_HAT_SSO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: redhat-sso-client-id
+                  key: latest
+            - name: RED_HAT_SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: redhat-sso-client-secret
+                  key: latest
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-url
+                  key: latest
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-url
+                  key: latest
+          # Health checks
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 30
+            failureThreshold: 3
+
+        # =====================================================================
+        # Red Hat Insights MCP Server (Sidecar)
+        # =====================================================================
+        # Provides MCP tools for interacting with Red Hat Insights APIs
+        # (Advisor, Inventory, Vulnerability, Remediations, etc.)
+        # The MCP server authenticates with console.redhat.com using
+        # Lightspeed service account credentials.
+        - name: insights-mcp
+          image: ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          env:
+            # Lightspeed credentials for console.redhat.com authentication
+            - name: LIGHTSPEED_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: lightspeed-client-id
+                  key: latest
+            - name: LIGHTSPEED_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: lightspeed-client-secret
+                  key: latest
+            # MCP server configuration
+            - name: MCP_SERVER_MODE
+              value: "http"
+            - name: MCP_SERVER_PORT
+              value: "8080"
+            - name: READ_ONLY
+              value: "true"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 30
+            failureThreshold: 3
+  traffic:
+    - percent: 100
+      latestRevision: true

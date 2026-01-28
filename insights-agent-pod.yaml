@@ -1,0 +1,203 @@
+# Red Hat Insights Agent - Podman/Kubernetes Pod Configuration
+#
+# This pod deploys the complete Insights Agent stack:
+#   - insights-agent: Main A2A agent (Gemini + Google ADK)
+#   - insights-mcp: Red Hat Insights MCP server (tools for console.redhat.com)
+#   - postgres: PostgreSQL database for persistence
+#   - redis: Redis for rate limiting and caching
+#
+# The MCP server authenticates with console.redhat.com using Lightspeed
+# service account credentials. The agent connects to the MCP server over
+# HTTP to access Insights tools (Advisor, Inventory, Vulnerability, etc.).
+#
+# Prerequisites:
+#   1. Build the agent image: podman build -t localhost/insights-agent:latest -f Containerfile .
+#   2. Create config directory: mkdir -p config
+#   3. Set required environment variables (see below)
+#
+# Required Environment Variables:
+#   - GOOGLE_API_KEY: Google AI Studio API key (or use Vertex AI credentials)
+#   - LIGHTSPEED_CLIENT_ID: Red Hat Insights service account client ID
+#   - LIGHTSPEED_CLIENT_SECRET: Red Hat Insights service account secret
+#   - RED_HAT_SSO_CLIENT_ID: OAuth client ID for Red Hat SSO
+#   - RED_HAT_SSO_CLIENT_SECRET: OAuth client secret for Red Hat SSO
+#
+# Usage with Podman:
+#   # Set credentials
+#   export LIGHTSPEED_CLIENT_ID="your-client-id"
+#   export LIGHTSPEED_CLIENT_SECRET="your-client-secret"
+#   export GOOGLE_API_KEY="your-google-api-key"
+#   export RED_HAT_SSO_CLIENT_ID="your-sso-client-id"
+#   export RED_HAT_SSO_CLIENT_SECRET="your-sso-client-secret"
+#
+#   # Start the pod
+#   podman play kube insights-agent-pod.yaml
+#
+#   # View logs
+#   podman logs insights-agent-pod-insights-agent
+#   podman logs insights-agent-pod-insights-mcp
+#
+# Usage with Kubernetes:
+#   kubectl apply -f insights-agent-pod.yaml
+#
+# Stop the pod:
+#   podman pod stop insights-agent-pod
+#   podman pod rm insights-agent-pod
+#
+apiVersion: v1
+kind: Pod
+metadata:
+  name: insights-agent-pod
+  labels:
+    app: insights-agent
+spec:
+  containers:
+    # =========================================================================
+    # Insights Agent - Main Application
+    # =========================================================================
+    - name: insights-agent
+      image: ${INSIGHTS_AGENT_IMAGE:-localhost/insights-agent:latest}
+      env:
+        # Google AI Configuration
+        - name: GOOGLE_GENAI_USE_VERTEXAI
+          value: "${GOOGLE_GENAI_USE_VERTEXAI:-FALSE}"
+        - name: GOOGLE_API_KEY
+          value: ${GOOGLE_API_KEY}
+        - name: GOOGLE_CLOUD_PROJECT
+          value: ${GOOGLE_CLOUD_PROJECT:-}
+        - name: GOOGLE_CLOUD_LOCATION
+          value: ${GOOGLE_CLOUD_LOCATION:-us-central1}
+        - name: GEMINI_MODEL
+          value: ${GEMINI_MODEL:-gemini-2.5-flash}
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /config/vertex-credentials.json
+        # Red Hat SSO Configuration
+        - name: RED_HAT_SSO_ISSUER
+          value: ${RED_HAT_SSO_ISSUER:-https://sso.redhat.com/auth/realms/redhat-external}
+        - name: RED_HAT_SSO_CLIENT_ID
+          value: ${RED_HAT_SSO_CLIENT_ID}
+        - name: RED_HAT_SSO_CLIENT_SECRET
+          value: ${RED_HAT_SSO_CLIENT_SECRET}
+        - name: RED_HAT_SSO_REDIRECT_URI
+          value: ${RED_HAT_SSO_REDIRECT_URI:-http://localhost:8000/oauth/callback}
+        # Red Hat Insights MCP Configuration
+        # The agent connects to the MCP server running in the same pod
+        - name: LIGHTSPEED_CLIENT_ID
+          value: ${LIGHTSPEED_CLIENT_ID}
+        - name: LIGHTSPEED_CLIENT_SECRET
+          value: ${LIGHTSPEED_CLIENT_SECRET}
+        - name: MCP_TRANSPORT_MODE
+          value: ${MCP_TRANSPORT_MODE:-http}
+        - name: MCP_SERVER_URL
+          value: ${MCP_SERVER_URL:-http://localhost:8080}
+        - name: MCP_READ_ONLY
+          value: "${MCP_READ_ONLY:-true}"
+        # Agent Configuration
+        - name: AGENT_PROVIDER_URL
+          value: ${AGENT_PROVIDER_URL:-http://localhost:8000}
+        - name: AGENT_NAME
+          value: ${AGENT_NAME:-insights-agent}
+        - name: AGENT_HOST
+          value: "0.0.0.0"
+        - name: AGENT_PORT
+          value: "8000"
+        # Database Configuration (connects to postgres container in same pod)
+        - name: DATABASE_URL
+          value: postgresql+asyncpg://insights:insights@localhost:5432/insights_agent
+        # Redis Configuration (connects to redis container in same pod)
+        - name: REDIS_URL
+          value: redis://localhost:6379/0
+        # Logging
+        - name: LOG_LEVEL
+          value: ${LOG_LEVEL:-INFO}
+        - name: LOG_FORMAT
+          value: ${LOG_FORMAT:-json}
+        # Development Settings
+        - name: DEBUG
+          value: "${DEBUG:-false}"
+        - name: SKIP_JWT_VALIDATION
+          value: "${SKIP_JWT_VALIDATION:-false}"
+      ports:
+        - containerPort: 8000
+          hostPort: 8000
+      volumeMounts:
+        - mountPath: /config:Z
+          name: config
+          readOnly: true
+
+    # =========================================================================
+    # Red Hat Insights MCP Server
+    # =========================================================================
+    # The MCP server provides tools for interacting with Red Hat Insights APIs.
+    # It authenticates with console.redhat.com using the Lightspeed credentials.
+    - name: insights-mcp
+      image: ${MCP_SERVER_IMAGE:-ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest}
+      env:
+        # Lightspeed credentials for authenticating with console.redhat.com
+        - name: LIGHTSPEED_CLIENT_ID
+          value: ${LIGHTSPEED_CLIENT_ID}
+        - name: LIGHTSPEED_CLIENT_SECRET
+          value: ${LIGHTSPEED_CLIENT_SECRET}
+        # MCP server mode: run as HTTP server for agent connection
+        - name: MCP_SERVER_MODE
+          value: "http"
+        - name: MCP_SERVER_PORT
+          value: "8080"
+        # Read-only mode for safety
+        - name: READ_ONLY
+          value: "${MCP_READ_ONLY:-true}"
+      ports:
+        - containerPort: 8080
+          hostPort: 8080
+
+    # =========================================================================
+    # PostgreSQL Database
+    # =========================================================================
+    - name: postgres
+      image: registry.redhat.io/rhel9/postgresql-16:latest
+      env:
+        - name: POSTGRESQL_USER
+          value: insights
+        - name: POSTGRESQL_PASSWORD
+          value: insights
+        - name: POSTGRESQL_DATABASE
+          value: insights_agent
+      ports:
+        - containerPort: 5432
+          hostPort: 5432
+      volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/pgsql/data:Z
+
+    # =========================================================================
+    # Redis (Rate Limiting and Caching)
+    # =========================================================================
+    - name: redis
+      image: registry.redhat.io/rhel9/redis-7:latest
+      env:
+        - name: REDIS_PASSWORD
+          value: ""
+      ports:
+        - containerPort: 6379
+          hostPort: 6379
+      volumeMounts:
+        - name: redisdata
+          mountPath: /var/lib/redis/data:Z
+
+  volumes:
+    - name: config
+      hostPath:
+        path: ./config
+        type: Directory
+    - name: pgdata
+      emptyDir: {}
+      # Uncomment below and comment out emptyDir to persist data between pod restarts
+      # hostPath:
+      #   path: ${HOME}/.local/share/insights-agent/pgdata
+      #   type: DirectoryOrCreate
+    - name: redisdata
+      emptyDir: {}
+      # Uncomment below and comment out emptyDir to persist data between pod restarts
+      # hostPath:
+      #   path: ${HOME}/.local/share/insights-agent/redisdata
+      #   type: DirectoryOrCreate

@@ -1,0 +1,6 @@
+# This directory contains configuration files for the Insights Agent pod.
+#
+# Required files:
+# - vertex-credentials.json (if using Vertex AI)
+#
+# Copy your credentials and configuration files here before running the pod.
