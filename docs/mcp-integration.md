@@ -1,0 +1,275 @@
+# Red Hat Insights MCP Server Integration
+
+This document explains how the Insights Agent integrates with the Red Hat Insights MCP server to access console.redhat.com APIs.
+
+## Overview
+
+The agent uses the [Red Hat Insights MCP Server](https://github.com/RedHatInsights/insights-mcp) as a sidecar to access Red Hat Insights APIs. The MCP (Model Context Protocol) server provides tools that the agent can call to retrieve data from:
+
+- **Advisor**: System configuration recommendations
+- **Inventory**: Registered systems and host information
+- **Vulnerability**: CVE data and security analysis
+- **Remediations**: Playbook management and issue resolution
+- **Patch**: System update information
+- **Image Builder**: Custom RHEL image creation
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Deployment Pod                           │
+│                                                                   │
+│  ┌─────────────────────┐      ┌─────────────────────────────┐   │
+│  │   Insights Agent    │      │   Red Hat Insights MCP      │   │
+│  │                     │      │   Server                    │   │
+│  │   ┌─────────────┐   │ HTTP │   ┌─────────────────────┐   │   │
+│  │   │   Gemini    │   │◄────►│   │   MCP Tools         │   │   │
+│  │   │   Model     │   │:8080 │   │   - advisor         │   │   │
+│  │   └─────────────┘   │      │   │   - inventory       │   │   │
+│  │          │          │      │   │   - vulnerability   │   │   │
+│  │          ▼          │      │   │   - remediations    │   │   │
+│  │   ┌─────────────┐   │      │   └─────────────────────┘   │   │
+│  │   │  ADK Agent  │   │      │             │               │   │
+│  │   └─────────────┘   │      │             │               │   │
+│  │                     │      │             ▼               │   │
+│  │   Port 8000         │      │   ┌─────────────────────┐   │   │
+│  └─────────────────────┘      │   │   OAuth2 Client     │   │   │
+│                               │   │   (Lightspeed)      │   │   │
+│                               │   └──────────┬──────────┘   │   │
+│                               │              │              │   │
+│                               └──────────────┼──────────────┘   │
+│                                              │                   │
+└──────────────────────────────────────────────┼───────────────────┘
+                                               │
+                                               ▼
+                                    ┌─────────────────────┐
+                                    │  console.redhat.com │
+                                    │                     │
+                                    │  - Advisor API      │
+                                    │  - Inventory API    │
+                                    │  - Vulnerability API│
+                                    │  - Remediations API │
+                                    │  - Patch API        │
+                                    │  - Image Builder API│
+                                    └─────────────────────┘
+```
+
+## Credential Flow
+
+### Lightspeed Service Account
+
+The MCP server authenticates with console.redhat.com using a Lightspeed service account. This is a machine-to-machine authentication that doesn't require user interaction.
+
+**How to obtain credentials:**
+
+1. Log in to [console.redhat.com](https://console.redhat.com)
+2. Navigate to **Settings** → **Integrations** → **Red Hat Lightspeed**
+3. Click **Create service account**
+4. Copy the **Client ID** and **Client Secret**
+
+### Environment Variables
+
+The MCP server requires these environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `LIGHTSPEED_CLIENT_ID` | Service account client ID from console.redhat.com |
+| `LIGHTSPEED_CLIENT_SECRET` | Service account client secret |
+| `MCP_SERVER_MODE` | Server mode: `http` for HTTP transport |
+| `MCP_SERVER_PORT` | Port to listen on (default: 8080) |
+| `READ_ONLY` | Enable read-only mode (recommended: `true`) |
+
+### Authentication Flow
+
+```
+1. MCP Server starts
+   │
+   ▼
+2. Receives tool call from Agent
+   │
+   ▼
+3. Requests OAuth2 token from sso.redhat.com
+   │  using LIGHTSPEED_CLIENT_ID and LIGHTSPEED_CLIENT_SECRET
+   │
+   ▼
+4. Receives access token
+   │
+   ▼
+5. Calls console.redhat.com API with Bearer token
+   │
+   ▼
+6. Returns results to Agent
+```
+
+## Transport Modes
+
+The agent can connect to the MCP server using different transport modes:
+
+### HTTP Transport (Recommended for Production)
+
+The MCP server runs as an HTTP server, and the agent connects to it.
+
+```yaml
+# Agent configuration
+MCP_TRANSPORT_MODE: http
+MCP_SERVER_URL: http://localhost:8080
+
+# MCP server configuration
+MCP_SERVER_MODE: http
+MCP_SERVER_PORT: 8080
+```
+
+### stdio Transport (Development)
+
+The agent spawns the MCP server as a subprocess and communicates via stdin/stdout.
+
+```yaml
+MCP_TRANSPORT_MODE: stdio
+```
+
+This mode runs the MCP server container using podman:
+
+```bash
+podman run --env LIGHTSPEED_CLIENT_ID --env LIGHTSPEED_CLIENT_SECRET \
+  --interactive --rm ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest
+```
+
+## Deployment Configuration
+
+### Podman Pod
+
+The `insights-agent-pod.yaml` includes the MCP server as a container:
+
+```yaml
+containers:
+  - name: insights-mcp
+    image: ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest
+    env:
+      - name: LIGHTSPEED_CLIENT_ID
+        value: ${LIGHTSPEED_CLIENT_ID}
+      - name: LIGHTSPEED_CLIENT_SECRET
+        value: ${LIGHTSPEED_CLIENT_SECRET}
+      - name: MCP_SERVER_MODE
+        value: "http"
+      - name: MCP_SERVER_PORT
+        value: "8080"
+    ports:
+      - containerPort: 8080
+```
+
+### Cloud Run
+
+The MCP server runs as a sidecar container in the Cloud Run service:
+
+```yaml
+containers:
+  - name: insights-agent
+    # ... agent configuration ...
+    env:
+      - name: MCP_TRANSPORT_MODE
+        value: "http"
+      - name: MCP_SERVER_URL
+        value: "http://localhost:8080"
+
+  - name: insights-mcp
+    image: ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest
+    env:
+      - name: LIGHTSPEED_CLIENT_ID
+        valueFrom:
+          secretKeyRef:
+            name: lightspeed-client-id
+            key: latest
+      - name: LIGHTSPEED_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: lightspeed-client-secret
+            key: latest
+```
+
+## Available Tools
+
+The MCP server provides these tools to the agent:
+
+### Advisor Tools
+
+| Tool | Description |
+|------|-------------|
+| `advisor_get_recommendations` | Get recommendations for a system |
+| `advisor_list_rules` | List all advisor rules |
+| `advisor_get_rule` | Get details of a specific rule |
+
+### Inventory Tools
+
+| Tool | Description |
+|------|-------------|
+| `inventory_list_hosts` | List registered hosts |
+| `inventory_get_host` | Get host details by ID |
+| `inventory_search_hosts` | Search hosts by criteria |
+
+### Vulnerability Tools
+
+| Tool | Description |
+|------|-------------|
+| `vulnerability_list_cves` | List CVEs affecting systems |
+| `vulnerability_get_cve` | Get CVE details |
+| `vulnerability_get_affected_systems` | Get systems affected by a CVE |
+
+### Remediation Tools
+
+| Tool | Description |
+|------|-------------|
+| `remediations_list` | List available remediations |
+| `remediations_get` | Get remediation details |
+| `remediations_create` | Create a new remediation (if not read-only) |
+
+### Patch Tools
+
+| Tool | Description |
+|------|-------------|
+| `patch_list_advisories` | List available patches |
+| `patch_get_advisory` | Get patch details |
+| `patch_get_systems` | Get systems needing patches |
+
+## Troubleshooting
+
+### MCP Server Not Responding
+
+1. Check if the MCP server container is running:
+   ```bash
+   podman logs insights-agent-pod-insights-mcp
+   ```
+
+2. Verify the health endpoint:
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+3. Check environment variables are set correctly
+
+### Authentication Failures
+
+1. Verify Lightspeed credentials are correct
+2. Check if the service account is active in console.redhat.com
+3. Look for OAuth errors in MCP server logs:
+   ```bash
+   podman logs insights-agent-pod-insights-mcp | grep -i auth
+   ```
+
+### API Errors
+
+1. Check if you have access to the required Insights services
+2. Verify your Red Hat account has the necessary subscriptions
+3. Check the MCP server logs for API error responses
+
+### Connection Refused
+
+1. Ensure MCP server is listening on the correct port
+2. Verify `MCP_SERVER_URL` in agent matches MCP server configuration
+3. Check network connectivity between containers
+
+## Security Considerations
+
+1. **Credential Storage**: Store Lightspeed credentials securely (Secret Manager, Vault, etc.)
+2. **Read-Only Mode**: Enable `READ_ONLY=true` to prevent write operations
+3. **Network Isolation**: The MCP server only needs to reach console.redhat.com
+4. **Least Privilege**: Use service accounts with minimal required permissions

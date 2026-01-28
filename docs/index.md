@@ -1,0 +1,73 @@
+# Insights Agent Documentation
+
+Welcome to the Red Hat Insights Agent documentation.
+
+## Overview
+
+The Insights Agent is an A2A-ready (Agent-to-Agent) service that provides AI-powered access to Red Hat Insights. It enables natural language interaction with Red Hat's infrastructure management tools.
+
+## Documentation
+
+### Getting Started
+
+- [README](../README.md) - Quick start guide and installation
+- [Configuration](configuration.md) - Environment variables and settings
+
+### Architecture
+
+- [Architecture Overview](architecture.md) - System design and components
+
+### API Reference
+
+- [API Documentation](api.md) - Endpoints, request/response formats
+- [Authentication](authentication.md) - OAuth 2.0 and JWT validation
+
+### Deployment
+
+- [Container Deployment](../README.md#container-deployment-podman) - Local Podman deployment
+- [Cloud Run Deployment](../deploy/cloudrun/README.md) - Google Cloud Run deployment
+
+### Integration
+
+- [MCP Server Integration](mcp-integration.md) - Red Hat Insights MCP server and console.redhat.com APIs
+- [Marketplace Integration](marketplace.md) - Google Cloud Marketplace, DCR, and billing
+
+### Operations
+
+- [Troubleshooting](troubleshooting.md) - Common issues and solutions
+
+## Quick Links
+
+| Topic | Description |
+|-------|-------------|
+| [AgentCard](api.md#get-well-knownagentjson) | A2A agent discovery |
+| [OAuth Flow](authentication.md#oauth-20-authorization-code-flow) | Authentication setup |
+| [Environment Variables](configuration.md#environment-variables) | Configuration reference |
+| [Health Checks](api.md#health-endpoints) | Monitoring endpoints |
+
+## Features
+
+- **AI-Powered**: Built with Google ADK and Gemini 2.5 Flash
+- **A2A Protocol**: Interoperates with other agents
+- **OAuth 2.0**: Secure authentication via Red Hat SSO
+- **Marketplace Ready**: Google Cloud Marketplace integration
+- **Usage Metering**: Automatic billing and quota management
+- **Container Native**: Runs on Podman, Kubernetes, or Cloud Run
+
+## Red Hat Insights Services
+
+The agent provides access to:
+
+| Service | Description |
+|---------|-------------|
+| **Advisor** | System recommendations and configuration assessment |
+| **Inventory** | System management and tracking |
+| **Vulnerability** | CVE analysis and security threats |
+| **Remediations** | Issue resolution and playbooks |
+| **Planning** | RHEL upgrade and migration planning |
+| **Image Builder** | Custom RHEL image creation |
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/your-org/insights-agent/issues)
+- **Red Hat Support**: [Red Hat Customer Portal](https://access.redhat.com)
