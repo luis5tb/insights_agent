@@ -277,6 +277,272 @@ When validation is skipped, a default development user is created:
 }
 ```
 
+## Local Testing Guide
+
+This section provides step-by-step instructions for testing OAuth authentication locally.
+
+### Prerequisites
+
+Before testing, ensure you have:
+
+1. The agent installed and configured
+2. Red Hat SSO client credentials (or use development mode)
+3. Python virtual environment activated
+
+### Option 1: Testing with Development Mode (No Real SSO)
+
+This is the easiest way to test the authentication flow without needing real Red Hat SSO credentials.
+
+1. **Configure development mode** in `.env`:
+   ```bash
+   # Enable development mode
+   SKIP_JWT_VALIDATION=true
+   DEBUG=true
+
+   # These can be placeholder values in dev mode
+   RED_HAT_SSO_CLIENT_ID=dev-client
+   RED_HAT_SSO_CLIENT_SECRET=dev-secret
+   RED_HAT_SSO_REDIRECT_URI=http://localhost:8000/oauth/callback
+   ```
+
+2. **Start the API server**:
+   ```bash
+   python -m insights_agent.main
+   ```
+
+3. **Test the health endpoint**:
+   ```bash
+   curl http://localhost:8000/health
+   # Expected: {"status": "healthy"}
+   ```
+
+4. **Test userinfo with any token** (dev mode accepts any token):
+   ```bash
+   curl http://localhost:8000/oauth/userinfo \
+     -H "Authorization: Bearer any-token-works-in-dev-mode"
+   ```
+
+   Expected response:
+   ```json
+   {
+     "sub": "dev-user",
+     "preferred_username": "developer",
+     "email": "dev@example.com",
+     "client_id": "dev-client"
+   }
+   ```
+
+5. **Test A2A endpoint with authentication**:
+   ```bash
+   curl -X POST http://localhost:8000/a2a \
+     -H "Authorization: Bearer dev-token" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "jsonrpc": "2.0",
+       "method": "a2a.SendMessage",
+       "params": {
+         "message": {
+           "role": "user",
+           "parts": [{"text": "Hello"}]
+         }
+       },
+       "id": "1"
+     }'
+   ```
+
+### Option 2: Testing with Real Red Hat SSO
+
+For integration testing with real Red Hat SSO authentication:
+
+1. **Configure real SSO credentials** in `.env`:
+   ```bash
+   # Disable development mode
+   SKIP_JWT_VALIDATION=false
+   DEBUG=false
+
+   # Real Red Hat SSO configuration
+   RED_HAT_SSO_ISSUER=https://sso.redhat.com/auth/realms/redhat-external
+   RED_HAT_SSO_CLIENT_ID=your-registered-client-id
+   RED_HAT_SSO_CLIENT_SECRET=your-client-secret
+   RED_HAT_SSO_REDIRECT_URI=http://localhost:8000/oauth/callback
+   RED_HAT_SSO_JWKS_URI=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs
+   ```
+
+2. **Start the API server**:
+   ```bash
+   python -m insights_agent.main
+   ```
+
+3. **Initiate the OAuth flow** - Open in browser:
+   ```
+   http://localhost:8000/oauth/authorize
+   ```
+
+   This will redirect you to Red Hat SSO login page.
+
+4. **Complete login** at Red Hat SSO:
+   - Enter your Red Hat credentials
+   - Authorize the application if prompted
+
+5. **Handle the callback**:
+   - After successful login, you'll be redirected to `/oauth/callback`
+   - The response will contain your access token and refresh token
+   - Save the access token for subsequent requests
+
+6. **Test authenticated endpoints**:
+   ```bash
+   # Replace with your actual access token
+   ACCESS_TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+   # Test userinfo
+   curl http://localhost:8000/oauth/userinfo \
+     -H "Authorization: Bearer $ACCESS_TOKEN"
+
+   # Test A2A endpoint
+   curl -X POST http://localhost:8000/a2a \
+     -H "Authorization: Bearer $ACCESS_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "jsonrpc": "2.0",
+       "method": "a2a.SendMessage",
+       "params": {
+         "message": {
+           "role": "user",
+           "parts": [{"text": "List my systems"}]
+         }
+       },
+       "id": "1"
+     }'
+   ```
+
+### Option 3: Browser-Based Testing
+
+For a more interactive testing experience:
+
+1. **Start the server** with debug mode for detailed logging:
+   ```bash
+   DEBUG=true python -m insights_agent.main
+   ```
+
+2. **Open browser developer tools** (F12) to monitor network requests
+
+3. **Navigate to the authorize endpoint**:
+   ```
+   http://localhost:8000/oauth/authorize?state=test123
+   ```
+
+4. **Follow the OAuth flow**:
+   - You'll be redirected to Red Hat SSO
+   - Login with your credentials
+   - Observe the redirect back to your callback URL
+   - Check the network tab for the token response
+
+5. **Use browser console to make authenticated requests**:
+   ```javascript
+   // After getting your token from the callback
+   const token = "your-access-token";
+
+   fetch("http://localhost:8000/oauth/userinfo", {
+     headers: { "Authorization": `Bearer ${token}` }
+   })
+   .then(r => r.json())
+   .then(console.log);
+   ```
+
+### Testing Token Refresh
+
+To test the token refresh flow:
+
+1. **Get initial tokens** via the authorization flow (see above)
+
+2. **Use the refresh token** to get new tokens:
+   ```bash
+   curl -X POST http://localhost:8000/oauth/token \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "grant_type=refresh_token" \
+     -d "refresh_token=YOUR_REFRESH_TOKEN"
+   ```
+
+3. **Verify the new access token works**:
+   ```bash
+   curl http://localhost:8000/oauth/userinfo \
+     -H "Authorization: Bearer NEW_ACCESS_TOKEN"
+   ```
+
+### Testing Error Scenarios
+
+Test how the system handles authentication errors:
+
+1. **Missing Authorization header**:
+   ```bash
+   curl http://localhost:8000/oauth/userinfo
+   # Expected: 401 Unauthorized
+   ```
+
+2. **Invalid token**:
+   ```bash
+   curl http://localhost:8000/oauth/userinfo \
+     -H "Authorization: Bearer invalid-token"
+   # Expected: 401 Unauthorized (in production mode)
+   ```
+
+3. **Expired token** (use a known expired token):
+   ```bash
+   curl http://localhost:8000/oauth/userinfo \
+     -H "Authorization: Bearer EXPIRED_TOKEN"
+   # Expected: 401 with "Token has expired" message
+   ```
+
+4. **Malformed Authorization header**:
+   ```bash
+   curl http://localhost:8000/oauth/userinfo \
+     -H "Authorization: InvalidFormat token123"
+   # Expected: 401 Unauthorized
+   ```
+
+### Troubleshooting
+
+#### "Invalid redirect URI" error
+
+Ensure `RED_HAT_SSO_REDIRECT_URI` in your `.env` matches exactly what's registered in Red Hat SSO:
+- Check for trailing slashes
+- Verify http vs https
+- Confirm the port number
+
+#### "Token validation failed" error
+
+1. Check that `RED_HAT_SSO_JWKS_URI` is correct
+2. Verify network connectivity to sso.redhat.com
+3. Ensure the token hasn't expired
+4. Check that the audience claim matches your client ID
+
+#### "CORS errors" in browser
+
+If testing from a browser on a different origin, you may need to configure CORS. The agent should handle this, but verify your browser isn't blocking requests.
+
+#### Server not starting
+
+Check the logs for configuration errors:
+```bash
+# Run with debug logging
+LOG_LEVEL=DEBUG python -m insights_agent.main
+```
+
+### Automated Testing
+
+The project includes unit tests for authentication:
+
+```bash
+# Run all auth tests
+pytest tests/test_auth.py -v
+
+# Run specific test
+pytest tests/test_auth.py::TestJWTValidator -v
+
+# Run with coverage
+pytest tests/test_auth.py --cov=insights_agent.auth
+```
+
 ## Error Handling
 
 ### Authentication Errors
