@@ -86,7 +86,7 @@ The agent uses the MCP server as a sidecar to access Red Hat Insights APIs. The 
 
 **Development UI (ADK Web):**
 ```bash
-adk web
+adk web agents
 ```
 
 **Terminal Mode:**

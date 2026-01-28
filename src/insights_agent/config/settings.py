@@ -89,8 +89,8 @@ class Settings(BaseSettings):
         description="Agent provider URL for AgentCard",
     )
     agent_name: str = Field(
-        default="insights-agent",
-        description="Agent name",
+        default="insights_agent",
+        description="Agent name (must be a valid Python identifier)",
     )
     agent_description: str = Field(
         default="Red Hat Insights Agent for infrastructure management",
