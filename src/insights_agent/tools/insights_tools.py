@@ -4,7 +4,11 @@ import os
 from typing import TYPE_CHECKING
 
 from google.adk.tools.mcp_tool import McpToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams, StdioConnectionParams
+from google.adk.tools.mcp_tool.mcp_session_manager import (
+    SseConnectionParams,
+    StdioConnectionParams,
+    StreamableHTTPServerParams,
+)
 from mcp import StdioServerParameters
 
 from insights_agent.config import get_settings
@@ -88,11 +92,13 @@ def _create_http_toolset(
     config: MCPServerConfig,
     tool_filter: list[str] | None = None,
 ) -> McpToolset:
-    """Create MCP toolset using HTTP transport."""
-    # HTTP transport uses SSE connection params with different URL
-    connection_params = SseConnectionParams(
+    """Create MCP toolset using Streamable HTTP transport.
+
+    This is the recommended mode for connecting to MCP servers that support
+    the Streamable HTTP transport (e.g., Red Hat Insights MCP server).
+    """
+    connection_params = StreamableHTTPServerParams(
         url=config.get_http_url(),
-        headers=config.get_http_headers(),
     )
 
     return McpToolset(
