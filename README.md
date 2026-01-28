@@ -84,19 +84,64 @@ The agent uses the MCP server as a sidecar to access Red Hat Insights APIs. The 
 
 ### Running the Agent
 
-**Development UI (ADK Web):**
+The agent requires the Red Hat Insights MCP server to be running to access Insights APIs. Choose one of the following approaches:
+
+#### Option 1: Development Mode (with MCP Server)
+
+1. **Start the MCP server** in a separate terminal:
+   ```bash
+   # Using the container image
+   podman run -d --name insights-mcp \
+     -e LIGHTSPEED_CLIENT_ID=$LIGHTSPEED_CLIENT_ID \
+     -e LIGHTSPEED_CLIENT_SECRET=$LIGHTSPEED_CLIENT_SECRET \
+     -p 8080:8080 \
+     quay.io/rh-lightspeed-eng/insights-mcp-server:latest
+
+   # Or run locally if you have it installed
+   insights-mcp-server --port 8080
+   ```
+
+2. **Run the agent** using one of these methods:
+
+   **Development UI (ADK Web):**
+   ```bash
+   adk web agents
+   ```
+
+   **Terminal Mode:**
+   ```bash
+   adk run agents/rh_insights_agent
+   ```
+
+   **API Server:**
+   ```bash
+   python -m insights_agent.main
+   ```
+
+#### Option 2: Full Stack with Podman Pod
+
+For production-like deployment with all services (agent, MCP server, database, Redis):
+
 ```bash
+# Start all services
+podman play kube insights-agent-pod.yaml
+
+# Access the agent at http://localhost:8000
+```
+
+See [Container Deployment](#container-deployment) for full details.
+
+#### Option 3: Development without MCP (Limited)
+
+If MCP credentials are not configured, the agent will start without tools (limited functionality):
+
+```bash
+# Unset MCP credentials to skip MCP connection
+unset LIGHTSPEED_CLIENT_ID
+unset LIGHTSPEED_CLIENT_SECRET
+
+# Run agent (will work but without Insights API access)
 adk web agents
-```
-
-**Terminal Mode:**
-```bash
-adk run agents/rh_insights_agent
-```
-
-**API Server:**
-```bash
-python -m insights_agent.main
 ```
 
 ## Configuration
