@@ -95,7 +95,7 @@ The agent requires the Red Hat Insights MCP server to be running to access Insig
      -e LIGHTSPEED_CLIENT_SECRET=$LIGHTSPEED_CLIENT_SECRET \
      -p 8080:8080 \
      quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest \
-     http --port 8080
+     http --port 8080 --host 0.0.0.0
    ```
 
 2. **Run the agent** using one of these methods:
