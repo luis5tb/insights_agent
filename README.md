@@ -91,7 +91,7 @@ adk web agents
 
 **Terminal Mode:**
 ```bash
-adk run agent.py
+adk run agents/rh_insights_agent
 ```
 
 **API Server:**
