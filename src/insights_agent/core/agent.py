@@ -98,15 +98,19 @@ def create_agent() -> LlmAgent:
         try:
             from insights_agent.tools import READ_ONLY_TOOLS, create_insights_toolset
 
+            logger.info(
+                f"Creating MCP toolset with transport={settings.mcp_transport_mode}, "
+                f"url={settings.mcp_server_url}"
+            )
             tool_filter = READ_ONLY_TOOLS if settings.mcp_read_only else None
             mcp_toolset = create_insights_toolset(tool_filter=tool_filter)
             tools = [mcp_toolset]
             logger.info(
-                "Created agent with MCP tools",
-                extra={"read_only": settings.mcp_read_only, "model": settings.gemini_model},
+                f"Created agent with MCP tools (read_only={settings.mcp_read_only}, "
+                f"model={settings.gemini_model})"
             )
         except Exception as e:
-            logger.warning(f"Failed to create MCP toolset: {e}")
+            logger.warning(f"Failed to create MCP toolset: {e}", exc_info=True)
     else:
         logger.info("MCP credentials not configured, agent created without tools")
 

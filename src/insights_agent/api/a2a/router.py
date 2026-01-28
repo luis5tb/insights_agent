@@ -205,19 +205,34 @@ async def _invoke_agent(agent: Any, user_text: str, context_id: str) -> str:
             parts=[types.Part(text=user_text)],
         )
 
-        # Run agent and collect response
-        response_parts = []
+        # Run agent and collect final response
+        logger.debug(f"Invoking agent with message: {user_text[:100]}...")
+        final_response_text = "No response generated."
+        event_count = 0
         async for event in runner.run_async(
             session_id=session.id,
             user_id="a2a-user",
             new_message=user_content,
         ):
-            if hasattr(event, "content") and event.content:
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        response_parts.append(part.text)
+            event_count += 1
+            logger.debug(f"Event {event_count}: author={getattr(event, 'author', 'N/A')}, "
+                        f"is_final={event.is_final_response()}")
 
-        return "".join(response_parts) if response_parts else "No response generated."
+            # Check for final response using ADK's helper method
+            if event.is_final_response():
+                if event.content and event.content.parts:
+                    # Collect text from all parts
+                    text_parts = []
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            text_parts.append(part.text)
+                    if text_parts:
+                        final_response_text = "".join(text_parts)
+                        logger.debug(f"Final response: {final_response_text[:200]}...")
+                break
+
+        logger.debug(f"Total events processed: {event_count}")
+        return final_response_text
 
     except ImportError:
         # Fallback if ADK runner is not available
