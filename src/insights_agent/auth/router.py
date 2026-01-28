@@ -217,18 +217,23 @@ async def token(
 async def userinfo(
     request: Request,
     oauth_client: Annotated[OAuthClient, Depends(get_oauth_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, str]:
     """Get user information using the access token.
 
     This endpoint fetches user information from Red Hat SSO's userinfo endpoint.
     The access token must be provided in the Authorization header.
 
+    In development mode (SKIP_JWT_VALIDATION=true), returns mock user info
+    without calling the real SSO.
+
     Args:
         request: FastAPI request object
         oauth_client: OAuth client instance
+        settings: Application settings
 
     Returns:
-        User information from the IdP
+        User information from the IdP (or mock data in dev mode)
 
     Raises:
         HTTPException: If userinfo request fails
@@ -241,6 +246,17 @@ async def userinfo(
             detail="Missing or invalid Authorization header",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # In dev mode, return mock user info without calling real SSO
+    if settings.skip_jwt_validation:
+        logger.debug("Dev mode: returning mock userinfo")
+        return {
+            "sub": "dev-user",
+            "preferred_username": "developer",
+            "email": "dev@example.com",
+            "name": "Development User",
+            "org_id": "dev-org",
+        }
 
     access_token = auth_header.split(" ", 1)[1]
     result = await oauth_client.get_userinfo(access_token)
