@@ -144,10 +144,11 @@ async def _process_message(message: Message) -> Task:
 
         # Add agent response to history
         agent_message = Message(
+            messageId=str(uuid4()),
             role="agent",
             parts=[TextPart(text=response_text)],
-            context_id=context_id,
-            task_id=task_id,
+            contextId=context_id,
+            taskId=task_id,
         )
         task.history = [message, agent_message]
 
@@ -201,7 +202,7 @@ async def _invoke_agent(agent: Any, user_text: str, context_id: str) -> str:
         # Create user message content
         user_content = types.Content(
             role="user",
-            parts=[types.Part.from_text(user_text)],
+            parts=[types.Part(text=user_text)],
         )
 
         # Run agent and collect response
