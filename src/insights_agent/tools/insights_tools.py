@@ -130,72 +130,81 @@ def get_insights_tools_for_cloud_run() -> McpToolset:
 
 
 # Tool categories for filtering
+# Note: Tool names must match the MCP server's tool names exactly (with prefixes)
 ADVISOR_TOOLS = [
-    "get_active_rules",
-    "get_rule_from_node_id",
-    "get_rule_details",
-    "get_hosts_hitting_a_rule",
-    "get_hosts_details_hitting_a_rule",
-    "get_rule_by_text_search",
-    "get_recommendations_statistics",
+    "advisor__get_active_rules",
+    "advisor__get_rule_from_node_id",
+    "advisor__get_rule_details",
+    "advisor__get_hosts_hitting_a_rule",
+    "advisor__get_hosts_details_hitting_a_rule",
+    "advisor__get_rule_by_text_search",
+    "advisor__get_recommendations_statistics",
 ]
 
 INVENTORY_TOOLS = [
-    "list_hosts",
-    "get_host_details",
-    "get_host_system_profile",
-    "get_host_tags",
-    "find_host_by_name",
+    "inventory__list_hosts",
+    "inventory__get_host_details",
+    "inventory__get_host_system_profile",
+    "inventory__get_host_tags",
+    "inventory__find_host_by_name",
 ]
 
 VULNERABILITY_TOOLS = [
-    "get_cves",
-    "get_cve",
-    "get_cve_systems",
-    "get_system_cves",
-    "get_systems",
-    "explain_cves",
+    "vulnerability__get_openapi",
+    "vulnerability__get_cves",
+    "vulnerability__get_cve",
+    "vulnerability__get_cve_systems",
+    "vulnerability__get_system_cves",
+    "vulnerability__get_systems",
+    "vulnerability__explain_cves",
 ]
 
 REMEDIATION_TOOLS = [
-    "create_vulnerability_playbook",
+    "remediations__create_vulnerability_playbook",
 ]
 
 PLANNING_TOOLS = [
-    "get_upcoming_changes",
-    "get_appstreams_lifecycle",
-    "get_rhel_lifecycle",
-    "get_relevant_upcoming_changes",
+    "planning__get_upcoming_changes",
+    "planning__get_appstreams_lifecycle",
+    "planning__get_rhel_lifecycle",
+    "planning__get_relevant_upcoming_changes",
 ]
 
 IMAGE_BUILDER_TOOLS = [
-    "get_blueprints",
-    "get_blueprint_details",
-    "create_blueprint",
-    "update_blueprint",
-    "blueprint_compose",
-    "get_composes",
-    "get_compose_details",
-    "get_distributions",
-    "get_org_id",
+    "image-builder__get_openapi",
+    "image-builder__get_blueprints",
+    "image-builder__get_blueprint_details",
+    "image-builder__create_blueprint",
+    "image-builder__update_blueprint",
+    "image-builder__blueprint_compose",
+    "image-builder__get_composes",
+    "image-builder__get_compose_details",
+    "image-builder__get_distributions",
+    "image-builder__get_org_id",
 ]
 
 RHSM_TOOLS = [
-    "get_activation_keys",
-    "get_activation_key",
+    "rhsm__get_activation_keys",
+    "rhsm__get_activation_key",
 ]
 
 RBAC_TOOLS = [
-    "get_all_access",
+    "rbac__get_all_access",
 ]
 
 CONTENT_SOURCES_TOOLS = [
-    "list_repositories",
+    "content-sources__list_repositories",
+]
+
+# Utility tool
+MCP_UTILITY_TOOLS = [
+    "get_mcp_version",
 ]
 
 # All available tools
 ALL_INSIGHTS_TOOLS = (
-    ADVISOR_TOOLS
+    MCP_UTILITY_TOOLS
+    + ADVISOR_TOOLS
     + INVENTORY_TOOLS
     + VULNERABILITY_TOOLS
     + REMEDIATION_TOOLS
@@ -208,7 +217,8 @@ ALL_INSIGHTS_TOOLS = (
 
 # Read-only tools (safe for restricted access)
 READ_ONLY_TOOLS = (
-    ADVISOR_TOOLS
+    MCP_UTILITY_TOOLS
+    + ADVISOR_TOOLS
     + INVENTORY_TOOLS
     + VULNERABILITY_TOOLS
     + PLANNING_TOOLS
@@ -216,11 +226,12 @@ READ_ONLY_TOOLS = (
     + RBAC_TOOLS
     + CONTENT_SOURCES_TOOLS
     + [
-        "get_blueprints",
-        "get_blueprint_details",
-        "get_composes",
-        "get_compose_details",
-        "get_distributions",
-        "get_org_id",
+        "image-builder__get_openapi",
+        "image-builder__get_blueprints",
+        "image-builder__get_blueprint_details",
+        "image-builder__get_composes",
+        "image-builder__get_compose_details",
+        "image-builder__get_distributions",
+        "image-builder__get_org_id",
     ]
 )
