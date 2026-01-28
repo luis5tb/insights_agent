@@ -90,15 +90,12 @@ The agent requires the Red Hat Insights MCP server to be running to access Insig
 
 1. **Start the MCP server** in a separate terminal:
    ```bash
-   # Using the container image
-   podman run -d --name insights-mcp \
+   podman run -it -d --name insights-mcp \
      -e LIGHTSPEED_CLIENT_ID=$LIGHTSPEED_CLIENT_ID \
      -e LIGHTSPEED_CLIENT_SECRET=$LIGHTSPEED_CLIENT_SECRET \
      -p 8080:8080 \
-     quay.io/rh-lightspeed-eng/insights-mcp-server:latest
-
-   # Or run locally if you have it installed
-   insights-mcp-server --port 8080
+     quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest \
+     http --port 8080
    ```
 
 2. **Run the agent** using one of these methods:
