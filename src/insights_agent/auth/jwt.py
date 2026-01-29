@@ -199,9 +199,6 @@ class JWTValidator:
             org_id=jwt_claims.org_id,
             scopes=scopes,
             token_exp=datetime.fromtimestamp(jwt_claims.exp, tz=UTC),
-            # Extract lightspeed credentials from JWT claims if present
-            lightspeed_client_id=claims.get("lightspeed_client_id"),
-            lightspeed_client_secret=claims.get("lightspeed_client_secret"),
         )
 
     def _create_dev_user(self, token: str) -> AuthenticatedUser:

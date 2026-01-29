@@ -17,8 +17,7 @@ from insights_agent.tools.insights_tools import (
 )
 from insights_agent.tools.mcp_config import MCPServerConfig, setup_mcp_environment
 from insights_agent.tools.mcp_headers import (
-    LIGHTSPEED_CLIENT_ID_KEY,
-    LIGHTSPEED_CLIENT_SECRET_KEY,
+    ACCESS_TOKEN_KEY,
     create_mcp_header_provider,
 )
 from insights_agent.tools.skills import (
@@ -33,8 +32,7 @@ __all__ = [
     "MCPServerConfig",
     "setup_mcp_environment",
     # MCP Headers (per-user authentication)
-    "LIGHTSPEED_CLIENT_ID_KEY",
-    "LIGHTSPEED_CLIENT_SECRET_KEY",
+    "ACCESS_TOKEN_KEY",
     "create_mcp_header_provider",
     # Toolset creation
     "create_insights_toolset",

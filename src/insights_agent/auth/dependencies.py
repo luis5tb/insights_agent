@@ -46,6 +46,8 @@ async def get_current_user(
 
     try:
         user = await jwt_validator.validate_token(credentials.credentials)
+        # Store the raw access token for forwarding to downstream services
+        user.access_token = credentials.credentials
         # Store user in request state for access in other parts of the app
         request.state.user = user
         return user
@@ -81,6 +83,8 @@ async def get_optional_user(
 
     try:
         user = await jwt_validator.validate_token(credentials.credentials)
+        # Store the raw access token for forwarding to downstream services
+        user.access_token = credentials.credentials
         request.state.user = user
         return user
     except JWTValidationError as e:

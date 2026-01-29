@@ -1,4 +1,4 @@
-"""Header provider for MCP toolset to inject per-user credentials."""
+"""Header provider for MCP toolset to inject authentication credentials."""
 
 import logging
 from typing import TYPE_CHECKING
@@ -10,18 +10,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Session state keys for storing user's lightspeed credentials
-LIGHTSPEED_CLIENT_ID_KEY = "lightspeed_client_id"
-LIGHTSPEED_CLIENT_SECRET_KEY = "lightspeed_client_secret"
+# Session state key for storing user's access token
+ACCESS_TOKEN_KEY = "user_access_token"
 
 
 def create_mcp_header_provider():
     """Create a header provider function for McpToolset.
 
-    The returned function extracts the user's lightspeed credentials from the
-    session state and returns appropriate headers for the MCP server. If no
-    credentials are found in session state, it falls back to agent-level
-    credentials from environment variables.
+    The returned function provides authentication headers for MCP requests:
+    1. If user's access token is in session state, pass it as Authorization: Bearer
+    2. Otherwise, fall back to agent-level credentials from environment variables
 
     Returns:
         A callable that takes ReadonlyContext and returns headers dict.
@@ -31,8 +29,8 @@ def create_mcp_header_provider():
         """Provide headers for MCP requests based on session context.
 
         Credential resolution order:
-        1. Session state (from user's JWT claims)
-        2. Environment variables (agent-level fallback)
+        1. User's access token from session state -> Authorization: Bearer
+        2. Environment variables -> lightspeed-client-id/secret headers
 
         Args:
             context: The readonly context containing session state.
@@ -43,33 +41,27 @@ def create_mcp_header_provider():
         settings = get_settings()
         headers: dict[str, str] = {}
 
-        # Try session state first (from user's JWT)
-        client_id = context.state.get(LIGHTSPEED_CLIENT_ID_KEY)
-        client_secret = context.state.get(LIGHTSPEED_CLIENT_SECRET_KEY)
+        # Check for user's access token first (from authenticated request)
+        access_token = context.state.get(ACCESS_TOKEN_KEY)
 
-        # Fallback to agent-level config from environment
-        if not client_id:
+        if access_token:
+            # User is authenticated - pass their token to MCP
+            headers["Authorization"] = f"Bearer {access_token}"
+            logger.debug("Using user's access token for MCP authentication")
+        else:
+            # Fallback to agent-level credentials from environment
             client_id = settings.lightspeed_client_id
-            if client_id:
-                logger.debug("Using agent-level lightspeed_client_id")
-        else:
-            logger.debug("Using per-user lightspeed_client_id from session")
-
-        if not client_secret:
             client_secret = settings.lightspeed_client_secret
+
+            if client_id:
+                headers["lightspeed-client-id"] = client_id
             if client_secret:
-                logger.debug("Using agent-level lightspeed_client_secret")
-        else:
-            logger.debug("Using per-user lightspeed_client_secret from session")
+                headers["lightspeed-client-secret"] = client_secret
 
-        # Build headers
-        if client_id:
-            headers["lightspeed-client-id"] = client_id
-        if client_secret:
-            headers["lightspeed-client-secret"] = client_secret
-
-        if not headers:
-            logger.warning("No lightspeed credentials available for MCP request")
+            if client_id or client_secret:
+                logger.debug("Using agent-level credentials for MCP authentication")
+            else:
+                logger.warning("No credentials available for MCP request")
 
         return headers
 

@@ -78,15 +78,10 @@ class AuthenticatedUser(BaseModel):
     org_id: str | None = Field(default=None, description="Organization ID")
     scopes: list[str] = Field(default_factory=list, description="Granted scopes")
     token_exp: datetime = Field(..., description="Token expiration time")
-    # Lightspeed credentials from JWT claims (for MCP authentication)
-    lightspeed_client_id: str | None = Field(
+    # Raw access token for forwarding to downstream services (e.g., MCP)
+    access_token: str | None = Field(
         default=None,
-        description="Lightspeed client ID from JWT claims",
-        exclude=True,  # Exclude from serialization for security
-    )
-    lightspeed_client_secret: str | None = Field(
-        default=None,
-        description="Lightspeed client secret from JWT claims",
+        description="Raw access token for forwarding to downstream services",
         exclude=True,  # Exclude from serialization for security
     )
 

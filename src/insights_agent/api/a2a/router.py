@@ -12,10 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from insights_agent.api.a2a.agent_card import get_agent_card_dict
 from insights_agent.auth.dependencies import OptionalUser
 from insights_agent.auth.models import AuthenticatedUser
-from insights_agent.tools.mcp_headers import (
-    LIGHTSPEED_CLIENT_ID_KEY,
-    LIGHTSPEED_CLIENT_SECRET_KEY,
-)
+from insights_agent.tools.mcp_headers import ACCESS_TOKEN_KEY
 from insights_agent.api.a2a.models import (
     A2AError,
     A2AErrorCode,
@@ -208,16 +205,14 @@ async def _invoke_agent(
             session_service=session_service,
         )
 
-        # Build initial session state with user's lightspeed credentials if available
+        # Build initial session state with user's access token if available
         initial_state: dict[str, Any] = {}
         user_id = "a2a-user"
         if user:
             user_id = user.user_id
-            if user.lightspeed_client_id:
-                initial_state[LIGHTSPEED_CLIENT_ID_KEY] = user.lightspeed_client_id
-                logger.debug("Using lightspeed credentials from user JWT")
-            if user.lightspeed_client_secret:
-                initial_state[LIGHTSPEED_CLIENT_SECRET_KEY] = user.lightspeed_client_secret
+            if user.access_token:
+                initial_state[ACCESS_TOKEN_KEY] = user.access_token
+                logger.debug("Using user's access token for MCP authentication")
 
         # Create or get session with initial state
         session = await session_service.create_session(
