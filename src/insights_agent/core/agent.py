@@ -79,11 +79,12 @@ def _setup_environment() -> None:
 
 
 def create_agent() -> LlmAgent:
-    """Create the Insights Agent with MCP tools if credentials are configured.
+    """Create the Insights Agent with MCP tools.
 
-    This function creates an LlmAgent with the Red Hat Insights MCP toolset
-    automatically configured if MCP credentials are available. If credentials
-    are not configured or MCP connection fails, the agent is created without tools.
+    This function creates an LlmAgent with the Red Hat Insights MCP toolset.
+    Credentials for MCP are resolved dynamically per-request using a header_provider:
+    1. First, from the user's JWT claims (lightspeed_client_id/secret)
+    2. Fallback to agent-level credentials from environment variables
 
     Returns:
         Configured LlmAgent instance.
@@ -93,26 +94,27 @@ def create_agent() -> LlmAgent:
 
     tools: list = []
 
-    # Only attempt MCP connection if credentials are configured
-    if settings.lightspeed_client_id and settings.lightspeed_client_secret:
-        try:
-            from insights_agent.tools import READ_ONLY_TOOLS, create_insights_toolset
+    # Always attempt to create MCP toolset - credentials are resolved dynamically
+    try:
+        from insights_agent.tools import READ_ONLY_TOOLS, create_insights_toolset
 
-            logger.info(
-                f"Creating MCP toolset with transport={settings.mcp_transport_mode}, "
-                f"url={settings.mcp_server_url}"
-            )
-            tool_filter = READ_ONLY_TOOLS if settings.mcp_read_only else None
-            mcp_toolset = create_insights_toolset(tool_filter=tool_filter)
-            tools = [mcp_toolset]
-            logger.info(
-                f"Created agent with MCP tools (read_only={settings.mcp_read_only}, "
-                f"model={settings.gemini_model})"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to create MCP toolset: {e}", exc_info=True)
-    else:
-        logger.info("MCP credentials not configured, agent created without tools")
+        logger.info(
+            f"Creating MCP toolset with transport={settings.mcp_transport_mode}, "
+            f"url={settings.mcp_server_url}, dynamic_headers=True"
+        )
+        tool_filter = READ_ONLY_TOOLS if settings.mcp_read_only else None
+        mcp_toolset = create_insights_toolset(
+            tool_filter=tool_filter,
+            use_dynamic_headers=True,
+        )
+        tools = [mcp_toolset]
+        logger.info(
+            f"Created agent with MCP tools (read_only={settings.mcp_read_only}, "
+            f"model={settings.gemini_model})"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to create MCP toolset: {e}", exc_info=True)
+        logger.info("Agent created without MCP tools")
 
     return LlmAgent(
         name=settings.agent_name,

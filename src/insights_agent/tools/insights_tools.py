@@ -1,7 +1,7 @@
 """Red Hat Insights MCP tools integration for Google ADK."""
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import (
@@ -13,20 +13,26 @@ from mcp import StdioServerParameters
 
 from insights_agent.config import get_settings
 from insights_agent.tools.mcp_config import MCPServerConfig, setup_mcp_environment
+from insights_agent.tools.mcp_headers import create_mcp_header_provider
 
 if TYPE_CHECKING:
+    from google.adk.agents.readonly_context import ReadonlyContext
     from google.adk.tools import BaseTool
 
 
 def create_insights_toolset(
     config: MCPServerConfig | None = None,
     tool_filter: list[str] | None = None,
+    use_dynamic_headers: bool = True,
 ) -> McpToolset:
     """Create an MCP toolset for Red Hat Insights.
 
     Args:
         config: Optional MCP server configuration. If None, loads from settings.
         tool_filter: Optional list of tool names to expose. If None, all tools are exposed.
+        use_dynamic_headers: If True, use header_provider for per-user credentials.
+            Headers are resolved from session state first, then fall back to
+            agent-level environment variables.
 
     Returns:
         Configured McpToolset instance.
@@ -34,15 +40,18 @@ def create_insights_toolset(
     if config is None:
         config = MCPServerConfig.from_settings()
 
-    # Set up environment for MCP connection
+    # Set up environment for MCP connection (for stdio mode)
     setup_mcp_environment(config)
+
+    # Create header provider for dynamic credential injection
+    header_provider = create_mcp_header_provider() if use_dynamic_headers else None
 
     if config.transport_mode == "stdio":
         return _create_stdio_toolset(config, tool_filter)
     elif config.transport_mode == "sse":
-        return _create_sse_toolset(config, tool_filter)
+        return _create_sse_toolset(config, tool_filter, header_provider)
     elif config.transport_mode == "http":
-        return _create_http_toolset(config, tool_filter)
+        return _create_http_toolset(config, tool_filter, header_provider)
     else:
         raise ValueError(f"Unsupported transport mode: {config.transport_mode}")
 
@@ -72,30 +81,43 @@ def _create_stdio_toolset(
 def _create_sse_toolset(
     config: MCPServerConfig,
     tool_filter: list[str] | None = None,
+    header_provider: Callable[["ReadonlyContext"], dict[str, str]] | None = None,
 ) -> McpToolset:
     """Create MCP toolset using SSE transport.
 
     This is recommended for production deployments.
+
+    Args:
+        config: MCP server configuration.
+        tool_filter: Optional list of tool names to expose.
+        header_provider: Optional callable for dynamic header injection.
     """
     connection_params = SseConnectionParams(
         url=f"{config.server_url}/sse",
-        headers=config.get_http_headers(),
+        headers=config.get_http_headers() if not header_provider else None,
     )
 
     return McpToolset(
         connection_params=connection_params,
         tool_filter=tool_filter,
+        header_provider=header_provider,
     )
 
 
 def _create_http_toolset(
     config: MCPServerConfig,
     tool_filter: list[str] | None = None,
+    header_provider: Callable[["ReadonlyContext"], dict[str, str]] | None = None,
 ) -> McpToolset:
     """Create MCP toolset using Streamable HTTP transport.
 
     This is the recommended mode for connecting to MCP servers that support
     the Streamable HTTP transport (e.g., Red Hat Insights MCP server).
+
+    Args:
+        config: MCP server configuration.
+        tool_filter: Optional list of tool names to expose.
+        header_provider: Optional callable for dynamic header injection.
     """
     connection_params = StreamableHTTPServerParams(
         url=config.get_http_url(),
@@ -104,6 +126,7 @@ def _create_http_toolset(
     return McpToolset(
         connection_params=connection_params,
         tool_filter=tool_filter,
+        header_provider=header_provider,
     )
 
 

@@ -10,6 +10,12 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from insights_agent.api.a2a.agent_card import get_agent_card_dict
+from insights_agent.auth.dependencies import OptionalUser
+from insights_agent.auth.models import AuthenticatedUser
+from insights_agent.tools.mcp_headers import (
+    LIGHTSPEED_CLIENT_ID_KEY,
+    LIGHTSPEED_CLIENT_SECRET_KEY,
+)
 from insights_agent.api.a2a.models import (
     A2AError,
     A2AErrorCode,
@@ -85,13 +91,17 @@ async def get_agent_card_alt() -> JSONResponse:
     return await get_agent_card()
 
 
-async def _process_message(message: Message) -> Task:
+async def _process_message(
+    message: Message,
+    user: AuthenticatedUser | None = None,
+) -> Task:
     """Process an incoming message and create a task.
 
     This is the core message handler that invokes the agent.
 
     Args:
         message: The incoming message to process.
+        user: Optional authenticated user with lightspeed credentials.
 
     Returns:
         Task object with the result.
@@ -129,7 +139,7 @@ async def _process_message(message: Message) -> Task:
         # For now, we'll use a simple response
         # In production, this would invoke the agent with the user message
         # The actual agent invocation depends on the ADK Runner API
-        response_text = await _invoke_agent(agent, user_text, context_id)
+        response_text = await _invoke_agent(agent, user_text, context_id, user=user)
 
         # Create artifact with response using SDK types
         artifact = Artifact(
@@ -167,13 +177,19 @@ async def _process_message(message: Message) -> Task:
     return task
 
 
-async def _invoke_agent(agent: Any, user_text: str, context_id: str) -> str:
+async def _invoke_agent(
+    agent: Any,
+    user_text: str,
+    context_id: str,
+    user: AuthenticatedUser | None = None,
+) -> str:
     """Invoke the ADK agent with a user message.
 
     Args:
         agent: The ADK agent instance.
         user_text: User's message text.
         context_id: Conversation context ID.
+        user: Optional authenticated user with lightspeed credentials.
 
     Returns:
         Agent's response text.
@@ -192,11 +208,23 @@ async def _invoke_agent(agent: Any, user_text: str, context_id: str) -> str:
             session_service=session_service,
         )
 
-        # Create or get session
+        # Build initial session state with user's lightspeed credentials if available
+        initial_state: dict[str, Any] = {}
+        user_id = "a2a-user"
+        if user:
+            user_id = user.user_id
+            if user.lightspeed_client_id:
+                initial_state[LIGHTSPEED_CLIENT_ID_KEY] = user.lightspeed_client_id
+                logger.debug("Using lightspeed credentials from user JWT")
+            if user.lightspeed_client_secret:
+                initial_state[LIGHTSPEED_CLIENT_SECRET_KEY] = user.lightspeed_client_secret
+
+        # Create or get session with initial state
         session = await session_service.create_session(
             app_name="insights-agent",
-            user_id="a2a-user",
+            user_id=user_id,
             session_id=context_id,
+            state=initial_state if initial_state else None,
         )
 
         # Create user message content
@@ -248,13 +276,16 @@ async def _invoke_agent(agent: Any, user_text: str, context_id: str) -> str:
 
 
 @router.post("/a2a")
-async def send_message(request: Request) -> JSONResponse:
+async def send_message(request: Request, user: OptionalUser) -> JSONResponse:
     """A2A SendMessage endpoint (JSON-RPC 2.0).
 
     This endpoint handles synchronous message requests from other agents.
+    Authentication is optional - if provided, user's lightspeed credentials
+    from JWT claims will be used for MCP requests.
 
     Args:
         request: The incoming HTTP request with JSON-RPC payload.
+        user: Optional authenticated user with lightspeed credentials.
 
     Returns:
         JSON-RPC response with task result.
@@ -269,7 +300,7 @@ async def send_message(request: Request) -> JSONResponse:
             if rpc_request.method == "a2a.SendMessage":
                 params = _preprocess_request_params(rpc_request.params)
                 send_request = SendMessageRequest(**params)
-                task = await _process_message(send_request.message)
+                task = await _process_message(send_request.message, user=user)
 
                 response = JSONRPCResponse(
                     result=SendMessageResponse(task=task).model_dump(by_alias=True),
@@ -328,7 +359,7 @@ async def send_message(request: Request) -> JSONResponse:
         # Handle direct SendMessageRequest format
         body = _preprocess_request_params(body)
         send_request = SendMessageRequest(**body)
-        task = await _process_message(send_request.message)
+        task = await _process_message(send_request.message, user=user)
 
         return JSONResponse(
             content=SendMessageResponse(task=task).model_dump(by_alias=True, exclude_none=True)
@@ -372,14 +403,16 @@ async def _stream_task_updates(task: Task) -> AsyncGenerator[str, None]:
 
 
 @router.post("/a2a/stream")
-async def send_streaming_message(request: Request) -> StreamingResponse:
+async def send_streaming_message(request: Request, user: OptionalUser) -> StreamingResponse:
     """A2A SendStreamingMessage endpoint.
 
     This endpoint handles streaming message requests, returning
-    Server-Sent Events (SSE) with task updates.
+    Server-Sent Events (SSE) with task updates. Authentication is optional -
+    if provided, user's lightspeed credentials from JWT claims will be used.
 
     Args:
         request: The incoming HTTP request.
+        user: Optional authenticated user with lightspeed credentials.
 
     Returns:
         SSE stream with task updates.
@@ -408,8 +441,8 @@ async def send_streaming_message(request: Request) -> StreamingResponse:
         )
         _tasks[task.id] = task
 
-        # Start async processing
-        asyncio.create_task(_process_message_async(task, send_request.message))
+        # Start async processing with user credentials
+        asyncio.create_task(_process_message_async(task, send_request.message, user=user))
 
         return StreamingResponse(
             _stream_task_updates(task),
@@ -426,18 +459,23 @@ async def send_streaming_message(request: Request) -> StreamingResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-async def _process_message_async(task: Task, message: Message) -> None:
+async def _process_message_async(
+    task: Task,
+    message: Message,
+    user: AuthenticatedUser | None = None,
+) -> None:
     """Process a message asynchronously and update the task.
 
     Args:
         task: The task to update.
         message: The message to process.
+        user: Optional authenticated user with lightspeed credentials.
     """
     try:
         task.status = TaskStatus(state=TaskState.working)
         _tasks[task.id] = task
 
-        result_task = await _process_message(message)
+        result_task = await _process_message(message, user=user)
 
         task.status = result_task.status
         task.artifacts = result_task.artifacts
