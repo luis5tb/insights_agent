@@ -190,6 +190,15 @@ class JWTValidator:
         if jwt_claims.scope:
             scopes = jwt_claims.scope.split()
 
+        # Build metadata from additional claims
+        metadata: dict[str, str] = {}
+        # Check for order_id claim (custom claim for marketplace integration)
+        if claims.get("order_id"):
+            metadata["order_id"] = claims["order_id"]
+        # Fallback: use org_id as order_id if available
+        elif jwt_claims.org_id:
+            metadata["order_id"] = jwt_claims.org_id
+
         return AuthenticatedUser(
             user_id=jwt_claims.sub,
             client_id=client_id,
@@ -199,6 +208,7 @@ class JWTValidator:
             org_id=jwt_claims.org_id,
             scopes=scopes,
             token_exp=datetime.fromtimestamp(jwt_claims.exp, tz=UTC),
+            metadata=metadata,
         )
 
     def _create_dev_user(self, token: str) -> AuthenticatedUser:
@@ -223,8 +233,9 @@ class JWTValidator:
                 email="dev@example.com",
                 name="Development User",
                 org_id="dev-org",
-                scopes=["openid", "profile", "email"],
+                scopes=["openid", "profile", "email", "metering:read", "metering:admin"],
                 token_exp=datetime.now(UTC).replace(year=2099),
+                metadata={"order_id": "dev-order"},
             )
 
     def get_unverified_header(self, token: str) -> dict[str, Any]:

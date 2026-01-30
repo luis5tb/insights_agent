@@ -78,6 +78,11 @@ class AuthenticatedUser(BaseModel):
     org_id: str | None = Field(default=None, description="Organization ID")
     scopes: list[str] = Field(default_factory=list, description="Granted scopes")
     token_exp: datetime = Field(..., description="Token expiration time")
+    # Metadata for additional claims (order_id, etc.)
+    metadata: dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional metadata from token claims",
+    )
     # Raw access token for forwarding to downstream services (e.g., MCP)
     access_token: str | None = Field(
         default=None,
