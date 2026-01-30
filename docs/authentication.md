@@ -339,11 +339,11 @@ This is the easiest way to test the authentication flow without needing real Red
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
-       "method": "a2a.SendMessage",
+       "method": "message/send",
        "params": {
          "message": {
            "role": "user",
-           "parts": [{"text": "Hello"}]
+           "parts": [{"type": "text", "text": "Hello"}]
          }
        },
        "id": "1"
@@ -404,11 +404,11 @@ For integration testing with real Red Hat SSO authentication:
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
-       "method": "a2a.SendMessage",
+       "method": "message/send",
        "params": {
          "message": {
            "role": "user",
-           "parts": [{"text": "List my systems"}]
+           "parts": [{"type": "text", "text": "List my systems"}]
          }
        },
        "id": "1"

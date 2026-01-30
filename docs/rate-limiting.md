@@ -189,7 +189,7 @@ for i in {1..15}; do
     -X POST http://localhost:8000/a2a \
     -H "Content-Type: application/json" \
     -H "X-Order-ID: test-order" \
-    -d '{"jsonrpc":"2.0","method":"a2a.SendMessage","id":1,"params":{"message":{"messageId":"'$i'","role":"user","parts":[{"text":"test"}]}}}'
+    -d '{"jsonrpc":"2.0","method":"message/send","id":1,"params":{"message":{"messageId":"'$i'","role":"user","parts":[{"type":"text","text":"test"}]}}}'
 done
 ```
 
