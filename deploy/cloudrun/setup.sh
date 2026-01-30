@@ -40,6 +40,9 @@ REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-insights-agent}"
 SERVICE_ACCOUNT="${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
+# Optional features
+ENABLE_MARKETPLACE="${ENABLE_MARKETPLACE:-true}"
+
 # Validate required variables
 if [[ -z "$PROJECT_ID" ]]; then
     log_error "GOOGLE_CLOUD_PROJECT environment variable is required"
@@ -50,6 +53,7 @@ fi
 log_info "Setting up Cloud Run deployment for project: $PROJECT_ID"
 log_info "Region: $REGION"
 log_info "Service: $SERVICE_NAME"
+log_info "Marketplace integration: $ENABLE_MARKETPLACE"
 
 # =============================================================================
 # Step 1: Enable Required APIs
@@ -151,28 +155,32 @@ for secret in "${secrets[@]}"; do
 done
 
 # =============================================================================
-# Step 4: Create Pub/Sub Topic for Marketplace Integration
+# Step 4: Create Pub/Sub Topic for Marketplace Integration (Optional)
 # =============================================================================
-log_info "Setting up Pub/Sub for Marketplace integration..."
+if [[ "$ENABLE_MARKETPLACE" == "true" ]]; then
+    log_info "Setting up Pub/Sub for Marketplace integration..."
 
-PUBSUB_TOPIC="marketplace-entitlements"
+    PUBSUB_TOPIC="marketplace-entitlements"
 
-if ! gcloud pubsub topics describe "$PUBSUB_TOPIC" --project="$PROJECT_ID" &>/dev/null; then
-    gcloud pubsub topics create "$PUBSUB_TOPIC" --project="$PROJECT_ID"
-    log_info "Pub/Sub topic '$PUBSUB_TOPIC' created"
+    if ! gcloud pubsub topics describe "$PUBSUB_TOPIC" --project="$PROJECT_ID" &>/dev/null; then
+        gcloud pubsub topics create "$PUBSUB_TOPIC" --project="$PROJECT_ID"
+        log_info "Pub/Sub topic '$PUBSUB_TOPIC' created"
+    else
+        log_info "Pub/Sub topic '$PUBSUB_TOPIC' already exists"
+    fi
+
+    # Create subscription
+    PUBSUB_SUBSCRIPTION="${PUBSUB_TOPIC}-sub"
+    if ! gcloud pubsub subscriptions describe "$PUBSUB_SUBSCRIPTION" --project="$PROJECT_ID" &>/dev/null; then
+        gcloud pubsub subscriptions create "$PUBSUB_SUBSCRIPTION" \
+            --topic="$PUBSUB_TOPIC" \
+            --project="$PROJECT_ID"
+        log_info "Pub/Sub subscription '$PUBSUB_SUBSCRIPTION' created"
+    else
+        log_info "Pub/Sub subscription '$PUBSUB_SUBSCRIPTION' already exists"
+    fi
 else
-    log_info "Pub/Sub topic '$PUBSUB_TOPIC' already exists"
-fi
-
-# Create subscription
-PUBSUB_SUBSCRIPTION="${PUBSUB_TOPIC}-sub"
-if ! gcloud pubsub subscriptions describe "$PUBSUB_SUBSCRIPTION" --project="$PROJECT_ID" &>/dev/null; then
-    gcloud pubsub subscriptions create "$PUBSUB_SUBSCRIPTION" \
-        --topic="$PUBSUB_TOPIC" \
-        --project="$PROJECT_ID"
-    log_info "Pub/Sub subscription '$PUBSUB_SUBSCRIPTION' created"
-else
-    log_info "Pub/Sub subscription '$PUBSUB_SUBSCRIPTION' already exists"
+    log_info "Skipping Pub/Sub setup (ENABLE_MARKETPLACE=false)"
 fi
 
 # =============================================================================

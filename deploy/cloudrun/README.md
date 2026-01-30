@@ -48,6 +48,9 @@ The MCP server authenticates with console.redhat.com using Lightspeed service ac
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 export GOOGLE_CLOUD_LOCATION="us-central1"
 export SERVICE_NAME="insights-agent"
+
+# Optional: disable Pub/Sub marketplace integration
+export ENABLE_MARKETPLACE="false"
 ```
 
 ### 2. Run Setup Script
@@ -57,6 +60,14 @@ The setup script enables required APIs, creates a service account, and sets up s
 ```bash
 ./deploy/cloudrun/setup.sh
 ```
+
+**Environment variables:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GOOGLE_CLOUD_PROJECT` | (required) | GCP project ID |
+| `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
+| `SERVICE_NAME` | `insights-agent` | Cloud Run service name |
+| `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub for marketplace integration |
 
 ### 3. Configure Secrets
 
@@ -373,3 +384,30 @@ gcloud run services describe insights-agent \
 2. **Container fails to start**: Check logs for missing environment variables
 3. **Database connection timeout**: Ensure Cloud SQL connection is configured
 4. **Redis connection failed**: Ensure VPC connector is configured for Memorystore
+
+## Cleanup / Teardown
+
+To remove all resources created by the setup and deploy scripts:
+
+```bash
+./deploy/cloudrun/cleanup.sh
+```
+
+This will delete:
+- Cloud Run service
+- Pub/Sub topic and subscription
+- Secret Manager secrets
+- Service account and IAM bindings
+
+Use `--force` to skip the confirmation prompt:
+
+```bash
+./deploy/cloudrun/cleanup.sh --force
+```
+
+**Note**: The cleanup script does NOT delete Cloud SQL instances, Memorystore instances, or VPC connectors that may have been created manually. Delete these separately if needed:
+
+```bash
+gcloud sql instances delete INSTANCE_NAME --project=$GOOGLE_CLOUD_PROJECT
+gcloud redis instances delete INSTANCE_NAME --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
+```
