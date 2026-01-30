@@ -90,6 +90,10 @@ The agent requires the Red Hat Insights MCP server to be running to access Insig
 
 1. **Start the MCP server** in a separate terminal:
    ```bash
+   # Source environment variables from .env file
+   set -a && source .env && set +a
+
+   # Start the MCP server container
    podman run -it -d --name insights-mcp \
      -e LIGHTSPEED_CLIENT_ID=$LIGHTSPEED_CLIENT_ID \
      -e LIGHTSPEED_CLIENT_SECRET=$LIGHTSPEED_CLIENT_SECRET \
@@ -257,7 +261,17 @@ podman build -t localhost/insights-agent:latest -f Containerfile .
    cp /path/to/vertex-credentials.json config/
    ```
 
-3. Set required environment variables:
+3. Set required environment variables using one of these methods:
+
+   **Option A: Source the .env file (recommended)**
+
+   If you already configured `.env` during installation:
+   ```bash
+   # Export all variables from .env file
+   set -a && source .env && set +a
+   ```
+
+   **Option B: Export variables manually**
    ```bash
    # Google AI credentials
    export GOOGLE_API_KEY=your_google_api_key
@@ -272,9 +286,16 @@ podman build -t localhost/insights-agent:latest -f Containerfile .
    export RED_HAT_SSO_CLIENT_SECRET=your_sso_client_secret
    ```
 
+   > **Note**: The `insights-agent-pod.yaml` uses environment variable substitution
+   > (e.g., `${GOOGLE_API_KEY}`), so these variables must be exported in your shell
+   > before running `podman play kube`.
+
 ### Run the Pod
 
 ```bash
+# Ensure environment variables are set (source .env if not already done)
+set -a && source .env && set +a
+
 # Start the pod with all services
 podman play kube insights-agent-pod.yaml
 
