@@ -30,7 +30,7 @@ data:
 
   # Agent Configuration
   AGENT_PROVIDER_URL: "http://localhost:8000"
-  AGENT_NAME: "insights-agent"
+  AGENT_NAME: "insights_agent"
   AGENT_DESCRIPTION: "Red Hat Insights Agent for infrastructure management"
   AGENT_HOST: "0.0.0.0"
   AGENT_PORT: "8000"

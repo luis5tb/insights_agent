@@ -263,7 +263,7 @@ async def send_message(request: Request) -> JSONResponse:
         if "jsonrpc" in body:
             rpc_request = JSONRPCRequest(**body)
 
-            if rpc_request.method == "a2a.SendMessage":
+            if rpc_request.method == "message/send":
                 params = _preprocess_request_params(rpc_request.params)
                 send_request = SendMessageRequest(**params)
                 task = await _process_message(send_request.message)
@@ -274,7 +274,7 @@ async def send_message(request: Request) -> JSONResponse:
                 )
                 return JSONResponse(content=response.model_dump(by_alias=True, exclude_none=True))
 
-            elif rpc_request.method == "a2a.GetTask":
+            elif rpc_request.method == "tasks/get":
                 task_id = rpc_request.params.get("taskId")
                 if task_id and task_id in _tasks:
                     response = JSONRPCResponse(
@@ -291,7 +291,7 @@ async def send_message(request: Request) -> JSONResponse:
                     )
                 return JSONResponse(content=response.model_dump(by_alias=True, exclude_none=True))
 
-            elif rpc_request.method == "a2a.CancelTask":
+            elif rpc_request.method == "tasks/cancel":
                 task_id = rpc_request.params.get("taskId")
                 if task_id and task_id in _tasks:
                     _tasks[task_id].status = TaskStatus(state=TaskState.canceled)
@@ -387,7 +387,7 @@ async def send_streaming_message(request: Request) -> StreamingResponse:
         # Handle JSON-RPC format
         if "jsonrpc" in body:
             rpc_request = JSONRPCRequest(**body)
-            if rpc_request.method == "a2a.SendStreamingMessage":
+            if rpc_request.method == "message/stream":
                 params = _preprocess_request_params(rpc_request.params)
                 send_request = SendMessageRequest(**params)
             else:
