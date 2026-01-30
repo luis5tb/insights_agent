@@ -227,7 +227,7 @@ class TestA2ARouter:
         """Test /a2a with JSON-RPC format."""
         request_body = {
             "jsonrpc": "2.0",
-            "method": "a2a.SendMessage",
+            "method": "message/send",
             "params": {
                 "message": {
                     "role": "user",
