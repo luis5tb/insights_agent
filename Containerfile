@@ -9,7 +9,7 @@ FROM registry.access.redhat.com/ubi9/python-311:latest as builder
 WORKDIR /opt/app-root/src
 
 # Install Python dependencies
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
@@ -34,7 +34,7 @@ COPY --from=builder /opt/app-root/lib/python3.11/site-packages /opt/app-root/lib
 # Copy application code
 COPY src/ ./src/
 COPY agent.py ./
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 
 # Install the application
 RUN pip install --no-cache-dir -e .
