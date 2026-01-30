@@ -90,6 +90,11 @@ spec:
             secretKeyRef:
               name: insights-agent-secrets
               key: LIGHTSPEED_CLIENT_SECRET
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: REDIS_URL
       ports:
         - containerPort: 8000
           hostPort: 8000
@@ -146,9 +151,11 @@ spec:
       image: registry.redhat.io/rhel9/redis-7:latest
       env:
         # Red Hat Redis image requires a password matching regex: ^[a-zA-Z0-9_~!@#$%^&*()-=<>,.?;:|]+$
-        # For production, move this to secrets
         - name: REDIS_PASSWORD
-          value: "insightsredis123"
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: REDIS_PASSWORD
       ports:
         - containerPort: 6379
           hostPort: 6379

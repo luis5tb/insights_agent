@@ -38,9 +38,9 @@ data:
   # Database Configuration (uses postgres container in same pod)
   DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
 
-  # Redis Configuration (uses redis container in same pod)
-  # Password must match REDIS_PASSWORD in pod.yaml
-  REDIS_URL: "redis://:insightsredis123@localhost:6379/0"
+  # Redis Configuration
+  # REDIS_URL is in secrets (contains password)
+  # See insights-agent-secret.yaml
 
   # Rate Limiting Configuration
   RATE_LIMIT_REQUESTS_PER_MINUTE: "10"

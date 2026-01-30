@@ -116,7 +116,7 @@ deploy_with_gcloud() {
         --concurrency 80 \
         --service-account "insights-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
         --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},AGENT_HOST=0.0.0.0,AGENT_PORT=8000,LOG_FORMAT=json" \
-        --set-secrets "GOOGLE_API_KEY=google-api-key:latest,LIGHTSPEED_CLIENT_ID=lightspeed-client-id:latest,LIGHTSPEED_CLIENT_SECRET=lightspeed-client-secret:latest,RED_HAT_SSO_CLIENT_ID=redhat-sso-client-id:latest,RED_HAT_SSO_CLIENT_SECRET=redhat-sso-client-secret:latest" \
+        --set-secrets "GOOGLE_API_KEY=google-api-key:latest,LIGHTSPEED_CLIENT_ID=lightspeed-client-id:latest,LIGHTSPEED_CLIENT_SECRET=lightspeed-client-secret:latest,RED_HAT_SSO_CLIENT_ID=redhat-sso-client-id:latest,RED_HAT_SSO_CLIENT_SECRET=redhat-sso-client-secret:latest,REDIS_URL=redis-url:latest,DATABASE_URL=database-url:latest" \
         $auth_flag
 }
 
