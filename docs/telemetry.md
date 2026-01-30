@@ -77,7 +77,121 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 
 View traces at: http://localhost:16686
 
-### 3. Production with OTLP Collector
+### 3. Run with Grafana Tempo (Local Development)
+
+Grafana Tempo is a high-scale distributed tracing backend. Run Tempo with Grafana for visualization:
+
+**Option A: Quick Start with Tempo Standalone**
+
+```bash
+# Create Tempo config
+cat > tempo-config.yaml << 'EOF'
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tmp/tempo/blocks
+EOF
+
+# Run Tempo
+podman run -d --name tempo \
+  -p 3200:3200 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  -v ./tempo-config.yaml:/etc/tempo.yaml \
+  grafana/tempo:latest \
+  -config.file=/etc/tempo.yaml
+
+# Run Grafana
+podman run -d --name grafana \
+  -p 3000:3000 \
+  -e GF_AUTH_ANONYMOUS_ENABLED=true \
+  -e GF_AUTH_ANONYMOUS_ORG_ROLE=Admin \
+  grafana/grafana:latest
+```
+
+**Option B: Using Podman Pod (Recommended)**
+
+Create `tempo-stack.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tempo-stack
+spec:
+  containers:
+    - name: tempo
+      image: grafana/tempo:latest
+      args: ["-config.file=/etc/tempo.yaml"]
+      ports:
+        - containerPort: 3200
+          hostPort: 3200
+        - containerPort: 4317
+          hostPort: 4317
+        - containerPort: 4318
+          hostPort: 4318
+      volumeMounts:
+        - name: tempo-config
+          mountPath: /etc/tempo.yaml
+          subPath: tempo.yaml
+
+    - name: grafana
+      image: grafana/grafana:latest
+      env:
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "true"
+        - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+          value: "Admin"
+      ports:
+        - containerPort: 3000
+          hostPort: 3000
+
+  volumes:
+    - name: tempo-config
+      configMap:
+        name: tempo-config
+```
+
+**Configure the agent:**
+
+```bash
+OTEL_ENABLED=true
+OTEL_EXPORTER_TYPE=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+**Configure Grafana Data Source:**
+
+1. Open Grafana at http://localhost:3000
+2. Go to **Configuration** → **Data Sources** → **Add data source**
+3. Select **Tempo**
+4. Set URL to `http://localhost:3200`
+5. Click **Save & Test**
+
+**View traces:**
+
+1. Go to **Explore** in Grafana
+2. Select **Tempo** data source
+3. Use **Search** tab to find traces by service name or trace ID
+4. Or use **TraceQL** for advanced queries:
+   ```
+   { resource.service.name = "insights_agent" }
+   ```
+
+### 4. Production with OTLP Collector
 
 For production, use an OpenTelemetry Collector to route traces to your backend:
 
