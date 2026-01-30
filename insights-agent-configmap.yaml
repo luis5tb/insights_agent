@@ -1,0 +1,45 @@
+# Red Hat Insights Agent - Configuration
+#
+# Non-sensitive configuration values for the Insights Agent.
+# Use with: podman play kube --configmap insights-agent-configmap.yaml insights-agent-pod.yaml
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: insights-agent-config
+data:
+  # Google AI Configuration
+  GOOGLE_GENAI_USE_VERTEXAI: "FALSE"
+  GOOGLE_CLOUD_LOCATION: "us-central1"
+  GEMINI_MODEL: "gemini-2.5-flash"
+
+  # Red Hat SSO Configuration
+  RED_HAT_SSO_ISSUER: "https://sso.redhat.com/auth/realms/redhat-external"
+  RED_HAT_SSO_REDIRECT_URI: "http://localhost:8000/auth/callback"
+  RED_HAT_SSO_JWKS_URI: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs"
+
+  # MCP Server Configuration
+  MCP_TRANSPORT_MODE: "http"
+  MCP_SERVER_URL: "http://localhost:8080"
+  MCP_READ_ONLY: "true"
+
+  # Agent Configuration
+  AGENT_PROVIDER_URL: "http://localhost:8000"
+  AGENT_NAME: "insights-agent"
+  AGENT_DESCRIPTION: "Red Hat Insights Agent for infrastructure management"
+  AGENT_HOST: "0.0.0.0"
+  AGENT_PORT: "8000"
+
+  # Database Configuration (uses postgres container in same pod)
+  DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
+
+  # Redis Configuration (uses redis container in same pod)
+  REDIS_URL: "redis://localhost:6379/0"
+
+  # Logging
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+
+  # Development Settings
+  DEBUG: "false"
+  SKIP_JWT_VALIDATION: "false"

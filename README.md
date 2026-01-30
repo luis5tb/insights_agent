@@ -257,43 +257,32 @@ podman build -t localhost/insights-agent:latest -f Containerfile .
    cp /path/to/vertex-credentials.json config/
    ```
 
-3. Set required environment variables using one of these methods:
-
-   **Option A: Source the .env file (recommended)**
-
-   If you already configured `.env` during installation:
+3. Create your secrets file with credentials:
    ```bash
-   # Export all variables from .env file
-   set -a && source .env && set +a
+   # Copy the template
+   cp insights-agent-secret.yaml my-secrets.yaml
+
+   # Edit with your actual credentials
+   # IMPORTANT: Never commit my-secrets.yaml to version control!
    ```
 
-   **Option B: Export variables manually**
-   ```bash
-   # Google AI credentials
-   export GOOGLE_API_KEY=your_google_api_key
+   Edit `my-secrets.yaml` and fill in:
+   - `GOOGLE_API_KEY`: Your Google AI Studio API key
+   - `LIGHTSPEED_CLIENT_ID`: Red Hat Insights service account ID
+   - `LIGHTSPEED_CLIENT_SECRET`: Red Hat Insights service account secret
+   - `RED_HAT_SSO_CLIENT_ID`: OAuth client ID for Red Hat SSO
+   - `RED_HAT_SSO_CLIENT_SECRET`: OAuth client secret for Red Hat SSO
 
-   # Red Hat Insights MCP server credentials
-   # These are used by the MCP server to authenticate with console.redhat.com
-   export LIGHTSPEED_CLIENT_ID=your_lightspeed_client_id
-   export LIGHTSPEED_CLIENT_SECRET=your_lightspeed_client_secret
-
-   # Red Hat SSO OAuth credentials (for user authentication)
-   export RED_HAT_SSO_CLIENT_ID=your_sso_client_id
-   export RED_HAT_SSO_CLIENT_SECRET=your_sso_client_secret
-   ```
-
-   > **Note**: The `insights-agent-pod.yaml` uses environment variable substitution
-   > (e.g., `${GOOGLE_API_KEY}`), so these variables must be exported in your shell
-   > before running `podman play kube`.
+4. (Optional) Customize configuration in `insights-agent-configmap.yaml`
 
 ### Run the Pod
 
 ```bash
-# Ensure environment variables are set (source .env if not already done)
-set -a && source .env && set +a
-
-# Start the pod with all services
-podman play kube insights-agent-pod.yaml
+# Start the pod with ConfigMap and Secrets
+podman play kube \
+  --configmap insights-agent-configmap.yaml \
+  --configmap my-secrets.yaml \
+  insights-agent-pod.yaml
 
 # View pod status
 podman pod ps
