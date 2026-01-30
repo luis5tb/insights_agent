@@ -144,21 +144,65 @@ Rate limiting requires Redis. Without Redis:
 - Rate limiter will log warnings
 - Requests will be allowed (fail-open)
 
+## Requirements for Rate Limiting
+
+For rate limiting to work, you need **all** of the following:
+
+| Requirement | Why |
+|-------------|-----|
+| **Redis running** | Stores rate limit counters with sliding window algorithm |
+| **`X-Order-ID` header** | Identifies which customer/subscription to rate limit |
+| **`Authorization` header** | Required for authenticated endpoints (use any value with `SKIP_JWT_VALIDATION=true`) |
+
+**Important:** If any requirement is missing, requests are **allowed through** (fail-open behavior):
+- No Redis → Warning logged, request allowed
+- No `X-Order-ID` → Request allowed without tracking
+- Redis error → Warning logged, request allowed
+
 ## Local Testing
 
-### Option 1: Without Redis (No Rate Limiting)
+### Option 1: Using Podman Pod (Recommended)
 
-If Redis is not running, rate limiting is disabled:
+The Podman pod includes Redis, so rate limiting works out of the box.
 
+1. Start the pod:
 ```bash
-# Start server (rate limiting will be skipped)
-.venv/bin/uvicorn insights_agent.api.app:create_app --factory --reload
-
-# All requests allowed
-curl -X POST http://localhost:8000/a2a ...
+make run
+# Or manually:
+podman kube play deploy/podman/insights-agent-pod.yaml
 ```
 
-### Option 2: With Redis (Rate Limiting Active)
+2. Test rate limiting (FREE tier = 10 req/min):
+```bash
+# Make 15 requests - should see 429 after request 10
+for i in {1..15}; do
+  echo -n "Request $i: "
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -X POST http://localhost:8000/a2a \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer dummy-token" \
+    -H "X-Order-ID: test-order" \
+    -d '{"jsonrpc":"2.0","method":"message/send","id":'$i',"params":{"message":{"messageId":"msg-'$i'","role":"user","parts":[{"type":"text","text":"test"}]}}}'
+done
+```
+
+3. Check rate limit response details:
+```bash
+# See full response when rate limited
+curl -i -X POST http://localhost:8000/a2a \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dummy-token" \
+  -H "X-Order-ID: test-order" \
+  -d '{"jsonrpc":"2.0","method":"message/send","id":1,"params":{"message":{"messageId":"msg-1","role":"user","parts":[{"type":"text","text":"test"}]}}}'
+```
+
+4. Reset rate limits between tests:
+```bash
+# Connect to Redis in the pod
+podman exec -it insights-agent-pod-redis redis-cli FLUSHDB
+```
+
+### Option 2: Development Mode (Without Podman)
 
 1. Start Redis:
 ```bash
@@ -173,29 +217,48 @@ podman run -d --name redis -p 6379:6379 redis:alpine
 ```bash
 # .env
 REDIS_URL=redis://localhost:6379/0
+SKIP_JWT_VALIDATION=true
 ```
 
 3. Start the server:
 ```bash
-.venv/bin/uvicorn insights_agent.api.app:create_app --factory --reload
+source .venv/bin/activate
+python -m insights_agent.main
 ```
 
 4. Test rate limiting:
 ```bash
-# Make requests until rate limited
+# Make 15 requests - should see 429 after request 10
 for i in {1..15}; do
-  echo "Request $i:"
+  echo -n "Request $i: "
   curl -s -o /dev/null -w "%{http_code}\n" \
     -X POST http://localhost:8000/a2a \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer dummy-token" \
     -H "X-Order-ID: test-order" \
-    -d '{"jsonrpc":"2.0","method":"message/send","id":1,"params":{"message":{"messageId":"'$i'","role":"user","parts":[{"type":"text","text":"test"}]}}}'
+    -d '{"jsonrpc":"2.0","method":"message/send","id":'$i',"params":{"message":{"messageId":"msg-'$i'","role":"user","parts":[{"type":"text","text":"test"}]}}}'
 done
 ```
 
 With FREE tier (10 req/min), you should see 429 after 10 requests.
 
-### Option 3: Using Python
+### Option 3: Without Redis (No Rate Limiting)
+
+If Redis is not running, rate limiting is disabled:
+
+```bash
+# Start server (rate limiting will be skipped)
+python -m insights_agent.main
+
+# All requests allowed - no 429 responses
+curl -X POST http://localhost:8000/a2a \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dummy-token" \
+  -H "X-Order-ID: test-order" \
+  -d '{"jsonrpc":"2.0","method":"message/send","id":1,"params":{"message":{"role":"user","parts":[{"type":"text","text":"test"}]}}}'
+```
+
+### Option 4: Using Python
 
 ```python
 import asyncio
@@ -241,7 +304,7 @@ async def test_rate_limiting():
 asyncio.run(test_rate_limiting())
 ```
 
-### Option 4: Test Different Tiers
+### Option 5: Test Different Tiers
 
 ```bash
 .venv/bin/python << 'EOF'
@@ -352,24 +415,58 @@ redis-cli KEYS "ratelimit:*" | sort
 
 ### Rate limiting not working
 
-1. Check Redis connection:
+**Step 1: Check Redis is running**
 ```bash
+# For standalone Redis
 redis-cli ping
 # Should return: PONG
+
+# For Podman pod
+podman exec -it insights-agent-pod-redis redis-cli ping
 ```
 
-2. Verify REDIS_URL in environment:
+**Step 2: Verify REDIS_URL**
 ```bash
 echo $REDIS_URL
+# Should be: redis://localhost:6379/0
 ```
 
-3. Check logs for Redis connection errors
+**Step 3: Check logs for errors**
+```bash
+# Look for "Rate limiting error" messages
+make logs | grep -i "rate"
+```
 
 ### Requests not being rate-limited
 
-1. Verify the path is in `RATE_LIMITED_PATHS`
-2. Check if `order_id` is being extracted
-3. Ensure Redis is running and connected
+**Common causes:**
+
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| All requests return 200 | Missing `X-Order-ID` header | Add `-H "X-Order-ID: test-order"` |
+| All requests return 200 | Redis not running | Start Redis or use Podman pod |
+| All requests return 200 | Redis connection error | Check `REDIS_URL` and connectivity |
+| All requests return 401 | Missing `Authorization` header | Add `-H "Authorization: Bearer dummy-token"` |
+
+**Verify your request has all required headers:**
+```bash
+curl -v -X POST http://localhost:8000/a2a \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dummy-token" \
+  -H "X-Order-ID: test-order" \
+  -d '{"jsonrpc":"2.0","method":"message/send","id":1,"params":{"message":{"role":"user","parts":[{"type":"text","text":"test"}]}}}'
+```
+
+**Check if rate limit keys are being created in Redis:**
+```bash
+# For Podman pod
+podman exec -it insights-agent-pod-redis redis-cli KEYS "ratelimit:*"
+
+# For standalone Redis
+redis-cli KEYS "ratelimit:*"
+```
+
+If no keys appear, the `X-Order-ID` header is likely missing.
 
 ### 429 errors in development
 
