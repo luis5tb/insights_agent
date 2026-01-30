@@ -33,6 +33,16 @@ The metering system tracks usage metrics per order (subscription) for:
 | `MeteringService` | `metering/service.py` | Core service for tracking and querying usage |
 | `UsageRepository` | `metering/repository.py` | In-memory storage (use database in production) |
 | Metering Router | `metering/router.py` | REST API endpoints for querying usage |
+| A2A Router | `api/a2a/router.py` | Tracks token usage and MCP tool calls |
+
+### How Metrics Are Captured
+
+| Metric Type | Captured By | Source |
+|-------------|-------------|--------|
+| API calls | `MeteringMiddleware` | HTTP request count to `/a2a` endpoints |
+| Token usage | `A2A Router` | ADK event `usage_metadata` (input/output tokens) |
+| MCP tool calls | `A2A Router` | ADK event `get_function_calls()` |
+| Errors | `MeteringMiddleware` | HTTP 4xx/5xx responses |
 
 ## Metrics Tracked
 
@@ -144,13 +154,38 @@ curl "http://localhost:8000/metering/admin/billable?start=2024-01-01T00:00:00&en
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-## How Order ID is Determined
+## What is Order ID?
 
-The `order_id` identifies which subscription to bill. It's extracted from:
+The `order_id` is a unique identifier that represents a customer's subscription or billing account. It is the primary key used to:
 
-1. **JWT token metadata**: The `order_id` claim in the token
-2. **Fallback to org_id**: If no `order_id` claim, uses `org_id`
-3. **X-Order-ID header**: For internal/trusted calls
+- **Attribute usage** to a specific customer for billing
+- **Enforce rate limits** based on subscription tier
+- **Report usage** to Google Cloud Marketplace for invoicing
+
+### Where Order ID Comes From
+
+In a production Google Cloud Marketplace integration:
+
+1. **Customer subscribes** via Google Cloud Marketplace
+2. **Marketplace creates an entitlement** with an `order_id` (also called `entitlement_id`)
+3. **Customer registers via DCR** (Dynamic Client Registration)
+4. **JWT tokens** issued to the customer contain the `order_id` in claims
+
+### How Order ID is Extracted
+
+The agent extracts `order_id` from requests in this order of precedence:
+
+1. **JWT token metadata**: The `order_id` claim in the validated token
+2. **Fallback to org_id**: If no `order_id` claim, uses the `org_id` claim
+3. **X-Order-ID header**: For internal/trusted service-to-service calls
+
+### Testing Without Marketplace
+
+For local development and testing, you can:
+
+1. Set `SKIP_JWT_VALIDATION=true` to disable JWT validation
+2. Pass `X-Order-ID: your-test-order` header with each request
+3. The metering system will track usage under that order ID
 
 ## Local Testing
 
@@ -217,16 +252,17 @@ SKIP_JWT_VALIDATION=true
 ```bash
 curl -X POST http://localhost:8000/a2a \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dummy-token" \
   -H "X-Order-ID: my-test-order" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "a2a.SendMessage",
+    "method": "message/send",
     "id": 1,
     "params": {
       "message": {
         "messageId": "msg-1",
         "role": "user",
-        "parts": [{"text": "Hello"}]
+        "parts": [{"type": "text", "text": "Hello"}]
       }
     }
   }'
