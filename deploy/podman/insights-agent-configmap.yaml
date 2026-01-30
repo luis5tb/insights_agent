@@ -41,6 +41,18 @@ data:
   # Redis Configuration (uses redis container in same pod)
   REDIS_URL: "redis://localhost:6379/0"
 
+  # Rate Limiting Configuration
+  RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+  RATE_LIMIT_REQUESTS_PER_HOUR: "1000"
+  RATE_LIMIT_TOKENS_PER_DAY: "100000"
+
+  # Usage Reporting Configuration
+  USAGE_REPORT_INTERVAL_SECONDS: "3600"
+
+  # Google Cloud Service Control (for usage reporting to Marketplace)
+  # Set SERVICE_CONTROL_SERVICE_NAME in secrets for production
+  SERVICE_CONTROL_ENABLED: "false"
+
   # Logging
   LOG_LEVEL: "DEBUG"
   LOG_FORMAT: "json"
