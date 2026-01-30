@@ -34,6 +34,8 @@ The Insights Agent is an A2A-ready (Agent-to-Agent) service that provides AI-pow
 
 ### Operations
 
+- [Metering](metering.md) - Usage tracking and billing metrics
+- [Rate Limiting](rate-limiting.md) - Request throttling and quotas
 - [Troubleshooting](troubleshooting.md) - Common issues and solutions
 
 ## Quick Links
@@ -44,6 +46,8 @@ The Insights Agent is an A2A-ready (Agent-to-Agent) service that provides AI-pow
 | [OAuth Flow](authentication.md#oauth-20-authorization-code-flow) | Authentication setup |
 | [Environment Variables](configuration.md#environment-variables) | Configuration reference |
 | [Health Checks](api.md#health-endpoints) | Monitoring endpoints |
+| [Metering](metering.md#local-testing) | Usage tracking and testing |
+| [Rate Limiting](rate-limiting.md#local-testing) | Throttling and quotas |
 
 ## Features
 
