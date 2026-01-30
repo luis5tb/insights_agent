@@ -110,6 +110,12 @@ spec:
         # Uses: MCP_SERVER_MODE, MCP_SERVER_PORT, MCP_SERVER_HOST
         - configMapRef:
             name: insights-agent-config
+      args:
+        - "$(MCP_SERVER_MODE)"
+        - "--port"
+        - "$(MCP_SERVER_PORT)"
+        - "--host"
+        - "$(MCP_SERVER_HOST)"
       ports:
         - containerPort: 8080
           hostPort: 8080
