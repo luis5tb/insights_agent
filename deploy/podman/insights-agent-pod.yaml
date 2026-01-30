@@ -11,26 +11,27 @@
 # The agent connects to the MCP server over HTTP to access Insights tools
 # (Advisor, Inventory, Vulnerability, etc.).
 #
-# Prerequisites:
+# Prerequisites (run from repository root):
 #   1. Build the agent image: podman build -t localhost/insights-agent:latest -f Containerfile .
 #   2. Create config directory: mkdir -p config
-#   3. Copy and edit the secret file: cp insights-agent-secret.yaml my-secrets.yaml
+#   3. Copy and edit the secret file:
+#      cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
 #      Edit my-secrets.yaml with your actual credentials
 #
-# Usage with Podman:
+# Usage with Podman (from repository root):
 #   podman play kube \
-#     --configmap insights-agent-configmap.yaml \
-#     --configmap my-secrets.yaml \
-#     insights-agent-pod.yaml
+#     --configmap deploy/podman/insights-agent-configmap.yaml \
+#     --configmap deploy/podman/my-secrets.yaml \
+#     deploy/podman/insights-agent-pod.yaml
 #
 #   # View logs
 #   podman logs insights-agent-pod-insights-agent
 #   podman logs insights-agent-pod-insights-mcp
 #
 # Usage with Kubernetes:
-#   kubectl apply -f insights-agent-configmap.yaml
+#   kubectl apply -f deploy/podman/insights-agent-configmap.yaml
 #   kubectl create secret generic insights-agent-secrets --from-env-file=.env
-#   kubectl apply -f insights-agent-pod.yaml
+#   kubectl apply -f deploy/podman/insights-agent-pod.yaml
 #
 # Stop the pod:
 #   podman pod stop insights-agent-pod

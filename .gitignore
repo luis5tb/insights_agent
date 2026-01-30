@@ -102,7 +102,7 @@ credentials.json
 vertex-credentials.json
 my-secrets.yaml
 *-secrets.yaml
-!insights-agent-secret.yaml
+!deploy/podman/insights-agent-secret.yaml
 
 # Config directory (keep .gitkeep only)
 config/*

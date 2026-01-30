@@ -120,8 +120,11 @@ The agent requires the Red Hat Insights MCP server to be running to access Insig
 For production-like deployment with all services (agent, MCP server, database, Redis):
 
 ```bash
-# Start all services
-podman play kube insights-agent-pod.yaml
+# Start all services (from repo root)
+podman play kube \
+  --configmap deploy/podman/insights-agent-configmap.yaml \
+  --configmap deploy/podman/my-secrets.yaml \
+  deploy/podman/insights-agent-pod.yaml
 
 # Access the agent at http://localhost:8000
 ```
@@ -190,7 +193,6 @@ insights_agent/
 ├── pyproject.toml          # Project configuration
 ├── .env.example            # Environment template
 ├── Containerfile           # Container build (UBI 9)
-├── insights-agent-pod.yaml # Podman/K8s pod spec
 ├── Makefile                # Development commands
 ├── docs/                   # Documentation
 │   ├── architecture.md     # System architecture
@@ -200,7 +202,11 @@ insights_agent/
 │   ├── marketplace.md      # GCP Marketplace integration
 │   └── troubleshooting.md  # Troubleshooting guide
 ├── deploy/
-│   └── cloudrun/           # Cloud Run deployment
+│   ├── cloudrun/           # Cloud Run deployment
+│   └── podman/             # Podman/Kubernetes deployment
+│       ├── insights-agent-pod.yaml
+│       ├── insights-agent-configmap.yaml
+│       └── insights-agent-secret.yaml
 └── src/
     └── insights_agent/
         ├── api/            # A2A endpoints and AgentCard
@@ -260,29 +266,29 @@ podman build -t localhost/insights-agent:latest -f Containerfile .
 3. Create your secrets file with credentials:
    ```bash
    # Copy the template
-   cp insights-agent-secret.yaml my-secrets.yaml
+   cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
 
    # Edit with your actual credentials
    # IMPORTANT: Never commit my-secrets.yaml to version control!
    ```
 
-   Edit `my-secrets.yaml` and fill in:
+   Edit `deploy/podman/my-secrets.yaml` and fill in:
    - `GOOGLE_API_KEY`: Your Google AI Studio API key
    - `LIGHTSPEED_CLIENT_ID`: Red Hat Insights service account ID
    - `LIGHTSPEED_CLIENT_SECRET`: Red Hat Insights service account secret
    - `RED_HAT_SSO_CLIENT_ID`: OAuth client ID for Red Hat SSO
    - `RED_HAT_SSO_CLIENT_SECRET`: OAuth client secret for Red Hat SSO
 
-4. (Optional) Customize configuration in `insights-agent-configmap.yaml`
+4. (Optional) Customize configuration in `deploy/podman/insights-agent-configmap.yaml`
 
 ### Run the Pod
 
 ```bash
 # Start the pod with ConfigMap and Secrets
 podman play kube \
-  --configmap insights-agent-configmap.yaml \
-  --configmap my-secrets.yaml \
-  insights-agent-pod.yaml
+  --configmap deploy/podman/insights-agent-configmap.yaml \
+  --configmap deploy/podman/my-secrets.yaml \
+  deploy/podman/insights-agent-pod.yaml
 
 # View pod status
 podman pod ps
@@ -329,7 +335,7 @@ The Lightspeed credentials (`LIGHTSPEED_CLIENT_ID` and `LIGHTSPEED_CLIENT_SECRET
 
 ### Persistent Storage
 
-By default, database and Redis data use `emptyDir` and are lost when the pod is removed. To persist data, edit `insights-agent-pod.yaml` and uncomment the `hostPath` volume configurations.
+By default, database and Redis data use `emptyDir` and are lost when the pod is removed. To persist data, edit `deploy/podman/insights-agent-pod.yaml` and uncomment the `hostPath` volume configurations.
 
 ## Google Cloud Run Deployment
 
