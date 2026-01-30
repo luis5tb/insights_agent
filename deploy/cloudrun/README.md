@@ -311,7 +311,33 @@ gcloud run logs read insights-agent \
      gcloud secrets versions add redis-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
    ```
 
-4. Configure VPC connector for Cloud Run to access Memorystore.
+4. Configure VPC connector for Cloud Run to access Memorystore:
+
+   Cloud Run services run outside your VPC by default. To access Memorystore (which is VPC-only), you need a Serverless VPC Access connector.
+
+   ```bash
+   # Enable the Serverless VPC Access API
+   gcloud services enable vpcaccess.googleapis.com --project=$GOOGLE_CLOUD_PROJECT
+
+   # Create a VPC connector (uses the default VPC network)
+   gcloud compute networks vpc-access connectors create insights-agent-connector \
+     --region=$GOOGLE_CLOUD_LOCATION \
+     --range="10.8.0.0/28" \
+     --project=$GOOGLE_CLOUD_PROJECT
+
+   # Update Cloud Run service to use the connector
+   gcloud run services update insights-agent \
+     --vpc-connector=insights-agent-connector \
+     --vpc-egress=private-ranges-only \
+     --region=$GOOGLE_CLOUD_LOCATION \
+     --project=$GOOGLE_CLOUD_PROJECT
+   ```
+
+   **Notes:**
+   - The `--range` must be an unused `/28` CIDR block in your VPC
+   - Use `--vpc-egress=private-ranges-only` to route only private IP traffic through the connector
+   - If using a custom VPC network, add `--network=YOUR_NETWORK` to the connector create command
+   - The connector and Memorystore instance must be in the same region
 
 ## CI/CD with Cloud Build
 
@@ -410,4 +436,5 @@ Use `--force` to skip the confirmation prompt:
 ```bash
 gcloud sql instances delete INSTANCE_NAME --project=$GOOGLE_CLOUD_PROJECT
 gcloud redis instances delete INSTANCE_NAME --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
+gcloud compute networks vpc-access connectors delete CONNECTOR_NAME --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
 ```
