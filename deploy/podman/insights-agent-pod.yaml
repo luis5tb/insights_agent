@@ -145,8 +145,10 @@ spec:
     - name: redis
       image: registry.redhat.io/rhel9/redis-7:latest
       env:
+        # Red Hat Redis image requires a password matching regex: ^[a-zA-Z0-9_~!@#$%^&*()-=<>,.?;:|]+$
+        # For production, move this to secrets
         - name: REDIS_PASSWORD
-          value: ""
+          value: "insightsredis123"
       ports:
         - containerPort: 6379
           hostPort: 6379

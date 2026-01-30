@@ -39,10 +39,11 @@ data:
   DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
 
   # Redis Configuration (uses redis container in same pod)
-  REDIS_URL: "redis://localhost:6379/0"
+  # Password must match REDIS_PASSWORD in pod.yaml
+  REDIS_URL: "redis://:insightsredis123@localhost:6379/0"
 
   # Rate Limiting Configuration
-  RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+  RATE_LIMIT_REQUESTS_PER_MINUTE: "10"
   RATE_LIMIT_REQUESTS_PER_HOUR: "1000"
   RATE_LIMIT_TOKENS_PER_DAY: "100000"
 
