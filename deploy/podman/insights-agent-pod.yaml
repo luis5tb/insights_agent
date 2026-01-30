@@ -16,8 +16,7 @@
 #   2. Create config directory: mkdir -p config
 #   3. Create and deploy secrets:
 #      cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
-#      # Edit my-secrets.yaml with base64-encoded credentials
-#      # Use: echo -n "your-value" | base64
+#      # Edit my-secrets.yaml with your credentials (plain text)
 #      podman kube play deploy/podman/my-secrets.yaml
 #
 # Usage with Podman (from repository root):

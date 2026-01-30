@@ -270,12 +270,11 @@ podman build -t localhost/insights-agent:latest -f Containerfile .
    # Copy the template
    cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
 
-   # Edit with your actual base64-encoded credentials
-   # Use: echo -n "your-value" | base64
+   # Edit with your actual credentials (plain text, no encoding needed)
    # IMPORTANT: Never commit my-secrets.yaml to version control!
    ```
 
-   Edit `deploy/podman/my-secrets.yaml` and set base64-encoded values for:
+   Edit `deploy/podman/my-secrets.yaml` and fill in:
    - `GOOGLE_API_KEY`: Your Google AI Studio API key
    - `LIGHTSPEED_CLIENT_ID`: Red Hat Insights service account ID
    - `LIGHTSPEED_CLIENT_SECRET`: Red Hat Insights service account secret
