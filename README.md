@@ -90,13 +90,9 @@ The agent requires the Red Hat Insights MCP server to be running to access Insig
 
 1. **Start the MCP server** in a separate terminal:
    ```bash
-   # Source environment variables from .env file
-   set -a && source .env && set +a
-
    # Start the MCP server container
-   podman run -it -d --name insights-mcp \
-     -e LIGHTSPEED_CLIENT_ID=$LIGHTSPEED_CLIENT_ID \
-     -e LIGHTSPEED_CLIENT_SECRET=$LIGHTSPEED_CLIENT_SECRET \
+   # Note: Credentials are passed by the agent via HTTP headers, not env vars
+   podman run -d --name insights-mcp \
      -p 8080:8080 \
      quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest \
      http --port 8080 --host 0.0.0.0
@@ -335,12 +331,12 @@ podman pod rm insights-agent-pod
 The MCP server runs as a sidecar container and provides tools for the agent to interact with Red Hat Insights APIs:
 
 1. **Agent receives a request** (e.g., "Show me my system vulnerabilities")
-2. **Agent calls MCP tools** via HTTP to the MCP server (localhost:8080)
-3. **MCP server authenticates** with console.redhat.com using Lightspeed credentials
+2. **Agent calls MCP tools** via HTTP to the MCP server (localhost:8080), passing credentials in headers
+3. **MCP server authenticates** with console.redhat.com using the credentials from headers
 4. **MCP server calls Insights APIs** and returns results to the agent
 5. **Agent formats the response** and returns it to the user
 
-The Lightspeed credentials (`LIGHTSPEED_CLIENT_ID` and `LIGHTSPEED_CLIENT_SECRET`) are passed to the MCP server container, which uses them to authenticate API calls to console.redhat.com.
+The Lightspeed credentials (`LIGHTSPEED_CLIENT_ID` and `LIGHTSPEED_CLIENT_SECRET`) are configured on the **agent** container, which passes them to the MCP server via HTTP headers on each request. The MCP server itself does not need credentials configured.
 
 ### Persistent Storage
 

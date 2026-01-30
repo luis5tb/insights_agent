@@ -6,9 +6,10 @@
 #   - postgres: PostgreSQL database for persistence
 #   - redis: Redis for rate limiting and caching
 #
-# The MCP server authenticates with console.redhat.com using Lightspeed
-# service account credentials. The agent connects to the MCP server over
-# HTTP to access Insights tools (Advisor, Inventory, Vulnerability, etc.).
+# The agent passes Lightspeed credentials to the MCP server via HTTP headers,
+# so the MCP server itself does not need the credentials configured.
+# The agent connects to the MCP server over HTTP to access Insights tools
+# (Advisor, Inventory, Vulnerability, etc.).
 #
 # Prerequisites:
 #   1. Build the agent image: podman build -t localhost/insights-agent:latest -f Containerfile .
@@ -129,23 +130,15 @@ spec:
     # Red Hat Insights MCP Server
     # =========================================================================
     # The MCP server provides tools for interacting with Red Hat Insights APIs.
-    # It authenticates with console.redhat.com using the Lightspeed credentials.
+    # Credentials are passed by the agent via HTTP headers, not environment variables.
     - name: insights-mcp
-      image: ${MCP_SERVER_IMAGE:-ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest}
+      image: ${MCP_SERVER_IMAGE:-quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest}
       env:
-        # Lightspeed credentials for authenticating with console.redhat.com
-        - name: LIGHTSPEED_CLIENT_ID
-          value: ${LIGHTSPEED_CLIENT_ID}
-        - name: LIGHTSPEED_CLIENT_SECRET
-          value: ${LIGHTSPEED_CLIENT_SECRET}
         # MCP server mode: run as HTTP server for agent connection
         - name: MCP_SERVER_MODE
           value: "http"
         - name: MCP_SERVER_PORT
           value: "8080"
-        # Read-only mode for safety
-        - name: READ_ONLY
-          value: "${MCP_READ_ONLY:-true}"
       ports:
         - containerPort: 8080
           hostPort: 8080
