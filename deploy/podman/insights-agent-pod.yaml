@@ -5,6 +5,7 @@
 #   - insights-mcp: Red Hat Insights MCP server (tools for console.redhat.com)
 #   - postgres: PostgreSQL database for persistence
 #   - redis: Redis for rate limiting and caching
+#   - a2a-inspector: Web UI for interacting with the agent (optional)
 #
 # The agent passes Lightspeed credentials to the MCP server via HTTP headers,
 # so the MCP server itself does not need the credentials configured.
@@ -13,8 +14,11 @@
 #
 # Prerequisites (run from repository root):
 #   1. Build the agent image: podman build -t localhost/insights-agent:latest -f Containerfile .
-#   2. Create config directory: mkdir -p config
-#   3. Create and deploy secrets:
+#   2. Build the A2A Inspector image (optional, for web UI):
+#        git clone https://github.com/a2aproject/a2a-inspector.git /tmp/a2a-inspector
+#        podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
+#   3. Create config directory: mkdir -p config
+#   4. Create and deploy secrets:
 #      cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
 #      # Edit my-secrets.yaml with your credentials (plain text)
 #      podman kube play deploy/podman/my-secrets.yaml
@@ -27,6 +31,9 @@
 #   # View logs
 #   podman logs insights-agent-pod-insights-agent
 #   podman logs insights-agent-pod-insights-mcp
+#
+#   # Access A2A Inspector web UI at http://localhost:5001
+#   # In the UI, connect to the agent at: http://localhost:8000
 #
 # Usage with Kubernetes:
 #   kubectl apply -f deploy/podman/my-secrets.yaml
@@ -162,6 +169,23 @@ spec:
       volumeMounts:
         - name: redisdata
           mountPath: /var/lib/redis/data:Z
+
+    # =========================================================================
+    # A2A Inspector - Web UI for Agent Interaction
+    # =========================================================================
+    # Provides a web interface to interact with the A2A agent, view agent cards,
+    # validate spec compliance, and debug JSON-RPC 2.0 messages.
+    # Access at http://localhost:5001 and connect to http://localhost:8000
+    #
+    # Build the inspector image first:
+    #   git clone https://github.com/a2aproject/a2a-inspector.git
+    #   cd a2a-inspector
+    #   podman build -t localhost/a2a-inspector:latest .
+    - name: a2a-inspector
+      image: localhost/a2a-inspector:latest
+      ports:
+        - containerPort: 8080
+          hostPort: 5001
 
   volumes:
     - name: config

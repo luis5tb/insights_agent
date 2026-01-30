@@ -239,6 +239,7 @@ The agent is deployed as a pod containing multiple containers:
 - **insights-mcp**: Red Hat Insights MCP server for console.redhat.com API access
 - **postgres**: PostgreSQL database
 - **redis**: Redis for rate limiting and caching
+- **a2a-inspector**: Web UI for agent interaction (optional)
 
 ### Prerequisites
 
@@ -247,10 +248,15 @@ The agent is deployed as a pod containing multiple containers:
 - Red Hat Insights Lightspeed service account credentials
 - Google API key or Vertex AI access
 
-### Build the Container Image
+### Build the Container Images
 
 ```bash
+# Build the agent image
 podman build -t localhost/insights-agent:latest -f Containerfile .
+
+# (Optional) Build the A2A Inspector for web UI
+git clone https://github.com/a2aproject/a2a-inspector.git /tmp/a2a-inspector
+podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
 ```
 
 ### Configure Environment
@@ -315,6 +321,27 @@ podman kube down deploy/podman/my-secrets.yaml
 | AgentCard | http://localhost:8000/.well-known/agent.json | A2A discovery |
 | OAuth Authorize | http://localhost:8000/oauth/authorize | OAuth login |
 | MCP Server | http://localhost:8080 | MCP server (internal) |
+| A2A Inspector | http://localhost:5001 | Web UI for agent interaction |
+
+### Using the A2A Inspector (Web UI)
+
+The [A2A Inspector](https://github.com/a2aproject/a2a-inspector) provides a web-based interface for interacting with the agent, similar to `adk web` but designed for deployed agents.
+
+**Features:**
+- View the agent's AgentCard and capabilities
+- Chat interface with streaming responses
+- JSON-RPC 2.0 debug console to inspect raw messages
+- A2A protocol spec compliance validation
+
+**To use the Inspector:**
+
+1. Build the inspector image (see [Build the Container Images](#build-the-container-images))
+2. Start the pod as usual
+3. Open http://localhost:5001 in your browser
+4. Enter `http://localhost:8000` as the agent URL
+5. The inspector will fetch the AgentCard and enable chat
+
+> **Note:** If you don't need the web UI, you can skip building the inspector image. The pod will start with a warning about the missing image but other containers will work normally.
 
 ### Pod Services
 
@@ -324,6 +351,7 @@ podman kube down deploy/podman/my-secrets.yaml
 | insights-mcp | 8080 | Red Hat Insights MCP server |
 | postgres | 5432 | PostgreSQL database |
 | redis | 6379 | Redis for rate limiting |
+| a2a-inspector | 5001 | Web UI for agent interaction (optional) |
 
 ### How the MCP Server Works
 
