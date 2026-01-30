@@ -42,9 +42,19 @@ data:
   REDIS_URL: "redis://localhost:6379/0"
 
   # Logging
-  LOG_LEVEL: "INFO"
+  LOG_LEVEL: "DEBUG"
   LOG_FORMAT: "json"
 
   # Development Settings
-  DEBUG: "false"
-  SKIP_JWT_VALIDATION: "false"
+  DEBUG: "true"
+  SKIP_JWT_VALIDATION: "true"
+
+  # OpenTelemetry Configuration
+  # Set OTEL_ENABLED to "true" to enable distributed tracing
+  OTEL_ENABLED: "false"
+  OTEL_SERVICE_NAME: "insights_agent"
+  OTEL_EXPORTER_TYPE: "otlp"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
+  OTEL_EXPORTER_OTLP_HTTP_ENDPOINT: "http://localhost:4318"
+  OTEL_TRACES_SAMPLER: "always_on"
+  OTEL_TRACES_SAMPLER_ARG: "1.0"

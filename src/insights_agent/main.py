@@ -38,6 +38,11 @@ def main() -> None:
     settings = get_settings()
     logger = logging.getLogger(__name__)
 
+    # Initialize OpenTelemetry tracing (must be done before creating app)
+    from insights_agent.telemetry import setup_telemetry, shutdown_telemetry
+
+    setup_telemetry()
+
     logger.info(
         "Starting Insights Agent",
         extra={
@@ -45,6 +50,7 @@ def main() -> None:
             "model": settings.gemini_model,
             "host": settings.agent_host,
             "port": settings.agent_port,
+            "otel_enabled": settings.otel_enabled,
         },
     )
 
@@ -53,12 +59,16 @@ def main() -> None:
 
     app = create_app()
 
-    uvicorn.run(
-        app,
-        host=settings.agent_host,
-        port=settings.agent_port,
-        log_level=settings.log_level.lower(),
-    )
+    try:
+        uvicorn.run(
+            app,
+            host=settings.agent_host,
+            port=settings.agent_port,
+            log_level=settings.log_level.lower(),
+        )
+    finally:
+        # Ensure telemetry is properly shut down
+        shutdown_telemetry()
 
 
 if __name__ == "__main__":

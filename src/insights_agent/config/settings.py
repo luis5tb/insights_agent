@@ -175,6 +175,36 @@ class Settings(BaseSettings):
         description="Skip JWT validation (development only)",
     )
 
+    # OpenTelemetry Configuration
+    otel_enabled: bool = Field(
+        default=False,
+        description="Enable OpenTelemetry tracing",
+    )
+    otel_service_name: str = Field(
+        default="insights_agent",
+        description="Service name for OpenTelemetry traces",
+    )
+    otel_exporter_otlp_endpoint: str = Field(
+        default="http://localhost:4317",
+        description="OTLP exporter endpoint (gRPC)",
+    )
+    otel_exporter_otlp_http_endpoint: str = Field(
+        default="http://localhost:4318",
+        description="OTLP exporter endpoint (HTTP)",
+    )
+    otel_exporter_type: Literal["otlp", "otlp-http", "jaeger", "zipkin", "console"] = Field(
+        default="otlp",
+        description="Telemetry exporter type",
+    )
+    otel_traces_sampler: Literal["always_on", "always_off", "traceidratio", "parentbased_always_on", "parentbased_always_off", "parentbased_traceidratio"] = Field(
+        default="always_on",
+        description="Trace sampling strategy",
+    )
+    otel_traces_sampler_arg: float = Field(
+        default=1.0,
+        description="Sampler argument (e.g., ratio for traceidratio)",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
