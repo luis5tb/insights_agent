@@ -14,14 +14,15 @@
 # Prerequisites (run from repository root):
 #   1. Build the agent image: podman build -t localhost/insights-agent:latest -f Containerfile .
 #   2. Create config directory: mkdir -p config
-#   3. Copy and edit the secret file:
+#   3. Create and deploy secrets:
 #      cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
-#      Edit my-secrets.yaml with your actual credentials
+#      # Edit my-secrets.yaml with base64-encoded credentials
+#      # Use: echo -n "your-value" | base64
+#      podman kube play deploy/podman/my-secrets.yaml
 #
 # Usage with Podman (from repository root):
-#   podman play kube \
+#   podman kube play \
 #     --configmap deploy/podman/insights-agent-configmap.yaml \
-#     --configmap deploy/podman/my-secrets.yaml \
 #     deploy/podman/insights-agent-pod.yaml
 #
 #   # View logs
@@ -29,8 +30,8 @@
 #   podman logs insights-agent-pod-insights-mcp
 #
 # Usage with Kubernetes:
+#   kubectl apply -f deploy/podman/my-secrets.yaml
 #   kubectl apply -f deploy/podman/insights-agent-configmap.yaml
-#   kubectl create secret generic insights-agent-secrets --from-env-file=.env
 #   kubectl apply -f deploy/podman/insights-agent-pod.yaml
 #
 # Stop the pod:
@@ -54,13 +55,42 @@ spec:
         # Load configuration from ConfigMap
         - configMapRef:
             name: insights-agent-config
-        # Load secrets from Secret
-        - secretRef:
-            name: insights-agent-secrets
       env:
-        # Override: Vertex AI credentials path (if using Vertex AI)
+        # Vertex AI credentials path (if using Vertex AI)
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: /config/vertex-credentials.json
+        # Secrets loaded via secretKeyRef
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: GOOGLE_API_KEY
+        - name: GOOGLE_CLOUD_PROJECT
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: GOOGLE_CLOUD_PROJECT
+              optional: true
+        - name: RED_HAT_SSO_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: RED_HAT_SSO_CLIENT_ID
+        - name: RED_HAT_SSO_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: RED_HAT_SSO_CLIENT_SECRET
+        - name: LIGHTSPEED_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: LIGHTSPEED_CLIENT_ID
+        - name: LIGHTSPEED_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: LIGHTSPEED_CLIENT_SECRET
       ports:
         - containerPort: 8000
           hostPort: 8000

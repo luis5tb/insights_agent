@@ -120,10 +120,12 @@ The agent requires the Red Hat Insights MCP server to be running to access Insig
 For production-like deployment with all services (agent, MCP server, database, Redis):
 
 ```bash
-# Start all services (from repo root)
-podman play kube \
+# Deploy secrets first (see Container Deployment for setup)
+podman kube play deploy/podman/my-secrets.yaml
+
+# Start all services
+podman kube play \
   --configmap deploy/podman/insights-agent-configmap.yaml \
-  --configmap deploy/podman/my-secrets.yaml \
   deploy/podman/insights-agent-pod.yaml
 
 # Access the agent at http://localhost:8000
@@ -268,11 +270,12 @@ podman build -t localhost/insights-agent:latest -f Containerfile .
    # Copy the template
    cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
 
-   # Edit with your actual credentials
+   # Edit with your actual base64-encoded credentials
+   # Use: echo -n "your-value" | base64
    # IMPORTANT: Never commit my-secrets.yaml to version control!
    ```
 
-   Edit `deploy/podman/my-secrets.yaml` and fill in:
+   Edit `deploy/podman/my-secrets.yaml` and set base64-encoded values for:
    - `GOOGLE_API_KEY`: Your Google AI Studio API key
    - `LIGHTSPEED_CLIENT_ID`: Red Hat Insights service account ID
    - `LIGHTSPEED_CLIENT_SECRET`: Red Hat Insights service account secret
@@ -284,10 +287,12 @@ podman build -t localhost/insights-agent:latest -f Containerfile .
 ### Run the Pod
 
 ```bash
-# Start the pod with ConfigMap and Secrets
-podman play kube \
+# First, deploy the secrets (creates a Kubernetes Secret in podman)
+podman kube play deploy/podman/my-secrets.yaml
+
+# Then start the pod with ConfigMap
+podman kube play \
   --configmap deploy/podman/insights-agent-configmap.yaml \
-  --configmap deploy/podman/my-secrets.yaml \
   deploy/podman/insights-agent-pod.yaml
 
 # View pod status
