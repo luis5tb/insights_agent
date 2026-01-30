@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
@@ -24,8 +25,42 @@ from insights_agent.api.a2a.models import (
     TaskStatus,
     TextPart,
 )
+from insights_agent.metering.service import MeteringService, get_metering_service
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class UsageStats:
+    """Accumulated usage statistics from agent invocation."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    tool_calls: list[str] = field(default_factory=list)
+
+
+def _get_order_id_from_request(request: Request) -> str | None:
+    """Extract order ID from request for metering.
+
+    Args:
+        request: FastAPI request object.
+
+    Returns:
+        Order ID if found, None otherwise.
+    """
+    # Check request state first (set by auth middleware)
+    if hasattr(request.state, "user") and request.state.user:
+        order_id = request.state.user.metadata.get("order_id")
+        if order_id:
+            return order_id
+
+    # Check X-Order-ID header for internal/trusted calls
+    order_id = request.headers.get("X-Order-ID")
+    if order_id:
+        return order_id
+
+    return None
 
 router = APIRouter(tags=["A2A Protocol"])
 
@@ -85,13 +120,14 @@ async def get_agent_card_alt() -> JSONResponse:
     return await get_agent_card()
 
 
-async def _process_message(message: Message) -> Task:
+async def _process_message(message: Message, order_id: str | None = None) -> Task:
     """Process an incoming message and create a task.
 
     This is the core message handler that invokes the agent.
 
     Args:
         message: The incoming message to process.
+        order_id: Order ID for metering (optional).
 
     Returns:
         Task object with the result.
@@ -126,7 +162,18 @@ async def _process_message(message: Message) -> Task:
         # Create agent and run
         agent = create_agent()
 
-        response_text = await _invoke_agent(agent, user_text, context_id)
+        response_text, usage_stats = await _invoke_agent(
+            agent, user_text, context_id, order_id
+        )
+
+        # Track usage metrics if we have an order_id
+        if order_id:
+            await _track_usage_metrics(
+                order_id=order_id,
+                usage_stats=usage_stats,
+                context_id=context_id,
+                task_id=task_id,
+            )
 
         # Create artifact with response using SDK types
         artifact = Artifact(
@@ -164,17 +211,71 @@ async def _process_message(message: Message) -> Task:
     return task
 
 
-async def _invoke_agent(agent: Any, user_text: str, context_id: str) -> str:
+async def _track_usage_metrics(
+    order_id: str,
+    usage_stats: UsageStats,
+    context_id: str | None = None,
+    task_id: str | None = None,
+) -> None:
+    """Track usage metrics from agent invocation.
+
+    Args:
+        order_id: Order ID for billing.
+        usage_stats: Accumulated usage statistics.
+        context_id: Conversation context ID.
+        task_id: Associated task ID.
+    """
+    try:
+        metering = get_metering_service()
+
+        # Track token usage
+        if usage_stats.input_tokens > 0 or usage_stats.output_tokens > 0:
+            await metering.track_token_usage(
+                order_id=order_id,
+                input_tokens=usage_stats.input_tokens,
+                output_tokens=usage_stats.output_tokens,
+                context_id=context_id,
+                task_id=task_id,
+            )
+            logger.debug(
+                f"Tracked token usage for order {order_id}: "
+                f"input={usage_stats.input_tokens}, output={usage_stats.output_tokens}"
+            )
+
+        # Track MCP/tool calls
+        for tool_name in usage_stats.tool_calls:
+            await metering.track_mcp_call(
+                order_id=order_id,
+                tool_name=tool_name,
+                context_id=context_id,
+                task_id=task_id,
+            )
+            logger.debug(f"Tracked MCP call for order {order_id}: {tool_name}")
+
+    except Exception as e:
+        # Don't fail the request due to metering errors
+        logger.warning(f"Failed to track usage metrics: {e}")
+
+
+async def _invoke_agent(
+    agent: Any,
+    user_text: str,
+    context_id: str,
+    order_id: str | None = None,
+) -> tuple[str, UsageStats]:
     """Invoke the ADK agent with a user message.
 
     Args:
         agent: The ADK agent instance.
         user_text: User's message text.
         context_id: Conversation context ID.
+        order_id: Order ID for metering (optional).
 
     Returns:
-        Agent's response text.
+        Tuple of (agent's response text, usage statistics).
     """
+    usage_stats = UsageStats()
+
     try:
         # Use ADK's Runner to execute the agent
         from google.adk.runners import Runner
@@ -215,6 +316,26 @@ async def _invoke_agent(agent: Any, user_text: str, context_id: str) -> str:
             logger.debug(f"Event {event_count}: author={getattr(event, 'author', 'N/A')}, "
                         f"is_final={event.is_final_response()}")
 
+            # Track token usage from events with usage_metadata
+            if hasattr(event, "usage_metadata") and event.usage_metadata:
+                usage = event.usage_metadata
+                # Accumulate token counts (some events may have partial counts)
+                if hasattr(usage, "prompt_token_count") and usage.prompt_token_count:
+                    usage_stats.input_tokens += usage.prompt_token_count
+                if hasattr(usage, "candidates_token_count") and usage.candidates_token_count:
+                    usage_stats.output_tokens += usage.candidates_token_count
+                if hasattr(usage, "total_token_count") and usage.total_token_count:
+                    usage_stats.total_tokens += usage.total_token_count
+
+            # Track function/tool calls
+            if hasattr(event, "get_function_calls"):
+                func_calls = event.get_function_calls()
+                if func_calls:
+                    for func_call in func_calls:
+                        tool_name = getattr(func_call, "name", "unknown")
+                        usage_stats.tool_calls.append(tool_name)
+                        logger.debug(f"Tool call detected: {tool_name}")
+
             # Check for final response using ADK's helper method
             if event.is_final_response():
                 if event.content and event.content.parts:
@@ -229,7 +350,12 @@ async def _invoke_agent(agent: Any, user_text: str, context_id: str) -> str:
                 break
 
         logger.debug(f"Total events processed: {event_count}")
-        return final_response_text
+        logger.debug(
+            f"Usage stats: input_tokens={usage_stats.input_tokens}, "
+            f"output_tokens={usage_stats.output_tokens}, "
+            f"tool_calls={len(usage_stats.tool_calls)}"
+        )
+        return final_response_text, usage_stats
 
     except ImportError:
         # Fallback if ADK runner is not available
@@ -237,11 +363,12 @@ async def _invoke_agent(agent: Any, user_text: str, context_id: str) -> str:
         return (
             f"I received your message: '{user_text[:100]}...'. "
             "The agent is configured but the full ADK runtime is not available. "
-            "Please ensure google-adk is properly installed."
+            "Please ensure google-adk is properly installed.",
+            usage_stats,
         )
     except Exception as e:
         logger.exception(f"Error invoking agent: {e}")
-        return f"Error processing request: {str(e)}"
+        return f"Error processing request: {str(e)}", usage_stats
 
 
 @router.post("/a2a")
@@ -259,6 +386,9 @@ async def send_message(request: Request) -> JSONResponse:
     try:
         body = await request.json()
 
+        # Extract order_id for metering
+        order_id = _get_order_id_from_request(request)
+
         # Handle JSON-RPC format
         if "jsonrpc" in body:
             rpc_request = JSONRPCRequest(**body)
@@ -266,7 +396,7 @@ async def send_message(request: Request) -> JSONResponse:
             if rpc_request.method == "message/send":
                 params = _preprocess_request_params(rpc_request.params)
                 send_request = SendMessageRequest(**params)
-                task = await _process_message(send_request.message)
+                task = await _process_message(send_request.message, order_id=order_id)
 
                 response = JSONRPCResponse(
                     result=SendMessageResponse(task=task).model_dump(by_alias=True),
@@ -325,7 +455,7 @@ async def send_message(request: Request) -> JSONResponse:
         # Handle direct SendMessageRequest format
         body = _preprocess_request_params(body)
         send_request = SendMessageRequest(**body)
-        task = await _process_message(send_request.message)
+        task = await _process_message(send_request.message, order_id=order_id)
 
         return JSONResponse(
             content=SendMessageResponse(task=task).model_dump(by_alias=True, exclude_none=True)
@@ -384,6 +514,9 @@ async def send_streaming_message(request: Request) -> StreamingResponse:
     try:
         body = await request.json()
 
+        # Extract order_id for metering
+        order_id = _get_order_id_from_request(request)
+
         # Handle JSON-RPC format
         if "jsonrpc" in body:
             rpc_request = JSONRPCRequest(**body)
@@ -405,8 +538,10 @@ async def send_streaming_message(request: Request) -> StreamingResponse:
         )
         _tasks[task.id] = task
 
-        # Start async processing
-        asyncio.create_task(_process_message_async(task, send_request.message))
+        # Start async processing with order_id for metering
+        asyncio.create_task(
+            _process_message_async(task, send_request.message, order_id=order_id)
+        )
 
         return StreamingResponse(
             _stream_task_updates(task),
@@ -426,18 +561,20 @@ async def send_streaming_message(request: Request) -> StreamingResponse:
 async def _process_message_async(
     task: Task,
     message: Message,
+    order_id: str | None = None,
 ) -> None:
     """Process a message asynchronously and update the task.
 
     Args:
         task: The task to update.
         message: The message to process.
+        order_id: Order ID for metering (optional).
     """
     try:
         task.status = TaskStatus(state=TaskState.working)
         _tasks[task.id] = task
 
-        result_task = await _process_message(message)
+        result_task = await _process_message(message, order_id=order_id)
 
         task.status = result_task.status
         task.artifacts = result_task.artifacts
