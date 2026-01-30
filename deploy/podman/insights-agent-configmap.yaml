@@ -18,10 +18,15 @@ data:
   RED_HAT_SSO_REDIRECT_URI: "http://localhost:8000/auth/callback"
   RED_HAT_SSO_JWKS_URI: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs"
 
-  # MCP Server Configuration
+  # MCP Server Configuration (for agent)
   MCP_TRANSPORT_MODE: "http"
   MCP_SERVER_URL: "http://localhost:8080"
   MCP_READ_ONLY: "true"
+
+  # MCP Server Configuration (for MCP server container)
+  MCP_SERVER_MODE: "http"
+  MCP_SERVER_PORT: "8080"
+  MCP_SERVER_HOST: "0.0.0.0"
 
   # Agent Configuration
   AGENT_PROVIDER_URL: "http://localhost:8000"

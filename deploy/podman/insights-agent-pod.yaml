@@ -33,9 +33,9 @@
 #   kubectl apply -f deploy/podman/insights-agent-configmap.yaml
 #   kubectl apply -f deploy/podman/insights-agent-pod.yaml
 #
-# Stop the pod:
-#   podman pod stop insights-agent-pod
-#   podman pod rm insights-agent-pod
+# Stop and remove resources:
+#   podman kube down deploy/podman/insights-agent-pod.yaml
+#   podman kube down deploy/podman/my-secrets.yaml
 #
 apiVersion: v1
 kind: Pod
@@ -105,12 +105,11 @@ spec:
     # Credentials are passed by the agent via HTTP headers, not environment variables.
     - name: insights-mcp
       image: quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
-      env:
-        # MCP server mode: run as HTTP server for agent connection
-        - name: MCP_SERVER_MODE
-          value: "http"
-        - name: MCP_SERVER_PORT
-          value: "8080"
+      envFrom:
+        # Load MCP server configuration from ConfigMap
+        # Uses: MCP_SERVER_MODE, MCP_SERVER_PORT, MCP_SERVER_HOST
+        - configMapRef:
+            name: insights-agent-config
       ports:
         - containerPort: 8080
           hostPort: 8080

@@ -301,9 +301,9 @@ podman pod ps
 podman logs insights-agent-pod-insights-agent   # Agent logs
 podman logs insights-agent-pod-insights-mcp     # MCP server logs
 
-# Stop and remove the pod
-podman pod stop insights-agent-pod
-podman pod rm insights-agent-pod
+# Stop and remove all resources
+podman kube down deploy/podman/insights-agent-pod.yaml
+podman kube down deploy/podman/my-secrets.yaml
 ```
 
 ### Access the Services
