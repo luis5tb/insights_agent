@@ -1,69 +1,92 @@
-"""Rate limiting middleware for FastAPI."""
+"""Simplified rate limiting middleware with global limits."""
 
 import logging
+import time
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from insights_agent.ratelimit.limiter import RateLimiter, get_rate_limiter
+from insights_agent.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-def get_order_id_from_request(request: Request) -> str | None:
-    """Extract order ID from request.
+class SimpleRateLimiter:
+    """Simple in-memory rate limiter with sliding window."""
 
-    The order ID can come from:
-    1. Request state (set by auth middleware after token validation)
-    2. X-Order-ID header (for internal/trusted calls)
+    def __init__(
+        self,
+        requests_per_minute: int = 60,
+        requests_per_hour: int = 1000,
+    ):
+        self._requests_per_minute = requests_per_minute
+        self._requests_per_hour = requests_per_hour
+        self._minute_window: list[float] = []
+        self._hour_window: list[float] = []
 
-    Args:
-        request: FastAPI request.
+    def is_allowed(self) -> tuple[bool, dict]:
+        """Check if request is allowed under rate limits.
 
-    Returns:
-        Order ID if found, None otherwise.
-    """
-    # Check request state first (set by auth/marketplace middleware)
-    if hasattr(request.state, "order_id"):
-        return str(request.state.order_id)
+        Returns:
+            Tuple of (is_allowed, status_dict with limit info).
+        """
+        now = time.time()
+        minute_ago = now - 60
+        hour_ago = now - 3600
 
-    # Check header for internal calls
-    order_id = request.headers.get("X-Order-ID")
-    if order_id:
-        return order_id
+        # Clean old entries
+        self._minute_window = [t for t in self._minute_window if t > minute_ago]
+        self._hour_window = [t for t in self._hour_window if t > hour_ago]
 
-    return None
+        minute_count = len(self._minute_window)
+        hour_count = len(self._hour_window)
+
+        status = {
+            "requests_this_minute": minute_count,
+            "requests_this_hour": hour_count,
+            "limit_per_minute": self._requests_per_minute,
+            "limit_per_hour": self._requests_per_hour,
+        }
+
+        # Check limits
+        if minute_count >= self._requests_per_minute:
+            return False, {**status, "exceeded": "per_minute", "retry_after": 60}
+        if hour_count >= self._requests_per_hour:
+            return False, {**status, "exceeded": "per_hour", "retry_after": 3600}
+
+        # Record request
+        self._minute_window.append(now)
+        self._hour_window.append(now)
+
+        return True, status
 
 
-def get_plan_from_request(request: Request) -> str | None:
-    """Extract subscription plan from request.
+# Global rate limiter instance
+_rate_limiter: SimpleRateLimiter | None = None
 
-    Args:
-        request: FastAPI request.
 
-    Returns:
-        Plan name if found, None otherwise.
-    """
-    if hasattr(request.state, "plan"):
-        return str(request.state.plan)
-
-    return None
+def get_simple_rate_limiter() -> SimpleRateLimiter:
+    """Get or create the global rate limiter."""
+    global _rate_limiter
+    if _rate_limiter is None:
+        settings = get_settings()
+        _rate_limiter = SimpleRateLimiter(
+            requests_per_minute=settings.rate_limit_requests_per_minute,
+            requests_per_hour=settings.rate_limit_requests_per_hour,
+        )
+    return _rate_limiter
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Middleware for enforcing rate limits.
+    """Simplified middleware for global rate limiting.
 
-    This middleware:
-    - Checks rate limits before processing requests
-    - Returns 429 Too Many Requests when limits exceeded
-    - Includes Retry-After header
-    - Tracks concurrent requests
+    Applies rate limits to A2A endpoints without per-order tracking.
     """
 
-    # Paths to skip rate limiting (health checks, static files, etc.)
+    # Paths to skip rate limiting
     SKIP_PATHS = {
         "/health",
         "/healthz",
@@ -73,106 +96,47 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/docs",
         "/openapi.json",
         "/redoc",
-        "/oauth/authorize",
-        "/oauth/callback",
     }
 
-    # Paths that should be rate limited
-    RATE_LIMITED_PATHS = {
-        "/a2a",
-        "/a2a/stream",
-        "/oauth/token",
-        "/oauth/userinfo",
-    }
+    # Paths that should be rate limited (A2A JSON-RPC endpoint)
+    RATE_LIMITED_PATHS = {"/"}
 
-    def __init__(self, app: Any, rate_limiter: RateLimiter | None = None):
-        """Initialize middleware.
-
-        Args:
-            app: FastAPI application.
-            rate_limiter: Rate limiter instance.
-        """
+    def __init__(self, app: Any):
         super().__init__(app)
-        self._rate_limiter = rate_limiter or get_rate_limiter()
+        self._limiter = get_simple_rate_limiter()
 
     async def dispatch(
         self,
         request: Request,
         call_next: Callable[[Request], Any],
     ) -> Response:
-        """Process request with rate limiting.
-
-        Args:
-            request: Incoming request.
-            call_next: Next middleware/handler.
-
-        Returns:
-            Response from handler or 429 error.
-        """
+        """Process request with rate limiting."""
         path = request.url.path
 
-        # Skip rate limiting for non-billable paths
+        # Skip rate limiting for non-API paths
         if self._should_skip(path):
-            return cast(Response, await call_next(request))
+            return await call_next(request)
 
-        # Get order ID (will be None if not authenticated)
-        order_id = get_order_id_from_request(request)
+        # Check rate limit
+        allowed, status = self._limiter.is_allowed()
 
-        # If no order ID, allow request but don't track
-        # (Authentication will handle unauthorized requests)
-        if not order_id:
-            return cast(Response, await call_next(request))
+        if not allowed:
+            return self._rate_limit_response(status)
 
-        # Get subscription plan
-        plan = get_plan_from_request(request)
+        # Process request
+        response = await call_next(request)
 
-        try:
-            # Check rate limits
-            status = await self._rate_limiter.check_rate_limit(order_id, plan)
+        # Add rate limit headers
+        response.headers["X-RateLimit-Limit"] = str(status["limit_per_minute"])
+        response.headers["X-RateLimit-Remaining"] = str(
+            status["limit_per_minute"] - status["requests_this_minute"]
+        )
 
-            if status.is_rate_limited:
-                return self._rate_limit_response(status)
-
-            # Increment concurrent counter
-            await self._rate_limiter.increment_concurrent(order_id)
-
-            try:
-                # Increment request counters
-                await self._rate_limiter.increment_request_count(order_id)
-
-                # Process request
-                response = await call_next(request)
-
-                # Add rate limit headers
-                response = self._add_rate_limit_headers(response, status)
-
-                return response
-
-            finally:
-                # Always decrement concurrent counter
-                await self._rate_limiter.decrement_concurrent(order_id)
-
-        except Exception as e:
-            logger.warning("Rate limiting error (allowing request): %s", e)
-            # On error, allow the request through
-            return cast(Response, await call_next(request))
+        return response
 
     def _should_skip(self, path: str) -> bool:
-        """Check if path should skip rate limiting.
-
-        Args:
-            path: Request path.
-
-        Returns:
-            True if should skip.
-        """
-        # Exact match for skip paths
+        """Check if path should skip rate limiting."""
         if path in self.SKIP_PATHS:
-            return True
-
-        # Prefix match for static paths
-        skip_prefixes = ("/static/", "/favicon")
-        if path.startswith(skip_prefixes):
             return True
 
         # Only rate limit specific paths
@@ -180,94 +144,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if path == rate_limited_path or path.startswith(f"{rate_limited_path}/"):
                 return False
 
-        # Skip rate limiting for unknown paths
         return True
 
-    def _rate_limit_response(self, status: Any) -> JSONResponse:
-        """Build rate limit exceeded response.
-
-        Args:
-            status: Rate limit status.
-
-        Returns:
-            JSON response with 429 status.
-        """
-        exceeded = self._rate_limiter.build_exceeded_response(status)
-
-        headers = {
-            "Retry-After": str(exceeded.retry_after),
-            "X-RateLimit-Limit": str(exceeded.limit),
-            "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": str(exceeded.retry_after),
-        }
+    def _rate_limit_response(self, status: dict) -> JSONResponse:
+        """Build rate limit exceeded response."""
+        retry_after = status.get("retry_after", 60)
 
         return JSONResponse(
             status_code=429,
-            content=exceeded.model_dump(),
-            headers=headers,
+            content={
+                "error": "rate_limit_exceeded",
+                "message": f"Rate limit exceeded ({status.get('exceeded', 'unknown')})",
+                "retry_after": retry_after,
+            },
+            headers={
+                "Retry-After": str(retry_after),
+                "X-RateLimit-Limit": str(status["limit_per_minute"]),
+                "X-RateLimit-Remaining": "0",
+            },
         )
-
-    def _add_rate_limit_headers(
-        self,
-        response: Response,
-        status: Any,
-    ) -> Response:
-        """Add rate limit headers to response.
-
-        Args:
-            response: Outgoing response.
-            status: Rate limit status.
-
-        Returns:
-            Response with headers.
-        """
-        # Calculate remaining requests (use minute as primary)
-        remaining = max(
-            0,
-            status.requests_per_minute_limit - status.requests_this_minute - 1,
-        )
-
-        response.headers["X-RateLimit-Limit"] = str(status.requests_per_minute_limit)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
-        response.headers["X-RateLimit-Reset"] = str(60 - (status.requests_this_minute % 60))
-
-        return response
-
-
-class TokenUsageMiddleware(BaseHTTPMiddleware):
-    """Middleware for tracking token usage.
-
-    This middleware is called after request processing to track
-    token usage from LLM responses.
-    """
-
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: Callable[[Request], Any],
-    ) -> Response:
-        """Process request and track token usage.
-
-        Args:
-            request: Incoming request.
-            call_next: Next middleware/handler.
-
-        Returns:
-            Response from handler.
-        """
-        response = cast(Response, await call_next(request))
-
-        # Check if token usage was recorded in request state
-        if hasattr(request.state, "token_usage"):
-            order_id = get_order_id_from_request(request)
-            if order_id:
-                try:
-                    rate_limiter = get_rate_limiter()
-                    await rate_limiter.add_token_usage(
-                        order_id,
-                        request.state.token_usage,
-                    )
-                except Exception as e:
-                    logger.warning("Failed to track token usage: %s", e)
-
-        return response

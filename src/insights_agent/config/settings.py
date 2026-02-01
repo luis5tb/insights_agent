@@ -111,12 +111,6 @@ class Settings(BaseSettings):
         description="Database connection URL",
     )
 
-    # Redis Configuration
-    redis_url: str = Field(
-        default="redis://localhost:6379/0",
-        description="Redis connection URL for rate limiting",
-    )
-
     # Google Cloud Service Control
     service_control_service_name: str = Field(
         default="",
@@ -135,18 +129,14 @@ class Settings(BaseSettings):
         description="Delay between retry attempts for failed reports",
     )
 
-    # Rate Limiting
+    # Rate Limiting (in-memory, no Redis required)
     rate_limit_requests_per_minute: int = Field(
         default=60,
-        description="Default requests per minute limit",
+        description="Global requests per minute limit",
     )
     rate_limit_requests_per_hour: int = Field(
         default=1000,
-        description="Default requests per hour limit",
-    )
-    rate_limit_tokens_per_day: int = Field(
-        default=100000,
-        description="Default tokens per day limit",
+        description="Global requests per hour limit",
     )
 
     # Usage Reporting
