@@ -197,7 +197,7 @@ All A2A endpoints require authentication:
 ACCESS_TOKEN="your-access-token"
 
 # Call A2A endpoint
-curl -X POST http://localhost:8000/a2a \
+curl -X POST http://localhost:8000/ \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -220,12 +220,12 @@ curl -X POST http://localhost:8000/a2a \
 | `GET /health` | Public |
 | `GET /ready` | Public |
 | `GET /.well-known/agent.json` | Public |
+| `GET /usage` | Public |
 | `GET /oauth/authorize` | Public |
 | `GET /oauth/callback` | Public |
 | `POST /oauth/token` | Public |
 | `GET /oauth/userinfo` | Required |
-| `POST /a2a` | Required |
-| `POST /a2a/stream` | Required |
+| `POST /` | Required (A2A JSON-RPC) |
 
 ## Red Hat SSO Configuration
 
@@ -334,7 +334,7 @@ This is the easiest way to test the authentication flow without needing real Red
 
 5. **Test A2A endpoint with authentication**:
    ```bash
-   curl -X POST http://localhost:8000/a2a \
+   curl -X POST http://localhost:8000/ \
      -H "Authorization: Bearer dev-token" \
      -H "Content-Type: application/json" \
      -d '{
@@ -399,7 +399,7 @@ For integration testing with real Red Hat SSO authentication:
      -H "Authorization: Bearer $ACCESS_TOKEN"
 
    # Test A2A endpoint
-   curl -X POST http://localhost:8000/a2a \
+   curl -X POST http://localhost:8000/ \
      -H "Authorization: Bearer $ACCESS_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{

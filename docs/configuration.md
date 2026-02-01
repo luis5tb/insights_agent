@@ -59,7 +59,7 @@ The MCP server runs as a sidecar container and provides tools for accessing Red 
 | `LIGHTSPEED_CLIENT_ID` | - | Insights service account client ID |
 | `LIGHTSPEED_CLIENT_SECRET` | - | Insights service account client secret |
 | `MCP_TRANSPORT_MODE` | `http` | MCP transport: `stdio`, `http`, or `sse` |
-| `MCP_SERVER_URL` | `http://localhost:8080` | MCP server URL (for http/sse modes) |
+| `MCP_SERVER_URL` | `http://localhost:8080` | MCP server URL (use 8081 for Podman to avoid A2A Inspector conflict) |
 | `MCP_READ_ONLY` | `true` | Enable read-only mode for MCP tools |
 
 **Obtaining Lightspeed Credentials:**
@@ -86,7 +86,7 @@ MCP_READ_ONLY=true
 LIGHTSPEED_CLIENT_ID=your-service-account-id
 LIGHTSPEED_CLIENT_SECRET=your-service-account-secret
 MCP_TRANSPORT_MODE=http
-MCP_SERVER_URL=http://localhost:8080
+MCP_SERVER_URL=http://localhost:8081  # Use 8081 for Podman (8080 for Cloud Run)
 MCP_READ_ONLY=true
 ```
 
@@ -133,40 +133,23 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/insights_agent
 DATABASE_URL=postgresql+asyncpg://user:password@/insights_agent?host=/cloudsql/project:region:instance
 ```
 
-### Redis
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL |
-
-**Example:**
-
-```bash
-# Local Redis
-REDIS_URL=redis://localhost:6379/0
-
-# Redis with password
-REDIS_URL=redis://:password@localhost:6379/0
-
-# Memorystore (GCP)
-REDIS_URL=redis://10.0.0.1:6379/0
-```
-
 ### Rate Limiting
+
+Rate limiting uses in-memory sliding window algorithm. No external dependencies required.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `60` | Max requests per minute |
 | `RATE_LIMIT_REQUESTS_PER_HOUR` | `1000` | Max requests per hour |
-| `RATE_LIMIT_TOKENS_PER_DAY` | `100000` | Max tokens per day |
 
 **Example:**
 
 ```bash
 RATE_LIMIT_REQUESTS_PER_MINUTE=120
 RATE_LIMIT_REQUESTS_PER_HOUR=2000
-RATE_LIMIT_TOKENS_PER_DAY=500000
 ```
+
+See [Rate Limiting](rate-limiting.md) for details on the sliding window algorithm.
 
 ### Google Cloud Service Control
 
@@ -182,11 +165,15 @@ SERVICE_CONTROL_SERVICE_NAME=insights-agent.endpoints.my-project.cloud.goog
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
 
-### Usage Reporting
+### Usage Tracking
+
+Usage tracking is built into the agent via the ADK plugin system. No configuration required for basic tracking.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `USAGE_REPORT_INTERVAL_SECONDS` | `3600` | Usage report interval (seconds) |
+| `LOG_LEVEL` | `INFO` | Set to `DEBUG` to see detailed usage logs |
+
+Access usage statistics via the `/usage` endpoint. See [Usage Tracking and Metering](metering.md) for details on the plugin system and how to extend it.
 
 ### Logging
 
@@ -333,7 +320,6 @@ SKIP_JWT_VALIDATION=true
 LOG_LEVEL=DEBUG
 LOG_FORMAT=text
 DATABASE_URL=sqlite+aiosqlite:///./dev.db
-REDIS_URL=redis://localhost:6379/0
 ```
 
 ### Staging
@@ -345,7 +331,6 @@ SKIP_JWT_VALIDATION=false
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 DATABASE_URL=postgresql+asyncpg://user:pass@staging-db:5432/insights
-REDIS_URL=redis://staging-redis:6379/0
 ```
 
 ### Production
@@ -357,5 +342,4 @@ SKIP_JWT_VALIDATION=false
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 # DATABASE_URL from Secret Manager
-# REDIS_URL from Secret Manager
 ```

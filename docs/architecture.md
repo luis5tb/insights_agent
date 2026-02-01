@@ -27,7 +27,7 @@ The Insights Agent is an A2A-ready (Agent-to-Agent) service that provides AI-pow
 │  │                           FastAPI Application                           ││
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐  ││
 │  │  │   A2A API   │  │  OAuth API  │  │   DCR API   │  │  Health/Ready │  ││
-│  │  │  /a2a/*     │  │  /oauth/*   │  │  /register  │  │  /health      │  ││
+│  │  │     /       │  │  /oauth/*   │  │  /register  │  │  /health      │  ││
 │  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └───────────────┘  ││
 │  │         │                │                │                             ││
 │  │         ▼                ▼                ▼                             ││
@@ -49,13 +49,13 @@ The Insights Agent is an A2A-ready (Agent-to-Agent) service that provides AI-pow
 │  │  └─────────────────────────────────────────────────────────────────┘   ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────────────────┘
-         │                    │                    │                    │
-         ▼                    ▼                    ▼                    ▼
-┌─────────────┐      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-│   Gemini    │      │  Red Hat    │      │  PostgreSQL │      │    Redis    │
-│     API     │      │  Insights   │      │  Database   │      │   Cache     │
-│  (Vertex)   │      │  MCP Server │      │             │      │             │
-└─────────────┘      └─────────────┘      └─────────────┘      └─────────────┘
+         │                    │                    │
+         ▼                    ▼                    ▼
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+│   Gemini    │      │  Red Hat    │      │  PostgreSQL │
+│     API     │      │  Insights   │      │  Database   │
+│  (Vertex)   │      │  MCP Server │      │  (optional) │
+└─────────────┘      └─────────────┘      └─────────────┘
                             │
                             ▼
                      ┌─────────────┐
@@ -105,7 +105,7 @@ Connects to Red Hat Insights via MCP:
 ### User Query Flow
 
 ```
-1. User sends query to /a2a endpoint
+1. User sends query to / endpoint (A2A JSON-RPC)
 2. JWT token validated against Red Hat SSO
 3. Query passed to Agent Core
 4. Agent processes query with Gemini
@@ -170,7 +170,6 @@ src/insights_agent/
 | Red Hat SSO | User authentication | Yes |
 | Red Hat Insights MCP | Data access | Yes |
 | PostgreSQL | Data persistence | Optional |
-| Redis | Rate limiting, caching | Optional |
 | Google Cloud Service Control | Usage reporting | Production |
 
 ## Scaling Considerations
@@ -178,8 +177,8 @@ src/insights_agent/
 ### Horizontal Scaling
 
 - Agent is stateless and can scale horizontally
-- Session state stored in database
-- Rate limits enforced via Redis
+- Session state stored in database (optional)
+- Rate limits enforced in-memory (per instance)
 
 ### Resource Requirements
 
@@ -192,7 +191,6 @@ src/insights_agent/
 ### Connection Pooling
 
 - Database connections pooled via SQLAlchemy
-- Redis connections pooled automatically
 - HTTP connections to external services pooled via httpx
 
 ## Security

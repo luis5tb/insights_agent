@@ -16,11 +16,11 @@ This agent provides AI-powered access to Red Hat Insights services, enabling nat
 ## Features
 
 - Built with Google ADK and Gemini 2.5 Flash
-- A2A protocol support for multi-agent ecosystems
+- A2A protocol support with SSE streaming for multi-agent ecosystems
 - OAuth 2.0 authentication via Red Hat SSO
 - Dynamic Client Registration (DCR) for Google Marketplace
-- Usage metering and reporting to Google Cloud
-- Rate limiting and throttling per subscription tier
+- Usage tracking (tokens, requests, tool calls) via `/usage` endpoint
+- Global rate limiting (requests per minute/hour)
 - Integrated MCP server for Red Hat Insights API access
 
 ## Architecture
@@ -117,7 +117,7 @@ The agent requires the Red Hat Insights MCP server to be running to access Insig
 
 #### Option 2: Full Stack with Podman Pod
 
-For production-like deployment with all services (agent, MCP server, database, Redis):
+For production-like deployment with all services (agent, MCP server, database):
 
 ```bash
 # Deploy secrets first (see Container Deployment for setup)
@@ -238,7 +238,6 @@ The agent is deployed as a pod containing multiple containers:
 - **insights-agent**: Main A2A agent (Gemini + Google ADK)
 - **insights-mcp**: Red Hat Insights MCP server for console.redhat.com API access
 - **postgres**: PostgreSQL database
-- **redis**: Redis for rate limiting and caching
 - **a2a-inspector**: Web UI for agent interaction (optional)
 
 ### Prerequisites
@@ -320,8 +319,8 @@ podman kube down deploy/podman/my-secrets.yaml
 | Health Check | http://localhost:8000/health | Agent health status |
 | AgentCard | http://localhost:8000/.well-known/agent.json | A2A discovery |
 | OAuth Authorize | http://localhost:8000/oauth/authorize | OAuth login |
-| MCP Server | http://localhost:8080 | MCP server (internal) |
-| A2A Inspector | http://localhost:5001 | Web UI for agent interaction |
+| MCP Server | http://localhost:8081 | MCP server (internal) |
+| A2A Inspector | http://localhost:8080 | Web UI for agent interaction |
 
 ### Using the A2A Inspector (Web UI)
 
@@ -337,7 +336,7 @@ The [A2A Inspector](https://github.com/a2aproject/a2a-inspector) provides a web-
 
 1. Build the inspector image (see [Build the Container Images](#build-the-container-images))
 2. Start the pod as usual
-3. Open http://localhost:5001 in your browser
+3. Open http://localhost:8080 in your browser
 4. Enter `http://localhost:8000` as the agent URL
 5. The inspector will fetch the AgentCard and enable chat
 
@@ -348,17 +347,16 @@ The [A2A Inspector](https://github.com/a2aproject/a2a-inspector) provides a web-
 | Container | Port | Description |
 |-----------|------|-------------|
 | insights-agent | 8000 | Main A2A agent API |
-| insights-mcp | 8080 | Red Hat Insights MCP server |
+| insights-mcp | 8081 | Red Hat Insights MCP server |
 | postgres | 5432 | PostgreSQL database |
-| redis | 6379 | Redis for rate limiting |
-| a2a-inspector | 5001 | Web UI for agent interaction (optional) |
+| a2a-inspector | 8080 | Web UI for agent interaction (optional) |
 
 ### How the MCP Server Works
 
 The MCP server runs as a sidecar container and provides tools for the agent to interact with Red Hat Insights APIs:
 
 1. **Agent receives a request** (e.g., "Show me my system vulnerabilities")
-2. **Agent calls MCP tools** via HTTP to the MCP server (localhost:8080), passing credentials in headers
+2. **Agent calls MCP tools** via HTTP to the MCP server (localhost:8081), passing credentials in headers
 3. **MCP server authenticates** with console.redhat.com using the credentials from headers
 4. **MCP server calls Insights APIs** and returns results to the agent
 5. **Agent formats the response** and returns it to the user
@@ -367,7 +365,7 @@ The Lightspeed credentials (`LIGHTSPEED_CLIENT_ID` and `LIGHTSPEED_CLIENT_SECRET
 
 ### Persistent Storage
 
-By default, database and Redis data use `emptyDir` and are lost when the pod is removed. To persist data, edit `deploy/podman/insights-agent-pod.yaml` and uncomment the `hostPath` volume configurations.
+By default, database data uses `emptyDir` and is lost when the pod is removed. To persist data, edit `deploy/podman/insights-agent-pod.yaml` and uncomment the `hostPath` volume configuration.
 
 ## Google Cloud Run Deployment
 

@@ -80,11 +80,15 @@ Returns the AgentCard describing the agent's capabilities.
 }
 ```
 
-### POST /a2a
+### POST /
 
-Send a message to the agent using JSON-RPC 2.0 format.
+Send a message to the agent using JSON-RPC 2.0 format. This is the main A2A endpoint.
 
 **Authentication**: Required
+
+**Methods:**
+- `message/send` - Send a message and get response
+- `message/stream` - Send a message and get streaming response (SSE)
 
 **Request:**
 
@@ -146,32 +150,47 @@ Send a message to the agent using JSON-RPC 2.0 format.
 }
 ```
 
-### POST /a2a/stream
+### POST / (Streaming)
 
-Send a message and receive streaming response via Server-Sent Events (SSE).
-
-**Authentication**: Required
+For streaming responses, use the `message/stream` method. The response is Server-Sent Events (SSE).
 
 **Request:**
 
-Same as `/a2a` endpoint.
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "message/stream",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "What systems have critical vulnerabilities?"
+        }
+      ]
+    }
+  },
+  "id": "request-123"
+}
+```
 
 **Response:**
 
-SSE stream with events:
+SSE stream with A2A events:
 
 ```
-event: status
-data: {"state": "working", "message": "Querying vulnerability database..."}
+event: message
+data: {"jsonrpc":"2.0","result":{"status":{"state":"working"}},"id":"request-123"}
 
-event: artifact
-data: {"parts": [{"type": "text", "text": "Found 3 systems..."}]}
+event: message
+data: {"jsonrpc":"2.0","result":{"artifact":{"parts":[{"type":"text","text":"Found 3 systems..."}]}},"id":"request-123"}
 
-event: status
-data: {"state": "completed"}
+event: message
+data: {"jsonrpc":"2.0","result":{"status":{"state":"completed","final":true}},"id":"request-123"}
 ```
 
-### GET /a2a/tasks/{task_id}
+### GET /tasks/{task_id}
 
 Get the status of a previously submitted task.
 
@@ -199,7 +218,7 @@ Get the status of a previously submitted task.
 }
 ```
 
-### DELETE /a2a/tasks/{task_id}
+### DELETE /tasks/{task_id}
 
 Cancel a running task.
 
@@ -332,21 +351,45 @@ Readiness check endpoint indicating the service is ready to accept requests.
 | -32000 | Task not found | Referenced task doesn't exist |
 | -32001 | Task canceled | Task was canceled |
 
+## Usage Tracking
+
+### GET /usage
+
+Get aggregate usage statistics for the agent.
+
+**Authentication**: Not required
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "usage": {
+    "total_input_tokens": 12345,
+    "total_output_tokens": 67890,
+    "total_tokens": 80235,
+    "total_requests": 150,
+    "total_tool_calls": 75
+  }
+}
+```
+
 ## Rate Limiting
 
-The API enforces rate limits to prevent abuse:
+The API enforces global rate limits to prevent abuse:
 
 | Limit | Value | Window |
 |-------|-------|--------|
 | Requests per minute | 60 | 1 minute |
 | Requests per hour | 1000 | 1 hour |
-| Tokens per day | 100,000 | 24 hours |
 
 When rate limited, the API returns:
 
 ```json
 {
-  "detail": "Rate limit exceeded. Try again in 60 seconds."
+  "error": "rate_limit_exceeded",
+  "message": "Rate limit exceeded (per_minute)",
+  "retry_after": 60
 }
 ```
 
@@ -356,7 +399,6 @@ With headers:
 Retry-After: 60
 X-RateLimit-Limit: 60
 X-RateLimit-Remaining: 0
-X-RateLimit-Reset: 1705312260
 ```
 
 ## Examples
@@ -371,7 +413,7 @@ token = "your-access-token"
 
 # Send message to agent
 response = httpx.post(
-    "http://localhost:8000/a2a",
+    "http://localhost:8000/",
     headers={"Authorization": f"Bearer {token}"},
     json={
         "jsonrpc": "2.0",
@@ -399,8 +441,11 @@ curl http://localhost:8000/.well-known/agent.json
 # Health check
 curl http://localhost:8000/health
 
+# Get usage statistics
+curl http://localhost:8000/usage
+
 # Send message (with auth)
-curl -X POST http://localhost:8000/a2a \
+curl -X POST http://localhost:8000/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -419,7 +464,7 @@ curl -X POST http://localhost:8000/a2a \
 ### JavaScript
 
 ```javascript
-const response = await fetch('http://localhost:8000/a2a', {
+const response = await fetch('http://localhost:8000/', {
   method: 'POST',
   headers: {
     'Authorization': `Bearer ${token}`,

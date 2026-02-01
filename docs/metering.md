@@ -1,363 +1,415 @@
-# Metering
+# Usage Tracking and Metering
 
-This document describes the metering system for tracking API usage and billing metrics.
+This document describes the usage tracking system for monitoring API usage, token consumption, and tool invocations.
 
 ## Overview
 
-The metering system tracks usage metrics per order (subscription) for:
-- API calls (regular and streaming)
-- Token usage (input and output)
-- MCP tool invocations
-- Errors and rate limiting events
+The Insights Agent uses the **ADK Plugin System** for usage tracking. This approach integrates directly with the agent's execution lifecycle, providing accurate metrics without external dependencies.
+
+### What's Tracked
+
+| Metric | Description | Source |
+|--------|-------------|--------|
+| `total_requests` | A2A requests processed | `before_run_callback` |
+| `total_input_tokens` | LLM prompt tokens | `after_model_callback` |
+| `total_output_tokens` | LLM response tokens | `after_model_callback` |
+| `total_tokens` | Combined token count | Computed |
+| `total_tool_calls` | MCP tool invocations | `after_tool_callback` |
 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  API Request    │────▶│ MeteringMiddleware│────▶│ MeteringService │
-│  (with order_id)│     │                  │     │                 │
-└─────────────────┘     └──────────────────┘     └────────┬────────┘
-                                                          │
-                                                          ▼
-                                                 ┌─────────────────┐
-                                                 │ UsageRepository │
-                                                 │  (in-memory)    │
-                                                 └─────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           A2A Request                                    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           ADK Runner                                     │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                    UsageTrackingPlugin                           │   │
+│  │                                                                   │   │
+│  │  before_run_callback ────► Increment request counter             │   │
+│  │                                                                   │   │
+│  │  after_model_callback ───► Extract token counts from response    │   │
+│  │                                                                   │   │
+│  │  after_tool_callback ────► Increment tool call counter           │   │
+│  │                                                                   │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                    │                                     │
+│                                    ▼                                     │
+│                          AggregateUsage (in-memory)                      │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         GET /usage endpoint                              │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Components
+## ADK Plugin System
 
-| Component | File | Description |
-|-----------|------|-------------|
-| `MeteringMiddleware` | `metering/middleware.py` | Automatically tracks API calls |
-| `MeteringService` | `metering/service.py` | Core service for tracking and querying usage |
-| `UsageRepository` | `metering/repository.py` | In-memory storage (use database in production) |
-| Metering Router | `metering/router.py` | REST API endpoints for querying usage |
-| A2A Router | `api/a2a/router.py` | Tracks token usage and MCP tool calls |
+The Google Agent Development Kit (ADK) provides a powerful plugin system that allows you to observe and customize agent behavior at every stage of execution. The `UsageTrackingPlugin` uses this system to track metrics.
 
-### How Metrics Are Captured
+### Plugin Lifecycle Callbacks
 
-| Metric Type | Captured By | Source |
-|-------------|-------------|--------|
-| API calls | `MeteringMiddleware` | HTTP request count to `/a2a` endpoints |
-| Token usage | `A2A Router` | ADK event `usage_metadata` (input/output tokens) |
-| MCP tool calls | `A2A Router` | ADK event `get_function_calls()` |
-| Errors | `MeteringMiddleware` | HTTP 4xx/5xx responses |
+ADK plugins can implement these callbacks:
 
-## Metrics Tracked
+| Callback | When It Runs | Use Case |
+|----------|--------------|----------|
+| `before_run_callback` | Start of agent execution | Request counting, context setup |
+| `after_run_callback` | End of agent execution | Cleanup, final metrics |
+| `before_model_callback` | Before LLM call | Request modification |
+| `after_model_callback` | After LLM response | Token tracking, response modification |
+| `on_model_error_callback` | On LLM error | Error tracking |
+| `before_tool_callback` | Before tool execution | Tool call logging |
+| `after_tool_callback` | After tool execution | Tool usage tracking |
+| `on_tool_error_callback` | On tool error | Error tracking |
+| `before_agent_callback` | Before sub-agent call | Sub-agent tracking |
+| `after_agent_callback` | After sub-agent call | Sub-agent metrics |
 
-### Billable Metrics
+### Plugin Registration
 
-| Metric | Description |
-|--------|-------------|
-| `api_calls` | Total API calls |
-| `send_message_requests` | Non-streaming A2A SendMessage calls |
-| `streaming_requests` | Streaming A2A calls |
-| `input_tokens` | LLM input tokens |
-| `output_tokens` | LLM output tokens |
-| `total_tokens` | Combined token count |
-| `mcp_tool_calls` | Total MCP tool invocations |
+Plugins are registered when creating the ADK `App`:
 
-### Per-Tool Metrics
+```python
+from google.adk.apps import App
+from google.adk.plugins.base_plugin import BasePlugin
 
-| Metric | Description |
-|--------|-------------|
-| `advisor_queries` | Advisor/recommendations tool calls |
-| `inventory_queries` | Inventory/hosts tool calls |
-| `vulnerability_queries` | Vulnerability/CVE tool calls |
-| `remediation_requests` | Remediation tool calls |
-| `planning_queries` | Planning tool calls |
-| `image_builder_requests` | Image Builder tool calls |
+class UsageTrackingPlugin(BasePlugin):
+    def __init__(self):
+        super().__init__(name="usage_tracking")
 
-### Non-Billable Metrics
+    # ... callback implementations
 
-| Metric | Description |
-|--------|-------------|
-| `errors` | Error count |
-| `rate_limited_requests` | Rate-limited request count |
-| `tasks_created` | Tasks created |
-| `tasks_completed` | Tasks completed |
+# Register the plugin
+app = App(
+    name="insights-agent",
+    root_agent=agent,
+    plugins=[UsageTrackingPlugin()],  # Plugin registered here
+)
+```
 
-## API Endpoints
+## UsageTrackingPlugin Implementation
 
-### User Endpoints
+The `UsageTrackingPlugin` (`src/insights_agent/api/a2a/usage_plugin.py`) implements three callbacks:
 
-Require `metering:read` scope in JWT token.
+### Request Counting
 
-#### GET /metering/usage
+```python
+async def before_run_callback(self, *, invocation_context) -> None:
+    """Track request count at start of each run."""
+    _aggregate_usage.total_requests += 1
+    logger.debug(f"Request #{_aggregate_usage.total_requests} started")
+    return None
+```
 
-Get usage summary for the authenticated order.
+This callback fires at the start of every A2A request, incrementing the global request counter.
+
+### Token Tracking
+
+```python
+async def after_model_callback(
+    self,
+    *,
+    callback_context,
+    llm_response: LlmResponse,
+) -> Optional[LlmResponse]:
+    """Track token usage from LLM responses."""
+    if llm_response.usage_metadata:
+        usage = llm_response.usage_metadata
+        input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+        output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+
+        _aggregate_usage.total_input_tokens += input_tokens
+        _aggregate_usage.total_output_tokens += output_tokens
+
+    return None  # Don't modify the response
+```
+
+This callback fires after every LLM call. The `usage_metadata` object contains:
+- `prompt_token_count`: Tokens in the prompt (input)
+- `candidates_token_count`: Tokens in the response (output)
+- `total_token_count`: Combined count
+- `thoughts_token_count`: Reasoning tokens (for thinking models)
+
+### Tool Call Tracking
+
+```python
+async def after_tool_callback(
+    self,
+    *,
+    tool: BaseTool,
+    tool_args: dict[str, Any],
+    tool_context,
+    result: dict,
+) -> Optional[dict]:
+    """Track tool/MCP calls."""
+    _aggregate_usage.total_tool_calls += 1
+    tool_name = getattr(tool, "name", type(tool).__name__)
+    logger.debug(f"Tool call: {tool_name}")
+    return None  # Don't modify the result
+```
+
+This callback fires after every MCP tool invocation, tracking tool usage.
+
+## Storage: AggregateUsage
+
+Usage data is stored in a global dataclass:
+
+```python
+@dataclass
+class AggregateUsage:
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_requests: int = 0
+    total_tool_calls: int = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_tokens": self.total_input_tokens + self.total_output_tokens,
+            "total_requests": self.total_requests,
+            "total_tool_calls": self.total_tool_calls,
+        }
+```
+
+Access functions:
+- `get_aggregate_usage()`: Get current usage statistics
+- `reset_aggregate_usage()`: Reset counters (useful for testing)
+
+## API Endpoint
+
+### GET /usage
+
+Returns aggregate usage statistics.
+
+**Authentication**: Not required
 
 ```bash
-curl http://localhost:8000/metering/usage \
-  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/usage
 ```
 
-Query parameters:
-- `start` (optional): Start of period (default: last hour)
-- `end` (optional): End of period (default: now)
+**Response:**
 
-Response:
 ```json
 {
-  "order_id": "order-123",
-  "period_start": "2024-01-30T10:00:00",
-  "period_end": "2024-01-30T11:00:00",
-  "metrics": {
-    "api_calls": 10,
-    "input_tokens": 500,
-    "output_tokens": 1500
-  },
-  "total_api_calls": 10,
-  "total_tokens": 2000,
-  "total_mcp_calls": 5
+  "status": "ok",
+  "usage": {
+    "total_input_tokens": 12345,
+    "total_output_tokens": 45678,
+    "total_tokens": 58023,
+    "total_requests": 150,
+    "total_tool_calls": 75
+  }
 }
 ```
 
-#### GET /metering/usage/current
+## Rate Limiting
 
-Get current (all-time) usage counters.
+The agent includes a separate in-memory rate limiter that works independently from usage tracking.
 
-```bash
-curl http://localhost:8000/metering/usage/current \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-#### GET /metering/usage/billable
-
-Get billable usage for a specific period.
+### Configuration
 
 ```bash
-curl "http://localhost:8000/metering/usage/billable?start=2024-01-01T00:00:00&end=2024-01-31T23:59:59" \
-  -H "Authorization: Bearer $TOKEN"
+# Environment variables
+RATE_LIMIT_REQUESTS_PER_MINUTE=60    # Max requests per minute
+RATE_LIMIT_REQUESTS_PER_HOUR=1000    # Max requests per hour
 ```
 
-### Admin Endpoints
+### How It Works
 
-Require `metering:admin` scope in JWT token.
+The `RateLimitMiddleware` uses a sliding window algorithm:
 
-#### GET /metering/admin/usage/{order_id}
+1. Each request timestamp is recorded
+2. Old timestamps (> window size) are pruned
+3. Count is compared against configured limits
+4. If exceeded, returns HTTP 429 with `Retry-After` header
 
-Get usage for any order.
+### Rate Limited Paths
 
-```bash
-curl http://localhost:8000/metering/admin/usage/order-123 \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
+Only the A2A endpoint is rate limited:
+
+| Path | Description |
+|------|-------------|
+| `/` | A2A JSON-RPC endpoint |
+
+### Rate Limit Response
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 0
+Content-Type: application/json
+
+{
+  "error": "rate_limit_exceeded",
+  "message": "Rate limit exceeded (per_minute)",
+  "retry_after": 60
+}
 ```
 
-#### GET /metering/admin/billable
+See [Rate Limiting](rate-limiting.md) for more details.
 
-Get billable usage for all orders.
+## Extending for Production
 
-```bash
-curl "http://localhost:8000/metering/admin/billable?start=2024-01-01T00:00:00&end=2024-01-31T23:59:59" \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-```
+### Per-Tool Metrics
 
-## What is Order ID?
-
-The `order_id` is a unique identifier that represents a customer's subscription or billing account. It is the primary key used to:
-
-- **Attribute usage** to a specific customer for billing
-- **Enforce rate limits** based on subscription tier
-- **Report usage** to Google Cloud Marketplace for invoicing
-
-### Where Order ID Comes From
-
-In a production Google Cloud Marketplace integration:
-
-1. **Customer subscribes** via Google Cloud Marketplace
-2. **Marketplace creates an entitlement** with an `order_id` (also called `entitlement_id`)
-3. **Customer registers via DCR** (Dynamic Client Registration)
-4. **JWT tokens** issued to the customer contain the `order_id` in claims
-
-### How Order ID is Extracted
-
-The agent extracts `order_id` from requests in this order of precedence:
-
-1. **JWT token metadata**: The `order_id` claim in the validated token
-2. **Fallback to org_id**: If no `order_id` claim, uses the `org_id` claim
-3. **X-Order-ID header**: For internal/trusted service-to-service calls
-
-### Testing Without Marketplace
-
-For local development and testing, you can:
-
-1. Set `SKIP_JWT_VALIDATION=true` to disable JWT validation
-2. Pass `X-Order-ID: your-test-order` header with each request
-3. The metering system will track usage under that order ID
-
-## Local Testing
-
-### Option 1: Using Python Directly
+To track usage per tool, extend the `after_tool_callback`:
 
 ```python
-import asyncio
-from datetime import datetime, timedelta
-from insights_agent.metering.service import get_metering_service
+from collections import defaultdict
 
-async def test_metering():
-    metering = get_metering_service()
-    order_id = "test-order-123"
+_tool_usage = defaultdict(int)
 
-    # Track usage
-    await metering.track_api_call(
-        order_id=order_id,
-        client_id="test-client",
-        streaming=False,
-    )
+async def after_tool_callback(self, *, tool, tool_args, tool_context, result):
+    tool_name = getattr(tool, "name", type(tool).__name__)
+    _tool_usage[tool_name] += 1
 
-    await metering.track_token_usage(
-        order_id=order_id,
-        input_tokens=100,
-        output_tokens=500,
-    )
+    # Categorize by service
+    if "advisor" in tool_name:
+        _aggregate_usage.advisor_calls += 1
+    elif "vulnerability" in tool_name:
+        _aggregate_usage.vulnerability_calls += 1
+    # etc.
 
-    await metering.track_mcp_call(
-        order_id=order_id,
-        tool_name="insights_advisor_list_recommendations",
-    )
-
-    # Query usage
-    current = await metering.get_current_usage(order_id)
-    print("Current usage:", current)
-
-    now = datetime.utcnow()
-    summary = await metering.get_usage_summary(
-        order_id,
-        now - timedelta(hours=1),
-        now
-    )
-    print(f"API calls: {summary.total_api_calls}")
-    print(f"Tokens: {summary.total_tokens}")
-    print(f"MCP calls: {summary.total_mcp_calls}")
-
-asyncio.run(test_metering())
+    return None
 ```
 
-### Option 2: Using HTTP with Dev Mode
+### Database Persistence
 
-1. Set environment variables:
-```bash
-# .env
-SKIP_JWT_VALIDATION=true
+Replace the in-memory `AggregateUsage` with a database-backed implementation:
+
+```python
+from sqlalchemy.ext.asyncio import AsyncSession
+
+class DatabaseUsageTracker:
+    async def increment_tokens(self, session: AsyncSession, input: int, output: int):
+        await session.execute(
+            update(UsageRecord)
+            .values(
+                input_tokens=UsageRecord.input_tokens + input,
+                output_tokens=UsageRecord.output_tokens + output,
+            )
+        )
+        await session.commit()
 ```
 
-2. Start the server:
+### OpenTelemetry Integration
+
+ADK has built-in OpenTelemetry support. Enable it for distributed tracing:
+
 ```bash
-.venv/bin/uvicorn insights_agent.api.app:create_app --factory --reload
+# Enable OTEL export to Google Cloud
+adk run --otel_to_cloud agents/rh_insights_agent
 ```
 
-3. Make an A2A call with order tracking:
+Or configure programmatically:
+
+```python
+from opentelemetry import trace
+from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricsExporter
+
+# Export metrics to Cloud Monitoring
+exporter = CloudMonitoringMetricsExporter(project_id="your-project")
+```
+
+### Google Cloud Service Control
+
+For marketplace billing, implement a Service Control reporter:
+
+```python
+from google.cloud import servicecontrol_v1
+
+class ServiceControlReporter:
+    def __init__(self, service_name: str):
+        self.client = servicecontrol_v1.ServiceControllerClient()
+        self.service_name = service_name
+
+    async def report_usage(self, consumer_id: str, tokens: int):
+        operation = servicecontrol_v1.Operation(
+            operation_id=str(uuid.uuid4()),
+            consumer_id=consumer_id,
+            metric_value_sets=[
+                servicecontrol_v1.MetricValueSet(
+                    metric_name="tokens",
+                    metric_values=[
+                        servicecontrol_v1.MetricValue(int64_value=tokens)
+                    ],
+                )
+            ],
+        )
+
+        await self.client.report(
+            service_name=self.service_name,
+            operations=[operation],
+        )
+```
+
+### BigQuery Analytics
+
+ADK provides a BigQuery Agent Analytics Plugin for detailed analytics:
+
+```python
+from google.adk.plugins import BigQueryAnalyticsPlugin
+
+app = App(
+    name="insights-agent",
+    root_agent=agent,
+    plugins=[
+        UsageTrackingPlugin(),
+        BigQueryAnalyticsPlugin(
+            project_id="your-project",
+            dataset_id="agent_analytics",
+        ),
+    ],
+)
+```
+
+## Limitations
+
+The current in-memory implementation:
+- Resets when the application restarts
+- Is per-instance (not shared across replicas)
+- Does not persist historical data
+- Does not track per-user or per-order usage
+
+For production deployments with multiple replicas or billing requirements, implement database persistence or use external metrics systems.
+
+## Testing
+
 ```bash
-curl -X POST http://localhost:8000/a2a \
+# Start the server
+python -m insights_agent.main
+
+# Check initial usage
+curl http://localhost:8000/usage
+
+# Make A2A requests
+curl -X POST http://localhost:8000/ \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer dummy-token" \
-  -H "X-Order-ID: my-test-order" \
+  -H "Authorization: Bearer dev-token" \
   -d '{
     "jsonrpc": "2.0",
     "method": "message/send",
     "id": 1,
     "params": {
       "message": {
-        "messageId": "msg-1",
         "role": "user",
-        "parts": [{"type": "text", "text": "Hello"}]
+        "parts": [{"type": "text", "text": "What systems have critical vulnerabilities?"}]
       }
     }
   }'
+
+# Check updated usage
+curl http://localhost:8000/usage
 ```
 
-4. Check metering (dev user has metering scopes):
-```bash
-# User's own usage (dev-order)
-curl http://localhost:8000/metering/usage \
-  -H "Authorization: Bearer any-token"
+## References
 
-# Admin: check specific order
-curl http://localhost:8000/metering/admin/usage/my-test-order \
-  -H "Authorization: Bearer any-token"
-```
-
-### Option 3: Complete Test Script
-
-```bash
-.venv/bin/python << 'EOF'
-import asyncio
-from datetime import datetime, timedelta
-from insights_agent.metering.service import get_metering_service
-
-async def demo():
-    metering = get_metering_service()
-    order_id = "demo-order"
-
-    print("=== Before ===")
-    print(await metering.get_current_usage(order_id))
-
-    # Simulate usage
-    for i in range(3):
-        await metering.track_api_call(order_id=order_id, streaming=False)
-    await metering.track_token_usage(order_id=order_id, input_tokens=150, output_tokens=600)
-    await metering.track_mcp_call(order_id=order_id, tool_name="insights_advisor_list_recommendations")
-
-    print("\n=== After ===")
-    current = await metering.get_current_usage(order_id)
-    for k, v in sorted(current.items()):
-        if v > 0:
-            print(f"  {k}: {v}")
-
-asyncio.run(demo())
-EOF
-```
-
-## Production Considerations
-
-### Database Storage
-
-The default `UsageRepository` uses in-memory storage. For production:
-
-1. Implement a database-backed repository (PostgreSQL, BigQuery)
-2. Ensure atomic counter increments
-3. Implement data retention policies
-
-### Google Cloud Service Control
-
-For Google Cloud Marketplace integration, usage is reported to Service Control:
-
-```python
-from insights_agent.service_control import UsageReporter
-
-reporter = UsageReporter()
-await reporter.report_usage(order_id, metrics)
-```
-
-### Configuration
-
-```bash
-# Enable Service Control reporting
-SERVICE_CONTROL_ENABLED=true
-SERVICE_CONTROL_SERVICE_NAME=your-service.endpoints.your-project.cloud.goog
-
-# Reporting interval (seconds)
-USAGE_REPORT_INTERVAL_SECONDS=3600
-```
-
-## Troubleshooting
-
-### No usage being tracked
-
-1. Ensure requests have an `order_id` (via auth or X-Order-ID header)
-2. Check that requests are going to tracked paths (`/a2a`, `/a2a/stream`)
-3. Verify MeteringMiddleware is enabled
-
-### Can't access metering endpoints
-
-1. Ensure JWT token has `metering:read` scope
-2. For admin endpoints, need `metering:admin` scope
-3. In dev mode (`SKIP_JWT_VALIDATION=true`), any Bearer token works
-
-### Usage not matching expectations
-
-1. Check if requests were rate-limited (not billed)
-2. Verify the correct `order_id` is being used
-3. Check time range in queries
+- [ADK Plugins Documentation](https://google.github.io/adk-docs/plugins/)
+- [ADK Callbacks Documentation](https://google.github.io/adk-docs/callbacks/)
+- [ADK OpenTelemetry Integration](https://docs.cloud.google.com/stackdriver/docs/instrumentation/ai-agent-adk)
+- [BigQuery Agent Analytics Plugin](https://codelabs.developers.google.com/adk-bigquery-agent-analytics-plugin)
