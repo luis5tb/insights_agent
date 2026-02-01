@@ -1,41 +1,38 @@
-"""A2A (Agent-to-Agent) protocol implementation using official a2a-sdk."""
+"""A2A (Agent-to-Agent) protocol implementation using official a2a-sdk.
 
+This module uses ADK's built-in A2A integration which handles:
+- SSE streaming with proper event formatting
+- Task state management
+- Event conversion between ADK and A2A formats
+- JSON-RPC 2.0 protocol compliance
+"""
+
+from insights_agent.api.a2a.a2a_setup import setup_a2a_routes
 from insights_agent.api.a2a.agent_card import (
     build_agent_card,
     get_agent_card_dict,
 )
 from insights_agent.api.a2a.models import (
-    # Custom types
-    A2AError,
-    A2AErrorCode,
-    # SDK types
     AgentCapabilities,
     AgentCard,
-    AgentInterface,
     AgentProvider,
     AgentSkill,
     Artifact,
     DataPart,
-    DCRExtension,
     FilePart,
-    JSONRPCRequest,
-    JSONRPCResponse,
     Message,
     MessageSendConfiguration,
-    OAuthSecurityScheme,
     Part,
     Role,
-    SecurityRequirement,
-    SendMessageRequest,
-    SendMessageResponse,
     Task,
     TaskState,
     TaskStatus,
     TextPart,
 )
-from insights_agent.api.a2a.router import router as a2a_router
 
 __all__ = [
+    # A2A Setup
+    "setup_a2a_routes",
     # Agent Card
     "build_agent_card",
     "get_agent_card_dict",
@@ -55,17 +52,4 @@ __all__ = [
     "TaskState",
     "TaskStatus",
     "TextPart",
-    # Custom types
-    "A2AError",
-    "A2AErrorCode",
-    "AgentInterface",
-    "DCRExtension",
-    "JSONRPCRequest",
-    "JSONRPCResponse",
-    "OAuthSecurityScheme",
-    "SecurityRequirement",
-    "SendMessageRequest",
-    "SendMessageResponse",
-    # Router
-    "a2a_router",
 ]

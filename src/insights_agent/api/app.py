@@ -4,14 +4,17 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from insights_agent.api.a2a import a2a_router
+from insights_agent.api.a2a.a2a_setup import setup_a2a_routes
+from insights_agent.api.a2a.agent_card import get_agent_card_dict
+from insights_agent.api.a2a.usage_plugin import get_aggregate_usage
 from insights_agent.auth import oauth_router
 from insights_agent.config import get_settings
 from insights_agent.dcr import dcr_router
 from insights_agent.marketplace import marketplace_router
-from insights_agent.metering import MeteringMiddleware, metering_router
-from insights_agent.ratelimit import RateLimitMiddleware, get_rate_limiter
+from insights_agent.metering import MeteringMiddleware
+from insights_agent.ratelimit import RateLimitMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +51,6 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error("Failed to stop reporting scheduler: %s", e)
 
-    # Shutdown: Close rate limiter Redis connection
-    try:
-        rate_limiter = get_rate_limiter()
-        await rate_limiter.close()
-    except Exception as e:
-        logger.error("Failed to close rate limiter: %s", e)
-
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application.
@@ -85,14 +81,19 @@ def create_app() -> FastAPI:
         """Readiness check endpoint."""
         return {"status": "ready", "agent": settings.agent_name}
 
-    # Include A2A protocol router
-    # Provides:
+    # Set up A2A protocol routes using ADK's built-in integration
+    # This provides:
     # - GET /.well-known/agent.json - AgentCard
-    # - POST /a2a - SendMessage (JSON-RPC 2.0)
-    # - POST /a2a/stream - SendStreamingMessage (SSE)
-    # - GET /a2a/tasks/{task_id} - GetTask
-    # - DELETE /a2a/tasks/{task_id} - CancelTask
-    app.include_router(a2a_router)
+    # - POST / - JSON-RPC 2.0 endpoint for message/send, message/stream, etc.
+    # The ADK integration handles SSE streaming, task management, and
+    # event conversion automatically.
+    setup_a2a_routes(app)
+
+    # Alias for agent card (some clients use agent-card.json instead of agent.json)
+    @app.get("/.well-known/agent-card.json")
+    async def agent_card_alias() -> dict:
+        """AgentCard endpoint (alias for agent.json)."""
+        return get_agent_card_dict()
 
     # Include OAuth 2.0 router
     # Provides: /oauth/authorize, /oauth/callback, /oauth/token, /oauth/userinfo
@@ -113,14 +114,16 @@ def create_app() -> FastAPI:
     # - GET /marketplace/accounts/{account_id}/validate - Validate account for DCR
     app.include_router(marketplace_router)
 
-    # Include Metering router
-    # Provides:
-    # - GET /metering/usage - Get usage summary for authenticated order
-    # - GET /metering/usage/current - Get current (all-time) usage counters
-    # - GET /metering/usage/billable - Get billable usage for billing period
-    # - GET /metering/admin/usage/{order_id} - Admin: Get usage for any order
-    # - GET /metering/admin/billable - Admin: Get all billable usage
-    app.include_router(metering_router)
+    # Usage statistics endpoint
+    # Returns aggregate token and request counts tracked by UsageTrackingPlugin
+    @app.get("/usage")
+    async def get_usage_stats() -> dict:
+        """Get aggregate usage statistics."""
+        usage = get_aggregate_usage()
+        return {
+            "status": "ok",
+            "usage": usage.to_dict(),
+        }
 
     # Add metering middleware for automatic usage tracking
     app.add_middleware(MeteringMiddleware)
@@ -129,6 +132,17 @@ def create_app() -> FastAPI:
     # Note: Middleware is applied in reverse order, so rate limiting
     # is checked before metering
     app.add_middleware(RateLimitMiddleware)
+
+    # Add CORS middleware for A2A Inspector and other browser-based clients
+    # This must be added after other middleware to be processed first
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Allow all origins for development
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+    )
 
     # Include Service Control router (admin endpoints for usage reporting)
     # Provides:

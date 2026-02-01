@@ -4,7 +4,6 @@ from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentExtension,
-    AgentInterface,
     AgentProvider,
     AgentSkill,
     AuthorizationCodeOAuthFlow,
@@ -82,19 +81,6 @@ def _build_capabilities() -> AgentCapabilities:
     )
 
 
-def _build_additional_interfaces() -> list[AgentInterface]:
-    """Build additional protocol interfaces."""
-    settings = get_settings()
-
-    # Additional interface for SSE streaming
-    return [
-        AgentInterface(
-            transport="jsonrpc/http+sse",
-            url=f"{settings.agent_provider_url}/a2a/stream",
-        ),
-    ]
-
-
 def build_agent_card() -> AgentCard:
     """Build the complete AgentCard for the Insights Agent.
 
@@ -112,13 +98,12 @@ def build_agent_card() -> AgentCard:
     oauth_scheme = _build_oauth_security_scheme()
     capabilities = _build_capabilities()
     skills = _build_skills()
-    additional_interfaces = _build_additional_interfaces()
 
     agent_card = AgentCard(
         name=settings.agent_name,
         description=settings.agent_description,
         version="0.1.0",
-        url=settings.agent_provider_url,
+        url=f"{settings.agent_provider_url}/",
         protocol_version="0.2.3",
         provider=provider,
         capabilities=capabilities,
@@ -131,7 +116,6 @@ def build_agent_card() -> AgentCard:
         ],
         default_input_modes=["text"],
         default_output_modes=["text"],
-        additional_interfaces=additional_interfaces,
     )
 
     return agent_card
