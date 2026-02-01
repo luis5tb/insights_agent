@@ -4,7 +4,6 @@
 #   - insights-agent: Main A2A agent (Gemini + Google ADK)
 #   - insights-mcp: Red Hat Insights MCP server (tools for console.redhat.com)
 #   - postgres: PostgreSQL database for persistence
-#   - redis: Redis for rate limiting and caching
 #   - a2a-inspector: Web UI for interacting with the agent (optional)
 #
 # The agent passes Lightspeed credentials to the MCP server via HTTP headers,
@@ -14,7 +13,7 @@
 #
 # Prerequisites (run from repository root):
 #   1. Build the agent image: podman build -t localhost/insights-agent:latest -f Containerfile .
-#   2. Build the A2A Inspector image (optional, for web UI):
+#   2. (Optional) Build the A2A Inspector image:
 #        git clone https://github.com/a2aproject/a2a-inspector.git /tmp/a2a-inspector
 #        podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
 #   3. Create config directory: mkdir -p config
@@ -32,8 +31,8 @@
 #   podman logs insights-agent-pod-insights-agent
 #   podman logs insights-agent-pod-insights-mcp
 #
-#   # Access A2A Inspector web UI at http://localhost:5001
-#   # In the UI, connect to the agent at: http://localhost:8000
+#   # Access A2A Inspector web UI at http://localhost:8080
+#   # In the UI, enter http://localhost:8000 as the agent URL
 #
 # Usage with Kubernetes:
 #   kubectl apply -f deploy/podman/my-secrets.yaml
@@ -97,11 +96,6 @@ spec:
             secretKeyRef:
               name: insights-agent-secrets
               key: LIGHTSPEED_CLIENT_SECRET
-        - name: REDIS_URL
-          valueFrom:
-            secretKeyRef:
-              name: insights-agent-secrets
-              key: REDIS_URL
       ports:
         - containerPort: 8000
           hostPort: 8000
@@ -129,8 +123,8 @@ spec:
         - "--host"
         - "$(MCP_SERVER_HOST)"
       ports:
-        - containerPort: 8080
-          hostPort: 8080
+        - containerPort: 8081
+          hostPort: 8081
 
     # =========================================================================
     # PostgreSQL Database
@@ -152,40 +146,20 @@ spec:
           mountPath: /var/lib/pgsql/data:Z
 
     # =========================================================================
-    # Redis (Rate Limiting and Caching)
-    # =========================================================================
-    - name: redis
-      image: registry.redhat.io/rhel9/redis-7:latest
-      env:
-        # Red Hat Redis image requires a password matching regex: ^[a-zA-Z0-9_~!@#$%^&*()-=<>,.?;:|]+$
-        - name: REDIS_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: insights-agent-secrets
-              key: REDIS_PASSWORD
-      ports:
-        - containerPort: 6379
-          hostPort: 6379
-      volumeMounts:
-        - name: redisdata
-          mountPath: /var/lib/redis/data:Z
-
-    # =========================================================================
     # A2A Inspector - Web UI for Agent Interaction
     # =========================================================================
     # Provides a web interface to interact with the A2A agent, view agent cards,
     # validate spec compliance, and debug JSON-RPC 2.0 messages.
-    # Access at http://localhost:5001 and connect to http://localhost:8000
+    # Access at http://localhost:8080 and connect to http://localhost:8000
     #
     # Build the inspector image first:
-    #   git clone https://github.com/a2aproject/a2a-inspector.git
-    #   cd a2a-inspector
-    #   podman build -t localhost/a2a-inspector:latest .
+    #   git clone https://github.com/a2aproject/a2a-inspector.git /tmp/a2a-inspector
+    #   podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
     - name: a2a-inspector
       image: localhost/a2a-inspector:latest
       ports:
         - containerPort: 8080
-          hostPort: 5001
+          hostPort: 8080
 
   volumes:
     - name: config
@@ -197,10 +171,4 @@ spec:
       # Uncomment below and comment out emptyDir to persist data between pod restarts
       # hostPath:
       #   path: ./data/pgdata
-      #   type: DirectoryOrCreate
-    - name: redisdata
-      emptyDir: {}
-      # Uncomment below and comment out emptyDir to persist data between pod restarts
-      # hostPath:
-      #   path: ./data/redisdata
       #   type: DirectoryOrCreate

@@ -7,7 +7,6 @@
 # - Enables required APIs
 # - Creates service account with appropriate permissions
 # - Creates secrets in Secret Manager
-# - Sets up Cloud SQL (PostgreSQL) or Memorystore (Redis) if needed
 #
 # Usage:
 #   ./deploy/cloudrun/setup.sh
@@ -66,7 +65,6 @@ apis=(
     "secretmanager.googleapis.com"
     "aiplatform.googleapis.com"
     "sqladmin.googleapis.com"
-    "redis.googleapis.com"
     "cloudscheduler.googleapis.com"
     "pubsub.googleapis.com"
     "servicecontrol.googleapis.com"
@@ -102,7 +100,6 @@ roles=(
     "roles/secretmanager.secretAccessor"
     "roles/aiplatform.user"
     "roles/cloudsql.client"
-    "roles/redis.editor"
     "roles/pubsub.subscriber"
     "roles/pubsub.publisher"
     "roles/servicecontrol.serviceController"
@@ -130,7 +127,6 @@ secrets=(
     "redhat-sso-client-id"
     "redhat-sso-client-secret"
     "database-url"
-    "redis-url"
 )
 
 for secret in "${secrets[@]}"; do
@@ -197,7 +193,6 @@ echo "1. Update secrets with actual values:"
 echo "   echo -n 'YOUR_API_KEY' | gcloud secrets versions add google-api-key --data-file=- --project=$PROJECT_ID"
 echo "   echo -n 'YOUR_CLIENT_ID' | gcloud secrets versions add lightspeed-client-id --data-file=- --project=$PROJECT_ID"
 echo "   echo -n 'YOUR_CLIENT_SECRET' | gcloud secrets versions add lightspeed-client-secret --data-file=- --project=$PROJECT_ID"
-echo "   echo -n 'redis://localhost:6379/0' | gcloud secrets versions add redis-url --data-file=- --project=$PROJECT_ID"
 echo "   echo -n 'postgresql+asyncpg://user:pass@host:5432/db' | gcloud secrets versions add database-url --data-file=- --project=$PROJECT_ID"
 echo "   # ... repeat for other secrets (redhat-sso-client-id, redhat-sso-client-secret)"
 echo ""

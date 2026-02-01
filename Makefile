@@ -75,7 +75,7 @@ run: check-env build
 	@echo "  - Agent API:  http://localhost:8000"
 	@echo "  - Health:     http://localhost:8000/health"
 	@echo "  - AgentCard:  http://localhost:8000/.well-known/agent.json"
-	@echo "  - MCP Server: http://localhost:8080 (internal)"
+	@echo "  - MCP Server: http://localhost:8081 (internal)"
 	@echo ""
 	@echo "View logs:"
 	@echo "  make logs      - Agent logs"

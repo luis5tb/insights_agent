@@ -97,10 +97,6 @@ echo -n 'your-sso-client-secret' | \
 # Database URL (Cloud SQL)
 echo -n 'postgresql+asyncpg://user:pass@/dbname?host=/cloudsql/PROJECT:REGION:INSTANCE' | \
   gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
-
-# Redis URL (Memorystore)
-echo -n 'redis://10.0.0.1:6379/0' | \
-  gcloud secrets versions add redis-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 ```
 
 ### 4. Deploy
@@ -219,7 +215,8 @@ After deployment, the following endpoints are available:
 | `GET /health` | Health check |
 | `GET /ready` | Readiness check |
 | `GET /.well-known/agent.json` | A2A AgentCard |
-| `POST /a2a` | A2A message endpoint |
+| `POST /` | A2A JSON-RPC endpoint (message/send, message/stream) |
+| `GET /usage` | Aggregate usage statistics |
 | `GET /oauth/authorize` | OAuth authorization |
 | `GET /oauth/callback` | OAuth callback |
 | `POST /oauth/token` | OAuth token endpoint |
@@ -286,58 +283,6 @@ gcloud run logs read insights-agent \
      --region=$GOOGLE_CLOUD_LOCATION \
      --project=$GOOGLE_CLOUD_PROJECT
    ```
-
-### Memorystore (Redis)
-
-1. Create Memorystore instance:
-   ```bash
-   gcloud redis instances create insights-agent-redis \
-     --size=1 \
-     --region=$GOOGLE_CLOUD_LOCATION \
-     --project=$GOOGLE_CLOUD_PROJECT
-   ```
-
-2. Get the Redis IP:
-   ```bash
-   REDIS_HOST=$(gcloud redis instances describe insights-agent-redis \
-     --region=$GOOGLE_CLOUD_LOCATION \
-     --project=$GOOGLE_CLOUD_PROJECT \
-     --format='value(host)')
-   ```
-
-3. Update REDIS_URL secret:
-   ```bash
-   echo -n "redis://$REDIS_HOST:6379/0" | \
-     gcloud secrets versions add redis-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
-   ```
-
-4. Configure VPC connector for Cloud Run to access Memorystore:
-
-   Cloud Run services run outside your VPC by default. To access Memorystore (which is VPC-only), you need a Serverless VPC Access connector.
-
-   ```bash
-   # Enable the Serverless VPC Access API
-   gcloud services enable vpcaccess.googleapis.com --project=$GOOGLE_CLOUD_PROJECT
-
-   # Create a VPC connector (uses the default VPC network)
-   gcloud compute networks vpc-access connectors create insights-agent-connector \
-     --region=$GOOGLE_CLOUD_LOCATION \
-     --range="10.8.0.0/28" \
-     --project=$GOOGLE_CLOUD_PROJECT
-
-   # Update Cloud Run service to use the connector
-   gcloud run services update insights-agent \
-     --vpc-connector=insights-agent-connector \
-     --vpc-egress=private-ranges-only \
-     --region=$GOOGLE_CLOUD_LOCATION \
-     --project=$GOOGLE_CLOUD_PROJECT
-   ```
-
-   **Notes:**
-   - The `--range` must be an unused `/28` CIDR block in your VPC
-   - Use `--vpc-egress=private-ranges-only` to route only private IP traffic through the connector
-   - If using a custom VPC network, add `--network=YOUR_NETWORK` to the connector create command
-   - The connector and Memorystore instance must be in the same region
 
 ## CI/CD with Cloud Build
 
@@ -409,7 +354,6 @@ gcloud run services describe insights-agent \
 1. **Secret access denied**: Ensure service account has `secretmanager.secretAccessor` role
 2. **Container fails to start**: Check logs for missing environment variables
 3. **Database connection timeout**: Ensure Cloud SQL connection is configured
-4. **Redis connection failed**: Ensure VPC connector is configured for Memorystore
 
 ## Cleanup / Teardown
 
@@ -431,10 +375,9 @@ Use `--force` to skip the confirmation prompt:
 ./deploy/cloudrun/cleanup.sh --force
 ```
 
-**Note**: The cleanup script does NOT delete Cloud SQL instances, Memorystore instances, or VPC connectors that may have been created manually. Delete these separately if needed:
+**Note**: The cleanup script does NOT delete Cloud SQL instances or VPC connectors that may have been created manually. Delete these separately if needed:
 
 ```bash
 gcloud sql instances delete INSTANCE_NAME --project=$GOOGLE_CLOUD_PROJECT
-gcloud redis instances delete INSTANCE_NAME --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
 gcloud compute networks vpc-access connectors delete CONNECTOR_NAME --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
 ```

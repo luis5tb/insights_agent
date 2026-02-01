@@ -109,11 +109,6 @@ spec:
                 secretKeyRef:
                   name: database-url
                   key: latest
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: redis-url
-                  key: latest
           # Health checks
           startupProbe:
             httpGet:
