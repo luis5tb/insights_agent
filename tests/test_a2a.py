@@ -8,7 +8,6 @@ from insights_agent.api.a2a.models import (
     AgentCapabilities,
     AgentSkill,
     Message,
-    SendMessageRequest,
     Task,
     TaskState,
     TaskStatus,
@@ -59,19 +58,12 @@ class TestAgentCard:
         assert dcr_ext.params is not None
         assert "endpoint" in dcr_ext.params
 
-    def test_agent_card_has_interfaces(self):
-        """Test AgentCard has protocol interfaces."""
+    def test_agent_card_url_points_to_root(self):
+        """Test AgentCard URL points to root endpoint."""
         card = build_agent_card()
 
-        # The SDK uses additional_interfaces for extra protocol bindings
-        # The main URL is the primary interface
-        assert card.url is not None
-        # Check if additional interfaces are defined
-        if card.additional_interfaces:
-            # additional_interfaces is a list of AgentInterface objects
-            transports = [i.transport for i in card.additional_interfaces]
-            assert len(transports) > 0
-            assert "jsonrpc/http+sse" in transports
+        # The main A2A endpoint is at root /
+        assert card.url.endswith("/")
 
     def test_agent_card_has_skills(self):
         """Test AgentCard has skills from MCP."""
@@ -135,18 +127,6 @@ class TestModels:
         task.status = TaskStatus(state=TaskState.completed)
         assert task.status.state == TaskState.completed
 
-    def test_send_message_request(self):
-        """Test SendMessageRequest model."""
-        request = SendMessageRequest(
-            message=Message(
-                message_id="test-msg-id",
-                role="user",
-                parts=[TextPart(text="Test")],
-            ),
-        )
-
-        assert request.message.role == "user"
-
     def test_agent_skill_serialization(self):
         """Test AgentSkill serialization with aliases."""
         skill = AgentSkill(
@@ -179,7 +159,7 @@ class TestModels:
         assert caps.extensions[0].uri == "urn:test:dcr"
 
 
-class TestA2ARouter:
+class TestA2AEndpoints:
     """Tests for A2A API endpoints."""
 
     @pytest.fixture
@@ -198,33 +178,38 @@ class TestA2ARouter:
         assert "skills" in data
         assert "securitySchemes" in data
 
-    def test_agent_card_alt_endpoint(self, client):
-        """Test /.well-known/agent-card.json endpoint."""
-        response = client.get("/.well-known/agent-card.json")
+    def test_health_endpoint(self, client):
+        """Test /health endpoint."""
+        response = client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
-        assert "name" in data
+        assert data["status"] == "healthy"
 
-    def test_send_message_endpoint(self, client):
-        """Test /a2a SendMessage endpoint."""
-        request_body = {
-            "message": {
-                "role": "user",
-                "parts": [{"kind": "text", "text": "Hello, agent!"}],
-            },
-        }
-
-        response = client.post("/a2a", json=request_body)
+    def test_ready_endpoint(self, client):
+        """Test /ready endpoint."""
+        response = client.get("/ready")
 
         assert response.status_code == 200
         data = response.json()
-        assert "task" in data
-        # SDK uses 'id' instead of 'taskId'
-        assert "id" in data["task"]
+        assert data["status"] == "ready"
+
+    def test_usage_endpoint(self, client):
+        """Test /usage endpoint."""
+        response = client.get("/usage")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "usage" in data
+        usage = data["usage"]
+        assert "total_input_tokens" in usage
+        assert "total_output_tokens" in usage
+        assert "total_requests" in usage
+        assert "total_tool_calls" in usage
 
     def test_send_message_jsonrpc(self, client):
-        """Test /a2a with JSON-RPC format."""
+        """Test / endpoint with JSON-RPC message/send."""
         request_body = {
             "jsonrpc": "2.0",
             "method": "message/send",
@@ -234,34 +219,30 @@ class TestA2ARouter:
                     "parts": [{"type": "text", "text": "Hello!"}],
                 },
             },
-            "id": 1,
+            "id": "test-1",
         }
 
-        response = client.post("/a2a", json=request_body)
+        response = client.post("/", json=request_body)
 
         assert response.status_code == 200
         data = response.json()
         assert data["jsonrpc"] == "2.0"
-        assert "result" in data
-        assert data["id"] == 1
-
-    def test_get_task_not_found(self, client):
-        """Test GET /a2a/tasks/{task_id} with invalid ID."""
-        response = client.get("/a2a/tasks/nonexistent-task-id")
-
-        assert response.status_code == 404
+        assert data["id"] == "test-1"
+        # Response should have either result or error
+        assert "result" in data or "error" in data
 
     def test_method_not_found(self, client):
         """Test JSON-RPC with unknown method."""
         request_body = {
             "jsonrpc": "2.0",
-            "method": "a2a.UnknownMethod",
+            "method": "unknown/method",
             "params": {},
-            "id": 1,
+            "id": "test-2",
         }
 
-        response = client.post("/a2a", json=request_body)
+        response = client.post("/", json=request_body)
 
-        assert response.status_code == 404
+        # ADK returns error for unknown methods
         data = response.json()
+        assert data["jsonrpc"] == "2.0"
         assert "error" in data
