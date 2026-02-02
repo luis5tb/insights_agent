@@ -3,10 +3,21 @@
 # Google Cloud Run Deployment Script
 # =============================================================================
 #
-# Deploys the Insights Agent to Google Cloud Run
+# Deploys the Insights Agent to Google Cloud Run with MCP sidecar
 #
 # Usage:
-#   ./deploy/cloudrun/deploy.sh [--with-ui] [--allow-unauthenticated]
+#   ./deploy/cloudrun/deploy.sh [OPTIONS]
+#
+# Options:
+#   --method <method>     Deployment method: yaml, adk, cloudbuild
+#                         (default: yaml)
+#   --image <image>       Container image for the agent
+#                         (default: gcr.io/$PROJECT_ID/insights-agent:latest)
+#   --mcp-image <image>   Container image for the MCP server
+#                         (default: ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest)
+#   --with-ui             Include ADK web UI (only for adk method)
+#   --allow-unauthenticated  Allow public access
+#   --build               Build the agent image before deploying
 #
 # Prerequisites:
 #   - Run setup.sh first to configure GCP services
@@ -35,12 +46,30 @@ REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-insights-agent}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 
+# Default images
+AGENT_IMAGE="${AGENT_IMAGE:-}"
+MCP_IMAGE="${MCP_IMAGE:-ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest}"
+
 # Parse arguments
+DEPLOY_METHOD="yaml"
 WITH_UI=false
 ALLOW_UNAUTH=false
+BUILD_IMAGE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --method)
+            DEPLOY_METHOD="$2"
+            shift 2
+            ;;
+        --image)
+            AGENT_IMAGE="$2"
+            shift 2
+            ;;
+        --mcp-image)
+            MCP_IMAGE="$2"
+            shift 2
+            ;;
         --with-ui)
             WITH_UI=true
             shift
@@ -49,8 +78,13 @@ while [[ $# -gt 0 ]]; do
             ALLOW_UNAUTH=true
             shift
             ;;
+        --build)
+            BUILD_IMAGE=true
+            shift
+            ;;
         *)
             log_error "Unknown option: $1"
+            echo "Usage: $0 [--method yaml|adk|cloudbuild] [--image IMAGE] [--mcp-image IMAGE] [--with-ui] [--allow-unauthenticated] [--build]"
             exit 1
             ;;
     esac
@@ -62,16 +96,75 @@ if [[ -z "$PROJECT_ID" ]]; then
     exit 1
 fi
 
+# Set default agent image if not specified
+if [[ -z "$AGENT_IMAGE" ]]; then
+    AGENT_IMAGE="gcr.io/${PROJECT_ID}/insights-agent:${IMAGE_TAG}"
+fi
+
 log_info "Deploying Insights Agent to Cloud Run"
 log_info "  Project: $PROJECT_ID"
 log_info "  Region: $REGION"
 log_info "  Service: $SERVICE_NAME"
+log_info "  Method: $DEPLOY_METHOD"
+log_info "  Agent Image: $AGENT_IMAGE"
+log_info "  MCP Image: $MCP_IMAGE"
 
 # =============================================================================
-# Option 1: Deploy using ADK CLI (recommended)
+# Build image if requested
+# =============================================================================
+build_image() {
+    log_info "Building agent image..."
+
+    gcloud builds submit \
+        --tag "$AGENT_IMAGE" \
+        --project "$PROJECT_ID" \
+        .
+
+    log_info "Image built: $AGENT_IMAGE"
+}
+
+# =============================================================================
+# Option 1: Deploy using service.yaml (recommended - includes MCP sidecar)
+# =============================================================================
+deploy_with_yaml() {
+    log_info "Deploying with service.yaml..."
+
+    # Create temporary file with substituted values
+    local tmp_yaml
+    tmp_yaml=$(mktemp)
+
+    # Substitute variables in service.yaml
+    sed -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
+        -e "s|\${REGION}|${REGION}|g" \
+        -e "s|gcr.io/\${PROJECT_ID}/insights-agent:latest|${AGENT_IMAGE}|g" \
+        -e "s|ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest|${MCP_IMAGE}|g" \
+        deploy/cloudrun/service.yaml > "$tmp_yaml"
+
+    # Deploy using the YAML
+    gcloud run services replace "$tmp_yaml" \
+        --region "$REGION" \
+        --project "$PROJECT_ID"
+
+    # Set IAM policy if allowing unauthenticated
+    if [[ "$ALLOW_UNAUTH" == "true" ]]; then
+        log_info "Allowing unauthenticated access..."
+        gcloud run services add-iam-policy-binding "$SERVICE_NAME" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --member="allUsers" \
+            --role="roles/run.invoker"
+    fi
+
+    # Cleanup
+    rm -f "$tmp_yaml"
+}
+
+# =============================================================================
+# Option 2: Deploy using ADK CLI
 # =============================================================================
 deploy_with_adk() {
     log_info "Deploying with ADK CLI..."
+    log_warn "Note: ADK deploy does not support MCP sidecar. Use --method yaml or --method gcloud instead."
 
     local cmd="adk deploy cloud_run \
         --project=$PROJECT_ID \
@@ -85,39 +178,9 @@ deploy_with_adk() {
 
     # ADK expects the agent directory
     $cmd .
-}
 
-# =============================================================================
-# Option 2: Deploy using gcloud CLI
-# =============================================================================
-deploy_with_gcloud() {
-    log_info "Deploying with gcloud CLI..."
-
-    # Build arguments
-    local auth_flag=""
-    if [[ "$ALLOW_UNAUTH" == "true" ]]; then
-        auth_flag="--allow-unauthenticated"
-    else
-        auth_flag="--no-allow-unauthenticated"
-    fi
-
-    # Deploy from source
-    gcloud run deploy "$SERVICE_NAME" \
-        --source . \
-        --region "$REGION" \
-        --project "$PROJECT_ID" \
-        --platform managed \
-        --port 8000 \
-        --cpu 2 \
-        --memory 2Gi \
-        --min-instances 0 \
-        --max-instances 10 \
-        --timeout 300 \
-        --concurrency 80 \
-        --service-account "insights-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
-        --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},AGENT_HOST=0.0.0.0,AGENT_PORT=8000,LOG_FORMAT=json" \
-        --set-secrets "GOOGLE_API_KEY=google-api-key:latest,LIGHTSPEED_CLIENT_ID=lightspeed-client-id:latest,LIGHTSPEED_CLIENT_SECRET=lightspeed-client-secret:latest,RED_HAT_SSO_CLIENT_ID=redhat-sso-client-id:latest,RED_HAT_SSO_CLIENT_SECRET=redhat-sso-client-secret:latest,REDIS_URL=redis-url:latest,DATABASE_URL=database-url:latest" \
-        $auth_flag
+    log_warn "MCP sidecar was not deployed. The agent will not have access to Red Hat Insights tools."
+    log_warn "To add MCP sidecar, run: ./deploy/cloudrun/deploy.sh --method yaml"
 }
 
 # =============================================================================
@@ -129,20 +192,40 @@ deploy_with_cloudbuild() {
     gcloud builds submit \
         --config=cloudbuild.yaml \
         --project="$PROJECT_ID" \
-        --substitutions="_SERVICE_NAME=${SERVICE_NAME},_REGION=${REGION},_IMAGE_TAG=${IMAGE_TAG}"
+        --substitutions="_SERVICE_NAME=${SERVICE_NAME},_REGION=${REGION},_IMAGE_TAG=${IMAGE_TAG},_MCP_IMAGE=${MCP_IMAGE}"
 }
 
 # =============================================================================
 # Main deployment
 # =============================================================================
 
-# Check if ADK is available
-if command -v adk &>/dev/null; then
-    deploy_with_adk
-else
-    log_info "ADK CLI not found, using gcloud CLI"
-    deploy_with_gcloud
+# Build image if requested
+if [[ "$BUILD_IMAGE" == "true" ]]; then
+    build_image
 fi
+
+# Deploy based on method
+case "$DEPLOY_METHOD" in
+    yaml)
+        deploy_with_yaml
+        ;;
+    adk)
+        if command -v adk &>/dev/null; then
+            deploy_with_adk
+        else
+            log_error "ADK CLI not found. Install it or use --method yaml"
+            exit 1
+        fi
+        ;;
+    cloudbuild)
+        deploy_with_cloudbuild
+        ;;
+    *)
+        log_error "Unknown deployment method: $DEPLOY_METHOD"
+        echo "Valid methods: yaml, adk, cloudbuild"
+        exit 1
+        ;;
+esac
 
 # =============================================================================
 # Post-deployment

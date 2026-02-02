@@ -102,69 +102,103 @@ echo -n 'your-sso-client-secret' | \
 
 ### 4. Deploy
 
+The deploy script supports multiple deployment methods. The default (`yaml`) is recommended
+as it includes the MCP sidecar container.
+
 ```bash
-./deploy/cloudrun/deploy.sh
+# Build and deploy (recommended for first deployment)
+./deploy/cloudrun/deploy.sh --build
+
+# Deploy with existing image
+./deploy/cloudrun/deploy.sh --image gcr.io/my-project/insights-agent:v1.0
 ```
 
 **Deploy script options:**
 
 | Flag | Description |
 |------|-------------|
-| `--with-ui` | Include the ADK web UI for interactive agent testing |
-| `--allow-unauthenticated` | Allow public access without authentication |
+| `--method <method>` | Deployment method: `yaml` (default), `adk`, `cloudbuild` |
+| `--image <image>` | Container image for the agent (default: `gcr.io/$PROJECT_ID/insights-agent:latest`) |
+| `--mcp-image <image>` | Container image for the MCP server (default: `ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest`) |
+| `--build` | Build the agent image before deploying |
+| `--with-ui` | Include the ADK web UI (only for `adk` method) |
+| `--allow-unauthenticated` | Allow public access without Cloud Run IAM authentication |
 
-Example with web UI:
+**Deployment methods:**
+
+| Method | MCP Sidecar | Description |
+|--------|-------------|-------------|
+| `yaml` | ✅ Yes | Uses `service.yaml` with variable substitution (recommended) |
+| `adk` | ❌ No | Uses ADK CLI (does not support sidecars) |
+| `cloudbuild` | ✅ Yes | Uses Cloud Build with `cloudbuild.yaml` |
+
+**Examples:**
+
 ```bash
-./deploy/cloudrun/deploy.sh --with-ui
-```
+# Deploy using service.yaml (default, includes MCP sidecar)
+./deploy/cloudrun/deploy.sh --build
 
-Or use the ADK CLI directly:
+# Deploy with custom image registry
+./deploy/cloudrun/deploy.sh --image quay.io/myorg/insights-agent:latest
 
-```bash
-adk deploy cloud_run \
-  --project=$GOOGLE_CLOUD_PROJECT \
-  --region=$GOOGLE_CLOUD_LOCATION \
-  --service_name=$SERVICE_NAME \
-  .
+# Deploy with ADK CLI (no MCP sidecar - not recommended for production)
+./deploy/cloudrun/deploy.sh --method adk --with-ui
+
+# Deploy using Cloud Build
+./deploy/cloudrun/deploy.sh --method cloudbuild
 ```
 
 ## Deployment Options
 
-### Using ADK CLI (Recommended)
+### Using service.yaml (Recommended)
+
+The `service.yaml` file defines both the agent and MCP sidecar containers:
 
 ```bash
-adk deploy cloud_run \
-  --project=$GOOGLE_CLOUD_PROJECT \
-  --region=$GOOGLE_CLOUD_LOCATION \
-  --service_name=insights-agent \
-  --with_ui \
-  .
+# Build image first
+gcloud builds submit --tag gcr.io/$GOOGLE_CLOUD_PROJECT/insights-agent:latest .
+
+# Deploy using service.yaml
+./deploy/cloudrun/deploy.sh --method yaml
+```
+
+Or manually:
+```bash
+# Substitute variables and deploy
+sed -e "s|\${PROJECT_ID}|$GOOGLE_CLOUD_PROJECT|g" \
+    -e "s|\${REGION}|$GOOGLE_CLOUD_LOCATION|g" \
+    deploy/cloudrun/service.yaml | \
+    gcloud run services replace - --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
+```
+
+### Using ADK CLI (No MCP Sidecar)
+
+> **Warning**: ADK CLI does not support sidecar containers. The agent will not
+> have access to Red Hat Insights tools. Use only for testing the agent framework.
+
+```bash
+./deploy/cloudrun/deploy.sh --method adk --with-ui
 ```
 
 **ADK CLI options:**
 
 | Option | Description |
 |--------|-------------|
-| `--with_ui` | Deploy with the ADK web UI, providing an interactive chat interface for testing the agent directly in the browser |
+| `--with_ui` | Deploy with the ADK web UI for interactive testing |
 | `--port` | Container port (default: 8080, we use 8000) |
-
-### Using gcloud CLI
-
-```bash
-gcloud run deploy insights-agent \
-  --source . \
-  --region $GOOGLE_CLOUD_LOCATION \
-  --project $GOOGLE_CLOUD_PROJECT \
-  --allow-unauthenticated
-```
 
 ### Using Cloud Build
 
 ```bash
+./deploy/cloudrun/deploy.sh --method cloudbuild
+```
+
+Or manually:
+```bash
 gcloud builds submit \
   --config=cloudbuild.yaml \
   --project=$GOOGLE_CLOUD_PROJECT \
-  --substitutions=_SERVICE_NAME=insights-agent,_REGION=us-central1
+  --substitutions=_SERVICE_NAME=insights-agent,_REGION=us-central1,_MCP_IMAGE=ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest
 ```
 
 ## Service Configuration
