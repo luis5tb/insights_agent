@@ -102,7 +102,7 @@ roles=(
     "roles/cloudsql.client"
     "roles/pubsub.subscriber"
     "roles/pubsub.publisher"
-    "roles/servicecontrol.serviceController"
+    "roles/servicemanagement.serviceController"  # For Service Control API (check/report)
     "roles/logging.logWriter"
     "roles/monitoring.metricWriter"
 )
