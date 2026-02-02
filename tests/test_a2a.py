@@ -3,8 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from insights_agent.api.a2a.agent_card import build_agent_card, get_agent_card_dict
-from insights_agent.api.a2a.models import (
+from a2a.types import (
     AgentCapabilities,
     AgentSkill,
     Message,
@@ -13,6 +12,8 @@ from insights_agent.api.a2a.models import (
     TaskStatus,
     TextPart,
 )
+
+from insights_agent.api.a2a.agent_card import build_agent_card, get_agent_card_dict
 from insights_agent.api.app import create_app
 
 
