@@ -94,9 +94,10 @@ echo -n 'your-sso-client-id' | \
 echo -n 'your-sso-client-secret' | \
   gcloud secrets versions add redhat-sso-client-secret --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 
-# Database URL (Cloud SQL)
-echo -n 'postgresql+asyncpg://user:pass@/dbname?host=/cloudsql/PROJECT:REGION:INSTANCE' | \
-  gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+# Database URL (Cloud SQL) - OPTIONAL, not currently used
+# The agent currently uses in-memory storage. This is for future use.
+# echo -n 'postgresql+asyncpg://user:pass@/dbname?host=/cloudsql/PROJECT:REGION:INSTANCE' | \
+#   gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 ```
 
 ### 4. Deploy
@@ -225,6 +226,58 @@ Secret Manager                    MCP Server              console.redhat.com
      │                               │◄──────────────────────────┤
 ```
 
+## Authentication
+
+The agent uses **Red Hat SSO** for authentication. Requests to the A2A endpoint
+(POST /) require a valid Bearer token issued by Red Hat SSO.
+
+### Authentication Flow
+
+```
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Client    │     │  Insights Agent │     │  Red Hat SSO    │
+└──────┬──────┘     └────────┬────────┘     └────────┬────────┘
+       │                     │                       │
+       │  1. GET /oauth/authorize                    │
+       ├────────────────────►│                       │
+       │                     │                       │
+       │  2. Redirect to SSO                         │
+       │◄────────────────────┤                       │
+       │                     │                       │
+       │  3. Login at SSO ──────────────────────────►│
+       │                     │                       │
+       │  4. Redirect with code                      │
+       │◄───────────────────────────────────────────-┤
+       │                     │                       │
+       │  5. POST /oauth/token (code)                │
+       ├────────────────────►│                       │
+       │                     │  6. Exchange code     │
+       │                     ├──────────────────────►│
+       │                     │  7. Access token      │
+       │                     │◄──────────────────────┤
+       │  8. Token response  │                       │
+       │◄────────────────────┤                       │
+       │                     │                       │
+       │  9. POST / (A2A) with Bearer token          │
+       ├────────────────────►│                       │
+       │                     │  10. Validate JWT     │
+       │                     ├──────────────────────►│
+       │  11. A2A Response   │                       │
+       │◄────────────────────┤                       │
+```
+
+### Configuration
+
+| Secret | Description |
+|--------|-------------|
+| `redhat-sso-client-id` | OAuth 2.0 client ID registered with Red Hat SSO |
+| `redhat-sso-client-secret` | OAuth 2.0 client secret |
+
+### Development Mode
+
+Set `SKIP_JWT_VALIDATION=true` to disable authentication for local development.
+This allows requests without a Bearer token.
+
 ## Endpoints
 
 After deployment, the following endpoints are available:
@@ -263,7 +316,14 @@ gcloud run logs read insights-agent \
 
 ## Database Options
 
-### Cloud SQL (PostgreSQL)
+> **Note**: The current implementation uses **in-memory storage** for all state
+> (sessions, tasks, marketplace entitlements, registered clients). This means
+> data is lost when the service restarts. The `database-url` secret is created
+> but not currently used. Database persistence is planned for a future release.
+
+### Cloud SQL (PostgreSQL) - Future Use
+
+When database persistence is implemented, you'll need Cloud SQL:
 
 1. Create Cloud SQL instance:
    ```bash

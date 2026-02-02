@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from insights_agent.api.a2a.a2a_setup import setup_a2a_routes
 from insights_agent.api.a2a.agent_card import get_agent_card_dict
 from insights_agent.api.a2a.usage_plugin import get_aggregate_usage
-from insights_agent.auth import oauth_router
+from insights_agent.auth import AuthenticationMiddleware, oauth_router
 from insights_agent.config import get_settings
 from insights_agent.dcr import dcr_router
 from insights_agent.marketplace import marketplace_router
@@ -127,8 +127,14 @@ def create_app() -> FastAPI:
     # Add rate limiting middleware
     app.add_middleware(RateLimitMiddleware)
 
+    # Add authentication middleware for A2A endpoint
+    # Validates Red Hat SSO JWT tokens on POST / requests
+    # Can be disabled with SKIP_JWT_VALIDATION=true for development
+    app.add_middleware(AuthenticationMiddleware)
+
     # Add CORS middleware for A2A Inspector and other browser-based clients
     # This must be added after other middleware to be processed first
+    # Middleware execution order: CORS -> Auth -> RateLimit -> Handler
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],  # Allow all origins for development
