@@ -48,7 +48,9 @@ IMAGE_TAG="${IMAGE_TAG:-latest}"
 
 # Default images
 AGENT_IMAGE="${AGENT_IMAGE:-}"
-MCP_IMAGE="${MCP_IMAGE:-quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest}"
+# MCP image must be in GCR since Cloud Run doesn't support Quay.io directly
+# See README.md for instructions to copy the image from Quay.io to GCR
+MCP_IMAGE="${MCP_IMAGE:-gcr.io/${PROJECT_ID}/insights-mcp:latest}"
 
 # Parse arguments
 DEPLOY_METHOD="yaml"
@@ -137,7 +139,7 @@ deploy_with_yaml() {
     sed -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
         -e "s|\${REGION}|${REGION}|g" \
         -e "s|gcr.io/\${PROJECT_ID}/insights-agent:latest|${AGENT_IMAGE}|g" \
-        -e "s|quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest|${MCP_IMAGE}|g" \
+        -e "s|\${MCP_IMAGE}|${MCP_IMAGE}|g" \
         deploy/cloudrun/service.yaml > "$tmp_yaml"
 
     # Deploy using the YAML

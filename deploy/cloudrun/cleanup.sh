@@ -166,10 +166,9 @@ roles=(
     "roles/run.invoker"
     "roles/secretmanager.secretAccessor"
     "roles/aiplatform.user"
-    "roles/cloudsql.client"
     "roles/pubsub.subscriber"
     "roles/pubsub.publisher"
-    "roles/servicecontrol.serviceController"
+    "roles/servicemanagement.serviceController"
     "roles/logging.logWriter"
     "roles/monitoring.metricWriter"
 )

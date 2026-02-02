@@ -100,7 +100,21 @@ echo -n 'your-sso-client-secret' | \
 #   gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 ```
 
-### 4. Deploy
+### 4. Copy MCP Image to GCR
+
+Cloud Run doesn't support Quay.io directly. Copy the MCP server image to GCR:
+
+```bash
+# Pull from Quay.io
+docker pull quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
+
+# Tag and push to GCR
+docker tag quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest \
+  gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp:latest
+docker push gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp:latest
+```
+
+### 5. Deploy
 
 The deploy script supports multiple deployment methods. The default (`yaml`) is recommended
 as it includes the MCP sidecar container.
@@ -119,7 +133,7 @@ as it includes the MCP sidecar container.
 |------|-------------|
 | `--method <method>` | Deployment method: `yaml` (default), `adk`, `cloudbuild` |
 | `--image <image>` | Container image for the agent (default: `gcr.io/$PROJECT_ID/insights-agent:latest`) |
-| `--mcp-image <image>` | Container image for the MCP server (default: `quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest`) |
+| `--mcp-image <image>` | Container image for the MCP server (default: `gcr.io/$PROJECT_ID/insights-mcp:latest`) |
 | `--build` | Build the agent image before deploying |
 | `--with-ui` | Include the ADK web UI (only for `adk` method) |
 | `--allow-unauthenticated` | Allow public access without Cloud Run IAM authentication |
@@ -218,7 +232,71 @@ gcloud builds submit \
 | CPU | 1 | vCPUs allocated |
 | Memory | 512Mi | Memory limit |
 | Port | 8080 | Internal MCP port |
-| Image | quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest | MCP server image |
+| Image | `gcr.io/$PROJECT_ID/insights-mcp:latest` | MCP server image (copied from Quay.io) |
+
+### Copying the MCP Image to GCR
+
+Cloud Run doesn't support pulling images directly from Quay.io. You must copy the MCP server image to Google Container Registry (GCR) before deploying:
+
+```bash
+# Pull from Quay.io locally
+docker pull quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
+
+# Tag for GCR
+docker tag quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest \
+  gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp:latest
+
+# Push to GCR
+docker push gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp:latest
+```
+
+This step is required before running `deploy.sh`. The deploy script defaults to `gcr.io/$PROJECT_ID/insights-mcp:latest`.
+
+**To update the MCP server**, repeat the above steps with a new tag or `:latest`.
+
+**Costs (GCR):**
+| Cost Type | Rate | Notes |
+|-----------|------|-------|
+| Storage | $0.026/GB/month | ~$0.005/month for a 200MB image |
+| Network egress | Standard GCP rates | Free within same region |
+| Requests | No charge | Pull requests are free |
+
+### Alternative: Use Docker Hub
+
+Instead of GCR, you can copy the image to Docker Hub (free storage, but has rate limits):
+
+```bash
+# Pull from Quay.io
+docker pull quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
+
+# Tag for Docker Hub (replace YOUR_USERNAME with your Docker Hub username)
+docker tag quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest \
+  docker.io/YOUR_USERNAME/insights-mcp:latest
+
+# Login and push to Docker Hub
+docker login
+docker push docker.io/YOUR_USERNAME/insights-mcp:latest
+
+# Deploy with Docker Hub image
+./deploy/cloudrun/deploy.sh --mcp-image docker.io/YOUR_USERNAME/insights-mcp:latest
+```
+
+**Docker Hub Rate Limits:**
+| Account Type | Pull Limit | Cost |
+|--------------|------------|------|
+| Anonymous | 100 pulls / 6 hours | Free |
+| Free (authenticated) | 200 pulls / 6 hours | Free |
+| Pro | 5,000 pulls / day | $5/month |
+| Team | Unlimited | $9/user/month |
+
+**When to use Docker Hub:**
+- Development or low-traffic deployments
+- You already have a Docker Hub account
+
+**When to use GCR (recommended for production):**
+- Auto-scaling deployments (rate limits could cause failures)
+- High availability requirements
+- Cost is negligible (~$0.005/month)
 
 ### Scaling
 
@@ -488,9 +566,16 @@ Use `--force` to skip the confirmation prompt:
 ./deploy/cloudrun/cleanup.sh --force
 ```
 
-**Note**: The cleanup script does NOT delete Cloud SQL instances or VPC connectors that may have been created manually. Delete these separately if needed:
+**Note**: The cleanup script does NOT delete container images in GCR, Cloud SQL instances, or VPC connectors. Delete these separately if needed:
 
 ```bash
+# Delete container images
+gcloud container images delete gcr.io/$GOOGLE_CLOUD_PROJECT/insights-agent --force-delete-tags --quiet
+gcloud container images delete gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp --force-delete-tags --quiet
+
+# Delete Cloud SQL instance (if created)
 gcloud sql instances delete INSTANCE_NAME --project=$GOOGLE_CLOUD_PROJECT
+
+# Delete VPC connector (if created)
 gcloud compute networks vpc-access connectors delete CONNECTOR_NAME --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
 ```

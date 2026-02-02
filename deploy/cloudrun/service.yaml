@@ -132,8 +132,13 @@ spec:
         # The MCP server authenticates with console.redhat.com using
         # Lightspeed service account credentials.
         # Sidecar container - no ports section (only main container can expose port)
+        #
+        # Note: Cloud Run doesn't support Quay.io directly. Copy the image to GCR:
+        #   docker pull quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
+        #   docker tag quay.io/.../red-hat-lightspeed-mcp:latest gcr.io/${PROJECT_ID}/insights-mcp:latest
+        #   docker push gcr.io/${PROJECT_ID}/insights-mcp:latest
         - name: insights-mcp
-          image: quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
+          image: ${MCP_IMAGE}
           resources:
             limits:
               cpu: "1"
