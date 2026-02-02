@@ -301,13 +301,18 @@ class UsageReporter:
             List of active order IDs.
         """
         try:
-            from insights_agent.marketplace.service import get_procurement_service
+            from insights_agent.marketplace.models import EntitlementState
+            from insights_agent.marketplace.repository import get_entitlement_repository
 
-            procurement = get_procurement_service()
-            entitlements = await procurement.list_active_entitlements()
-            return [e.id for e in entitlements if e.id]
+            repo = get_entitlement_repository()
+            # Get all entitlements and filter active ones
+            all_entitlements = list(repo._entitlements.values())
+            return [
+                e.id for e in all_entitlements
+                if e.state == EntitlementState.ACTIVE
+            ]
         except ImportError:
-            logger.warning("Marketplace service not available")
+            logger.warning("Marketplace repository not available")
             return []
         except Exception as e:
             logger.error("Failed to get active orders: %s", e)

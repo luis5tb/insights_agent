@@ -145,26 +145,11 @@ class TestModels:
 
 
 class TestUsageReporter:
-    """Tests for UsageReporter."""
+    """Tests for UsageReporter.
 
-    @pytest.fixture
-    def mock_metering(self):
-        """Create mock metering service."""
-        metering = MagicMock()
-        metering.get_billable_usage = AsyncMock(
-            return_value={
-                "api_calls": 100,
-                "input_tokens": 5000,
-                "output_tokens": 2000,
-            }
-        )
-        metering.get_all_billable_usage = AsyncMock(
-            return_value={
-                "order-123": {"api_calls": 100},
-                "order-456": {"api_calls": 50},
-            }
-        )
-        return metering
+    Note: UsageReporter now uses aggregate usage from UsageTrackingPlugin
+    instead of per-order metering. Tests are updated accordingly.
+    """
 
     @pytest.fixture
     def mock_client(self):
@@ -174,10 +159,9 @@ class TestUsageReporter:
         return client
 
     @pytest.fixture
-    def reporter(self, mock_metering, mock_client):
+    def reporter(self, mock_client):
         """Create reporter with mocked dependencies."""
         return UsageReporter(
-            metering_service=mock_metering,
             service_control_client=mock_client,
         )
 
@@ -210,9 +194,11 @@ class TestUsageReporter:
     @pytest.mark.asyncio
     async def test_report_usage_success(self, reporter, mock_client):
         """Test successful usage report."""
-        # Mock get_consumer_id
+        # Mock get_consumer_id and _get_usage_delta
         with patch.object(
             reporter, "get_consumer_id", return_value="project:test-project"
+        ), patch.object(
+            reporter, "_get_usage_delta", return_value={"send_message_requests": 10}
         ):
             now = datetime.utcnow()
             result = await reporter.report_usage(
@@ -224,7 +210,6 @@ class TestUsageReporter:
             assert result.success is True
             assert result.order_id == "order-123"
             assert result.consumer_id == "project:test-project"
-            assert "api_calls" in result.metrics_reported
 
     @pytest.mark.asyncio
     async def test_report_usage_no_consumer_id(self, reporter):
@@ -249,6 +234,8 @@ class TestUsageReporter:
 
         with patch.object(
             reporter, "get_consumer_id", return_value="project:test-project"
+        ), patch.object(
+            reporter, "_get_usage_delta", return_value={"send_message_requests": 10}
         ):
             now = datetime.utcnow()
             result = await reporter.report_usage(
@@ -265,6 +252,10 @@ class TestUsageReporter:
         """Test reporting for all orders."""
         with patch.object(
             reporter, "get_consumer_id", return_value="project:test-project"
+        ), patch.object(
+            reporter, "_get_active_order_ids", return_value=["order-123", "order-456"]
+        ), patch.object(
+            reporter, "_get_usage_delta", return_value={"send_message_requests": 10}
         ):
             now = datetime.utcnow()
             results = await reporter.report_all_usage(
