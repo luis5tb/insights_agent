@@ -119,7 +119,7 @@ as it includes the MCP sidecar container.
 |------|-------------|
 | `--method <method>` | Deployment method: `yaml` (default), `adk`, `cloudbuild` |
 | `--image <image>` | Container image for the agent (default: `gcr.io/$PROJECT_ID/insights-agent:latest`) |
-| `--mcp-image <image>` | Container image for the MCP server (default: `ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest`) |
+| `--mcp-image <image>` | Container image for the MCP server (default: `quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest`) |
 | `--build` | Build the agent image before deploying |
 | `--with-ui` | Include the ADK web UI (only for `adk` method) |
 | `--allow-unauthenticated` | Allow public access without Cloud Run IAM authentication |
@@ -198,7 +198,7 @@ Or manually:
 gcloud builds submit \
   --config=cloudbuild.yaml \
   --project=$GOOGLE_CLOUD_PROJECT \
-  --substitutions=_SERVICE_NAME=insights-agent,_REGION=us-central1,_MCP_IMAGE=ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest
+  --substitutions=_SERVICE_NAME=insights-agent,_REGION=us-central1,_MCP_IMAGE=quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
 ```
 
 ## Service Configuration
@@ -218,7 +218,7 @@ gcloud builds submit \
 | CPU | 1 | vCPUs allocated |
 | Memory | 512Mi | Memory limit |
 | Port | 8080 | Internal MCP port |
-| Image | ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest | MCP server image |
+| Image | quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest | MCP server image |
 
 ### Scaling
 

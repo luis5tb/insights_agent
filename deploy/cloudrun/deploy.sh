@@ -14,7 +14,7 @@
 #   --image <image>       Container image for the agent
 #                         (default: gcr.io/$PROJECT_ID/insights-agent:latest)
 #   --mcp-image <image>   Container image for the MCP server
-#                         (default: ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest)
+#                         (default: quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest)
 #   --with-ui             Include ADK web UI (only for adk method)
 #   --allow-unauthenticated  Allow public access
 #   --build               Build the agent image before deploying
@@ -48,7 +48,7 @@ IMAGE_TAG="${IMAGE_TAG:-latest}"
 
 # Default images
 AGENT_IMAGE="${AGENT_IMAGE:-}"
-MCP_IMAGE="${MCP_IMAGE:-ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest}"
+MCP_IMAGE="${MCP_IMAGE:-quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest}"
 
 # Parse arguments
 DEPLOY_METHOD="yaml"
@@ -137,7 +137,7 @@ deploy_with_yaml() {
     sed -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
         -e "s|\${REGION}|${REGION}|g" \
         -e "s|gcr.io/\${PROJECT_ID}/insights-agent:latest|${AGENT_IMAGE}|g" \
-        -e "s|ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest|${MCP_IMAGE}|g" \
+        -e "s|quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest|${MCP_IMAGE}|g" \
         deploy/cloudrun/service.yaml > "$tmp_yaml"
 
     # Deploy using the YAML

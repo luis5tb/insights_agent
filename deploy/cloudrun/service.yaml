@@ -132,7 +132,7 @@ spec:
         # The MCP server authenticates with console.redhat.com using
         # Lightspeed service account credentials.
         - name: insights-mcp
-          image: ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest
+          image: quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
           ports:
             - containerPort: 8080
           resources:
