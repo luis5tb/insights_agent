@@ -59,6 +59,15 @@ log_info "Marketplace integration: $ENABLE_MARKETPLACE"
 # =============================================================================
 log_info "Enabling required GCP APIs..."
 
+# Required APIs and their purposes:
+# - run: Cloud Run service hosting
+# - cloudbuild: Build container images from source
+# - secretmanager: Store and access secrets (API keys, credentials)
+# - aiplatform: Access Vertex AI / Gemini models
+# - cloudscheduler: Schedule usage reporting jobs
+# - pubsub: Receive marketplace procurement events
+# - servicecontrol: Report usage metrics for billing
+# - servicemanagement: Manage service configuration
 apis=(
     "run.googleapis.com"
     "cloudbuild.googleapis.com"
@@ -68,7 +77,6 @@ apis=(
     "pubsub.googleapis.com"
     "servicecontrol.googleapis.com"
     "servicemanagement.googleapis.com"
-    # Note: sqladmin.googleapis.com not needed - database not currently used
 )
 
 for api in "${apis[@]}"; do
@@ -95,16 +103,24 @@ fi
 # Grant required roles
 log_info "Granting IAM roles to service account..."
 
+# IAM roles and their purposes:
+# - run.invoker: Allow the service to invoke itself (for internal calls)
+# - secretmanager.secretAccessor: Read secrets (API keys, credentials)
+# - aiplatform.user: Access Vertex AI / Gemini models
+# - pubsub.subscriber: Receive marketplace procurement events
+# - pubsub.publisher: Publish events (if needed for async processing)
+# - servicemanagement.serviceController: Report usage to Service Control API
+# - logging.logWriter: Write logs to Cloud Logging
+# - monitoring.metricWriter: Write metrics to Cloud Monitoring
 roles=(
     "roles/run.invoker"
     "roles/secretmanager.secretAccessor"
     "roles/aiplatform.user"
     "roles/pubsub.subscriber"
     "roles/pubsub.publisher"
-    "roles/servicemanagement.serviceController"  # For Service Control API (check/report)
+    "roles/servicemanagement.serviceController"
     "roles/logging.logWriter"
     "roles/monitoring.metricWriter"
-    # Note: roles/cloudsql.client not needed - database not currently used
 )
 
 for role in "${roles[@]}"; do
