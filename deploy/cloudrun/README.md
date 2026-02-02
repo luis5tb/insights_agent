@@ -105,6 +105,18 @@ echo -n 'postgresql+asyncpg://user:pass@/dbname?host=/cloudsql/PROJECT:REGION:IN
 ./deploy/cloudrun/deploy.sh
 ```
 
+**Deploy script options:**
+
+| Flag | Description |
+|------|-------------|
+| `--with-ui` | Include the ADK web UI for interactive agent testing |
+| `--allow-unauthenticated` | Allow public access without authentication |
+
+Example with web UI:
+```bash
+./deploy/cloudrun/deploy.sh --with-ui
+```
+
 Or use the ADK CLI directly:
 
 ```bash
@@ -127,6 +139,13 @@ adk deploy cloud_run \
   --with_ui \
   .
 ```
+
+**ADK CLI options:**
+
+| Option | Description |
+|--------|-------------|
+| `--with_ui` | Deploy with the ADK web UI, providing an interactive chat interface for testing the agent directly in the browser |
+| `--port` | Container port (default: 8080, we use 8000) |
 
 ### Using gcloud CLI
 
