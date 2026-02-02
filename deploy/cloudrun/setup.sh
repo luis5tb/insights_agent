@@ -64,11 +64,11 @@ apis=(
     "cloudbuild.googleapis.com"
     "secretmanager.googleapis.com"
     "aiplatform.googleapis.com"
-    "sqladmin.googleapis.com"
     "cloudscheduler.googleapis.com"
     "pubsub.googleapis.com"
     "servicecontrol.googleapis.com"
     "servicemanagement.googleapis.com"
+    # Note: sqladmin.googleapis.com not needed - database not currently used
 )
 
 for api in "${apis[@]}"; do
@@ -99,12 +99,12 @@ roles=(
     "roles/run.invoker"
     "roles/secretmanager.secretAccessor"
     "roles/aiplatform.user"
-    "roles/cloudsql.client"
     "roles/pubsub.subscriber"
     "roles/pubsub.publisher"
     "roles/servicemanagement.serviceController"  # For Service Control API (check/report)
     "roles/logging.logWriter"
     "roles/monitoring.metricWriter"
+    # Note: roles/cloudsql.client not needed - database not currently used
 )
 
 for role in "${roles[@]}"; do
@@ -120,12 +120,17 @@ done
 # =============================================================================
 log_info "Setting up Secret Manager secrets..."
 
+# Required secrets
 secrets=(
     "google-api-key"
     "lightspeed-client-id"
     "lightspeed-client-secret"
     "redhat-sso-client-id"
     "redhat-sso-client-secret"
+)
+
+# Optional secrets (database not currently used - in-memory storage)
+optional_secrets=(
     "database-url"
 )
 
@@ -138,6 +143,28 @@ for secret in "${secrets[@]}"; do
             --replication-policy="automatic"
         log_warn "  Secret '$secret' created with placeholder value. Update it with:"
         log_warn "    echo -n 'your-value' | gcloud secrets versions add $secret --data-file=- --project=$PROJECT_ID"
+    else
+        log_info "  Secret '$secret' already exists"
+    fi
+
+    # Grant access to service account
+    gcloud secrets add-iam-policy-binding "$secret" \
+        --member="serviceAccount:$SERVICE_ACCOUNT" \
+        --role="roles/secretmanager.secretAccessor" \
+        --project="$PROJECT_ID" \
+        --quiet || true
+done
+
+# Create optional secrets (with note about being optional)
+log_info "Setting up optional secrets..."
+for secret in "${optional_secrets[@]}"; do
+    if ! gcloud secrets describe "$secret" --project="$PROJECT_ID" &>/dev/null; then
+        log_info "  Creating optional secret: $secret"
+        echo -n "PLACEHOLDER" | gcloud secrets create "$secret" \
+            --data-file=- \
+            --project="$PROJECT_ID" \
+            --replication-policy="automatic"
+        log_warn "  Secret '$secret' created (OPTIONAL - not currently used)"
     else
         log_info "  Secret '$secret' already exists"
     fi
@@ -190,17 +217,23 @@ echo ""
 echo "Next steps:"
 echo ""
 echo "1. Update secrets with actual values:"
+echo ""
+echo "   # Google API Key (for Vertex AI / Gemini)"
 echo "   echo -n 'YOUR_API_KEY' | gcloud secrets versions add google-api-key --data-file=- --project=$PROJECT_ID"
+echo ""
+echo "   # Red Hat Lightspeed credentials (for MCP server to access console.redhat.com)"
 echo "   echo -n 'YOUR_CLIENT_ID' | gcloud secrets versions add lightspeed-client-id --data-file=- --project=$PROJECT_ID"
 echo "   echo -n 'YOUR_CLIENT_SECRET' | gcloud secrets versions add lightspeed-client-secret --data-file=- --project=$PROJECT_ID"
-echo "   echo -n 'postgresql+asyncpg://user:pass@host:5432/db' | gcloud secrets versions add database-url --data-file=- --project=$PROJECT_ID"
-echo "   # ... repeat for other secrets (redhat-sso-client-id, redhat-sso-client-secret)"
 echo ""
-echo "2. Build and deploy the agent:"
-echo "   gcloud builds submit --config=cloudbuild.yaml --project=$PROJECT_ID"
+echo "   # Red Hat SSO credentials (for user authentication)"
+echo "   echo -n 'YOUR_SSO_CLIENT_ID' | gcloud secrets versions add redhat-sso-client-id --data-file=- --project=$PROJECT_ID"
+echo "   echo -n 'YOUR_SSO_CLIENT_SECRET' | gcloud secrets versions add redhat-sso-client-secret --data-file=- --project=$PROJECT_ID"
 echo ""
-echo "3. Or deploy directly with gcloud:"
-echo "   gcloud run deploy $SERVICE_NAME --source . --region=$REGION --project=$PROJECT_ID"
+echo "2. Build and deploy the agent (includes MCP sidecar):"
+echo "   ./deploy/cloudrun/deploy.sh --build"
+echo ""
+echo "3. Or deploy with a custom image:"
+echo "   ./deploy/cloudrun/deploy.sh --image gcr.io/$PROJECT_ID/insights-agent:v1.0"
 echo ""
 echo "4. Get the service URL:"
 echo "   gcloud run services describe $SERVICE_NAME --region=$REGION --project=$PROJECT_ID --format='value(status.url)'"
