@@ -1,10 +1,12 @@
-# Usage Tracking and Metering
+# Usage Tracking
 
 This document describes the usage tracking system for monitoring API usage, token consumption, and tool invocations.
 
 ## Overview
 
-The Insights Agent uses the **ADK Plugin System** for usage tracking. This approach integrates directly with the agent's execution lifecycle, providing accurate metrics without external dependencies.
+The Insights Agent uses the **ADK Plugin System** for usage tracking via the `UsageTrackingPlugin`. This approach integrates directly with the agent's execution lifecycle, providing accurate metrics without external dependencies.
+
+All usage tracking is handled by the `UsageTrackingPlugin` in `src/insights_agent/api/a2a/usage_plugin.py`. There is no separate metering middleware - the plugin captures all metrics directly from ADK callbacks.
 
 ### What's Tracked
 
@@ -318,35 +320,28 @@ exporter = CloudMonitoringMetricsExporter(project_id="your-project")
 
 ### Google Cloud Service Control
 
-For marketplace billing, implement a Service Control reporter:
+The agent includes a Service Control integration for Google Cloud Marketplace billing in `src/insights_agent/service_control/`. This module:
+
+- Reports usage metrics to Google Cloud Service Control API
+- Runs on a scheduled hourly basis (Google's minimum requirement)
+- Handles retry logic for failed reports
+
+**Current Limitation**: The reporter uses aggregate usage data from `UsageTrackingPlugin` rather than per-order tracking. This means all active marketplace orders receive the same usage delta. For production multi-tenant deployments, implement per-order tracking.
 
 ```python
-from google.cloud import servicecontrol_v1
-
-class ServiceControlReporter:
-    def __init__(self, service_name: str):
-        self.client = servicecontrol_v1.ServiceControllerClient()
-        self.service_name = service_name
-
-    async def report_usage(self, consumer_id: str, tokens: int):
-        operation = servicecontrol_v1.Operation(
-            operation_id=str(uuid.uuid4()),
-            consumer_id=consumer_id,
-            metric_value_sets=[
-                servicecontrol_v1.MetricValueSet(
-                    metric_name="tokens",
-                    metric_values=[
-                        servicecontrol_v1.MetricValue(int64_value=tokens)
-                    ],
-                )
-            ],
-        )
-
-        await self.client.report(
-            service_name=self.service_name,
-            operations=[operation],
-        )
+# Enable Service Control reporting via environment variables
+SERVICE_CONTROL_ENABLED=true
+SERVICE_CONTROL_SERVICE_NAME=your-service-name.endpoints.your-project.cloud.goog
 ```
+
+The `UsageReporter` computes usage deltas between reporting periods and maps them to Google-defined metric names:
+
+| Internal Metric | Google Metric |
+|-----------------|---------------|
+| `total_requests` | `send_message_requests` |
+| `total_input_tokens` | `input_tokens` |
+| `total_output_tokens` | `output_tokens` |
+| `total_tool_calls` | `mcp_tool_calls` |
 
 ### BigQuery Analytics
 

@@ -13,7 +13,6 @@ from insights_agent.auth import oauth_router
 from insights_agent.config import get_settings
 from insights_agent.dcr import dcr_router
 from insights_agent.marketplace import marketplace_router
-from insights_agent.metering import MeteringMiddleware
 from insights_agent.ratelimit import RateLimitMiddleware
 
 logger = logging.getLogger(__name__)
@@ -125,12 +124,7 @@ def create_app() -> FastAPI:
             "usage": usage.to_dict(),
         }
 
-    # Add metering middleware for automatic usage tracking
-    app.add_middleware(MeteringMiddleware)
-
     # Add rate limiting middleware
-    # Note: Middleware is applied in reverse order, so rate limiting
-    # is checked before metering
     app.add_middleware(RateLimitMiddleware)
 
     # Add CORS middleware for A2A Inspector and other browser-based clients

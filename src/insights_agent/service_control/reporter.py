@@ -1,15 +1,18 @@
-"""Usage reporter for Google Cloud Service Control."""
+"""Usage reporter for Google Cloud Service Control.
 
-import asyncio
+This reporter uses aggregate usage data from the UsageTrackingPlugin.
+Note: Per-order usage tracking is not currently implemented. All usage
+is reported as aggregate metrics.
+"""
+
 import logging
-from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from insights_agent.api.a2a.usage_plugin import get_aggregate_usage
 from insights_agent.config import get_settings
-from insights_agent.metering import MeteringService, get_metering_service
 from insights_agent.service_control.client import (
     ServiceControlClient,
     get_service_control_client,
@@ -58,7 +61,6 @@ class UsageReporter:
 
     def __init__(
         self,
-        metering_service: MeteringService | None = None,
         service_control_client: ServiceControlClient | None = None,
         max_retries: int = 3,
         retry_delay_seconds: int = 60,
@@ -66,12 +68,10 @@ class UsageReporter:
         """Initialize the usage reporter.
 
         Args:
-            metering_service: Metering service for getting usage data.
             service_control_client: Service Control API client.
             max_retries: Maximum number of retry attempts.
             retry_delay_seconds: Delay between retries.
         """
-        self._metering = metering_service or get_metering_service()
         self._client = service_control_client or get_service_control_client()
         self._max_retries = max_retries
         self._retry_delay = retry_delay_seconds
@@ -81,6 +81,13 @@ class UsageReporter:
         self._failed_reports: list[UsageReport] = []
         # Track last report time per order
         self._last_report_time: dict[str, datetime] = {}
+        # Track last reported aggregate values to compute deltas
+        self._last_aggregate: dict[str, int] = {
+            "total_requests": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_tool_calls": 0,
+        }
 
     async def get_consumer_id(self, order_id: str) -> str | None:
         """Get the consumer ID (usageReportingId) for an order.
@@ -128,6 +135,47 @@ class UsageReporter:
                 mapped[google_name] = value
         return mapped
 
+    def _get_usage_delta(self) -> dict[str, int]:
+        """Get usage delta since last report.
+
+        Returns current aggregate usage minus last reported values,
+        then updates last reported values.
+
+        Returns:
+            Dictionary of metric deltas.
+        """
+        current = get_aggregate_usage()
+        current_values = {
+            "total_requests": current.total_requests,
+            "total_input_tokens": current.total_input_tokens,
+            "total_output_tokens": current.total_output_tokens,
+            "total_tool_calls": current.total_tool_calls,
+        }
+
+        # Compute deltas
+        deltas = {}
+        for key, current_val in current_values.items():
+            last_val = self._last_aggregate.get(key, 0)
+            delta = current_val - last_val
+            if delta > 0:
+                deltas[key] = delta
+
+        # Map to billable metric names
+        billable = {}
+        if deltas.get("total_requests", 0) > 0:
+            billable["send_message_requests"] = deltas["total_requests"]
+        if deltas.get("total_input_tokens", 0) > 0:
+            billable["input_tokens"] = deltas["total_input_tokens"]
+        if deltas.get("total_output_tokens", 0) > 0:
+            billable["output_tokens"] = deltas["total_output_tokens"]
+        if deltas.get("total_tool_calls", 0) > 0:
+            billable["mcp_tool_calls"] = deltas["total_tool_calls"]
+
+        # Update last aggregate
+        self._last_aggregate = current_values
+
+        return billable
+
     async def report_usage(
         self,
         order_id: str,
@@ -156,20 +204,9 @@ class UsageReporter:
                 error_message="Could not determine consumer ID",
             )
 
-        # Get billable usage for the period
-        try:
-            metrics = await self._metering.get_billable_usage(
-                order_id=order_id,
-                start_time=start_time,
-                end_time=end_time,
-            )
-        except Exception as e:
-            return ReportResult(
-                order_id=order_id,
-                consumer_id=consumer_id,
-                success=False,
-                error_message=f"Failed to get usage data: {e}",
-            )
+        # Get billable usage delta since last report
+        # Note: This is aggregate usage, not per-order. All orders get the same metrics.
+        metrics = self._get_usage_delta()
 
         # Map to Google metric names
         mapped_metrics = self.map_metrics(metrics)
@@ -226,7 +263,11 @@ class UsageReporter:
         start_time: datetime,
         end_time: datetime,
     ) -> list[ReportResult]:
-        """Report usage for all orders with activity in the period.
+        """Report usage for all active orders.
+
+        Note: Since per-order tracking is not implemented, this reports
+        aggregate usage to all active orders. In production, you should
+        implement per-order tracking to properly attribute usage.
 
         Args:
             start_time: Start of reporting period.
@@ -235,11 +276,15 @@ class UsageReporter:
         Returns:
             List of ReportResults.
         """
-        # Get all orders with usage
-        all_usage = await self._metering.get_all_billable_usage(start_time, end_time)
+        # Get all active orders from marketplace
+        order_ids = await self._get_active_order_ids()
+
+        if not order_ids:
+            logger.info("No active orders to report usage for")
+            return []
 
         results = []
-        for order_id in all_usage.keys():
+        for order_id in order_ids:
             result = await self.report_usage(
                 order_id=order_id,
                 start_time=start_time,
@@ -248,6 +293,25 @@ class UsageReporter:
             results.append(result)
 
         return results
+
+    async def _get_active_order_ids(self) -> list[str]:
+        """Get list of active order IDs from marketplace.
+
+        Returns:
+            List of active order IDs.
+        """
+        try:
+            from insights_agent.marketplace.service import get_procurement_service
+
+            procurement = get_procurement_service()
+            entitlements = await procurement.list_active_entitlements()
+            return [e.id for e in entitlements if e.id]
+        except ImportError:
+            logger.warning("Marketplace service not available")
+            return []
+        except Exception as e:
+            logger.error("Failed to get active orders: %s", e)
+            return []
 
     async def report_hourly(self) -> list[ReportResult]:
         """Report usage for the last hour.
