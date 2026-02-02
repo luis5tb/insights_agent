@@ -131,10 +131,9 @@ spec:
         # (Advisor, Inventory, Vulnerability, Remediations, etc.)
         # The MCP server authenticates with console.redhat.com using
         # Lightspeed service account credentials.
+        # Sidecar container - no ports section (only main container can expose port)
         - name: insights-mcp
           image: quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
-          ports:
-            - containerPort: 8080
           resources:
             limits:
               cpu: "1"
