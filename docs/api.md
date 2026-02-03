@@ -16,7 +16,7 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Middleware Stack (applied in reverse order)                                │
 │  ┌─────────────┐  ┌──────────────────┐  ┌─────────────────┐                │
-│  │    CORS     │→ │  RateLimiting    │→ │    Metering     │                │
+│  │    CORS     │→ │ Authentication   │→ │  RateLimiting   │                │
 │  └─────────────┘  └──────────────────┘  └─────────────────┘                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Routers                                                                    │
@@ -475,14 +475,21 @@ For streaming responses, use the `message/stream` method. The response is Server
   "jsonrpc": "2.0",
   "method": "message/stream",
   "params": {
+    "configuration": {
+      "acceptedOutputModes": [],
+      "blocking": true
+    },
     "message": {
-      "role": "user",
+      "contextId": "2066124d-06fe-4c0c-8dbe-a4ea99bdf4e0",
+      "kind": "message",
+      "messageId": "e9c461b7-ff2f-4949-8759-214e9356d012",
       "parts": [
         {
-          "type": "text",
+          "kind": "text",
           "text": "What systems have critical vulnerabilities?"
         }
-      ]
+      ],
+      "role": "user"
     }
   },
   "id": "request-123"
@@ -491,17 +498,69 @@ For streaming responses, use the `message/stream` method. The response is Server
 
 **Response:**
 
-SSE stream with A2A events:
+SSE stream with A2A events. The stream includes artifact chunks and a final status update:
 
+**Artifact Chunk (first):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request-123",
+  "result": {
+    "kind": "artifact-update",
+    "task_id": "3c503b3e-74f2-4825-9a84-31c7d6b64a18",
+    "context_id": "2066124d-06fe-4c0c-8dbe-a4ea99bdf4e0",
+    "artifact": {
+      "artifact_id": "16172d78-faa5-4cbb-893e-f891512bfb0d",
+      "parts": [
+        {
+          "kind": "text",
+          "text": "I found the following systems with critical vulnerabilities:\n\n"
+        }
+      ]
+    },
+    "last_chunk": false
+  }
+}
 ```
-event: message
-data: {"jsonrpc":"2.0","result":{"status":{"state":"working"}},"id":"request-123"}
 
-event: message
-data: {"jsonrpc":"2.0","result":{"artifact":{"parts":[{"type":"text","text":"Found 3 systems..."}]}},"id":"request-123"}
+**Artifact Chunk (last):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request-123",
+  "result": {
+    "kind": "artifact-update",
+    "task_id": "3c503b3e-74f2-4825-9a84-31c7d6b64a18",
+    "context_id": "2066124d-06fe-4c0c-8dbe-a4ea99bdf4e0",
+    "artifact": {
+      "artifact_id": "16172d78-faa5-4cbb-893e-f891512bfb0d",
+      "parts": [
+        {
+          "kind": "text",
+          "text": "1. server-01.example.com - CVE-2024-1234\n2. server-02.example.com - CVE-2024-5678"
+        }
+      ]
+    },
+    "last_chunk": true
+  }
+}
+```
 
-event: message
-data: {"jsonrpc":"2.0","result":{"status":{"state":"completed","final":true}},"id":"request-123"}
+**Completion Event:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request-123",
+  "result": {
+    "kind": "status-update",
+    "task_id": "3c503b3e-74f2-4825-9a84-31c7d6b64a18",
+    "context_id": "2066124d-06fe-4c0c-8dbe-a4ea99bdf4e0",
+    "status": {
+      "state": "completed"
+    },
+    "final": true
+  }
+}
 ```
 
 ### GET /tasks/{task_id}
@@ -570,40 +629,82 @@ Exchange authorization code or refresh token for access tokens.
 
 Get user information for authenticated user.
 
-## Dynamic Client Registration
+## Dynamic Client Registration (DCR)
 
-### POST /oauth/register
+The agent supports Dynamic Client Registration for Google Marketplace / Gemini Enterprise integration.
 
-Register a new OAuth client dynamically (for marketplace integration).
+### Endpoints
 
-**Authentication**: Signed JWT from Google Marketplace
+| Endpoint | Description |
+|----------|-------------|
+| `POST /oauth/register` | RFC 7591 compliant path |
+| `POST /dcr` | Google-compatible path (alias) |
+
+Both endpoints accept the same request format and return the same response.
+
+### POST /oauth/register (or POST /dcr)
+
+Register a new OAuth client dynamically. Gemini Enterprise sends a signed JWT containing the order information.
+
+**Authentication**: Signed `software_statement` JWT from Google
 
 **Request:**
 
 ```json
 {
-  "client_name": "My Application",
-  "redirect_uris": ["https://myapp.example.com/callback"],
-  "grant_types": ["authorization_code", "refresh_token"],
-  "response_types": ["code"],
-  "token_endpoint_auth_method": "client_secret_basic"
+  "software_statement": "eyJhbGciOiJSUzI1NiIsImtpZCI6Ii4uLiJ9..."
 }
 ```
 
-**Response:**
+The `software_statement` JWT contains:
+
+| Claim | Description |
+|-------|-------------|
+| `iss` | Google's certificate URL |
+| `aud` | Agent's provider URL |
+| `sub` | Procurement Account ID |
+| `google.order` | Marketplace Order ID |
+| `auth_app_redirect_uris` | Redirect URIs for OAuth flow |
+
+**Response (Success):**
 
 ```json
 {
-  "client_id": "generated-client-id",
-  "client_secret": "generated-client-secret",
-  "client_name": "My Application",
-  "redirect_uris": ["https://myapp.example.com/callback"],
-  "grant_types": ["authorization_code", "refresh_token"],
-  "response_types": ["code"],
-  "token_endpoint_auth_method": "client_secret_basic",
-  "client_id_issued_at": 1705312200,
+  "client_id": "client_224a96f9-5b79-4b94-a8ea-c3bc3976a8e0",
+  "client_secret": "generated-secret-here",
   "client_secret_expires_at": 0
 }
+```
+
+**Important**: Per Google's specification, the same `client_id` and `client_secret` are returned for repeat requests with the same order ID. This allows Gemini Enterprise to invoke DCR multiple times for the same order.
+
+**Response (Error):**
+
+```json
+{
+  "error": "invalid_software_statement",
+  "error_description": "JWT has expired"
+}
+```
+
+### DCR Error Codes
+
+| Error Code | Description |
+|------------|-------------|
+| `invalid_software_statement` | JWT is malformed, expired, or has invalid signature |
+| `unapproved_software_statement` | Order ID or Account ID is not valid |
+| `server_error` | Internal server error |
+
+### Configuration
+
+DCR requires an encryption key to securely store client secrets:
+
+```bash
+# Generate a Fernet encryption key
+python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+
+# Set in environment
+export DCR_ENCRYPTION_KEY="your-generated-key"
 ```
 
 ## Health Endpoints

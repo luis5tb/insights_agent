@@ -11,7 +11,7 @@ from insights_agent.api.a2a.agent_card import get_agent_card_dict
 from insights_agent.api.a2a.usage_plugin import get_aggregate_usage
 from insights_agent.auth import AuthenticationMiddleware, oauth_router
 from insights_agent.config import get_settings
-from insights_agent.dcr import dcr_router
+from insights_agent.dcr import dcr_router, dcr_compat_router
 from insights_agent.marketplace import marketplace_router
 from insights_agent.ratelimit import RateLimitMiddleware
 
@@ -102,7 +102,9 @@ def create_app() -> FastAPI:
     # Provides:
     # - POST /oauth/register - Register new OAuth client (RFC 7591)
     # - GET /oauth/register/{client_id} - Get client info
+    # - POST /dcr - Google-compatible alias for /oauth/register
     app.include_router(dcr_router)
+    app.include_router(dcr_compat_router)
 
     # Include Marketplace Procurement router
     # Provides:

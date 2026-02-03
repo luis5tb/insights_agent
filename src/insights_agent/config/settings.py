@@ -155,6 +155,12 @@ class Settings(BaseSettings):
         description="Log format",
     )
 
+    # DCR (Dynamic Client Registration) Configuration
+    dcr_encryption_key: str = Field(
+        default="",
+        description="Fernet encryption key for DCR client secrets (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')",
+    )
+
     # Development Settings
     debug: bool = Field(
         default=False,

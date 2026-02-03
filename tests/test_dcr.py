@@ -93,7 +93,7 @@ class TestModels:
         """Test RegisteredClient model."""
         client = RegisteredClient(
             client_id="client_123",
-            client_secret_hash="hash_abc",
+            client_secret_encrypted="encrypted_secret_abc",
             order_id="order-456",
             account_id="account-789",
             redirect_uris=["https://example.com/callback"],
@@ -247,6 +247,91 @@ class TestDCRRouter:
         response = client.get("/oauth/register/nonexistent-client")
 
         assert response.status_code == 404
+
+    def test_dcr_endpoint_alias(self, client):
+        """Test /dcr endpoint (Google-compatible alias)."""
+        response = client.post(
+            "/dcr",
+            json={"software_statement": "invalid-jwt-token"},
+        )
+
+        # Should work same as /oauth/register
+        assert response.status_code == 400
+        data = response.json()
+        assert data["error"] == "invalid_software_statement"
+
+
+class TestDCRSameOrderCredentials:
+    """Tests for returning same credentials for same order (per Google spec)."""
+
+    @pytest.fixture
+    def service(self):
+        """Create a fresh DCR service with mocked dependencies."""
+        account_repo = AccountRepository()
+        entitlement_repo = EntitlementRepository()
+        procurement_service = ProcurementService(
+            account_repo=account_repo,
+            entitlement_repo=entitlement_repo,
+        )
+
+        # Pre-populate with valid account and order
+        import asyncio
+
+        async def setup():
+            account = Account(
+                id="same-order-account",
+                provider_id="provider-456",
+                state=AccountState.ACTIVE,
+            )
+            await account_repo.create(account)
+
+            entitlement = Entitlement(
+                id="same-order-test",
+                account_id="same-order-account",
+                provider_id="provider-456",
+                state=EntitlementState.ACTIVE,
+            )
+            await entitlement_repo.create(entitlement)
+
+        asyncio.get_event_loop().run_until_complete(setup())
+
+        return DCRService(procurement_service=procurement_service)
+
+    @pytest.mark.asyncio
+    async def test_same_order_returns_same_credentials(self, service):
+        """Test that the same order ID returns the same credentials.
+
+        Per Google's DCR spec: "If an end user creates multiple instances
+        of the agent, return the existing client_id and client_secret pair
+        for the given order."
+        """
+        from insights_agent.dcr.models import GoogleJWTClaims
+
+        claims = GoogleJWTClaims(
+            iss="https://example.com",
+            iat=int(time.time()),
+            exp=int(time.time()) + 3600,
+            aud="https://example.com",
+            sub="same-order-account",
+            auth_app_redirect_uris=["https://example.com/callback"],
+            google=GoogleClaims(order="same-order-test"),
+        )
+
+        # First registration
+        result1 = await service._create_client_credentials(claims)
+        assert isinstance(result1, DCRResponse)
+
+        # Second registration with same order - should return same credentials
+        result2 = await service._return_existing_credentials(
+            await service._get_client_by_order("same-order-test")
+        )
+        assert isinstance(result2, DCRResponse)
+
+        # Verify same client_id and client_secret
+        assert result1.client_id == result2.client_id
+        assert result1.client_secret == result2.client_secret
+        assert result1.client_secret_expires_at == 0
+        assert result2.client_secret_expires_at == 0
 
 
 class TestAgentCardDCRExtension:

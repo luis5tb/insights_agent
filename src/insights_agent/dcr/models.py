@@ -137,10 +137,15 @@ class DCRResponse(BaseModel):
 
 
 class RegisteredClient(BaseModel):
-    """Stored registered client information."""
+    """Stored registered client information.
+
+    Note: Per Google's DCR spec, we must return the SAME client_id and
+    client_secret for repeat requests with the same order ID. Therefore,
+    we store the encrypted secret (not just a hash) so we can return it.
+    """
 
     client_id: str = Field(..., description="OAuth client ID")
-    client_secret_hash: str = Field(..., description="Hashed client secret")
+    client_secret_encrypted: str = Field(..., description="Encrypted client secret (Fernet)")
     order_id: str = Field(..., description="Associated Order ID")
     account_id: str = Field(..., description="Associated Account ID")
     redirect_uris: list[str] = Field(

@@ -11,7 +11,11 @@ from insights_agent.dcr.service import DCRService, get_dcr_service
 
 logger = logging.getLogger(__name__)
 
+# Main router for /oauth/register (RFC 7591 compliant path)
 router = APIRouter(prefix="/oauth", tags=["Dynamic Client Registration"])
+
+# Separate router for /dcr (Google's example path)
+dcr_router = APIRouter(tags=["Dynamic Client Registration"])
 
 
 @router.post(
@@ -103,7 +107,7 @@ async def get_client_info(
             detail=f"Client {client_id} not found",
         )
 
-    # Return client info without secret hash
+    # Return client info without secret
     return JSONResponse(
         content={
             "client_id": client.client_id,
@@ -114,3 +118,30 @@ async def get_client_info(
             "created_at": client.created_at.isoformat(),
         }
     )
+
+
+# =============================================================================
+# /dcr endpoint (Google's example path)
+# =============================================================================
+# This provides compatibility with Google's DCR example which uses /dcr
+# instead of /oauth/register
+
+@dcr_router.post(
+    "/dcr",
+    response_model=DCRResponse,
+    responses={
+        400: {"model": DCRError, "description": "Registration failed"},
+        500: {"model": DCRError, "description": "Server error"},
+    },
+)
+async def dcr_endpoint(
+    request: Request,
+    dcr_request: DCRRequest,
+    dcr_service: Annotated[DCRService, Depends(get_dcr_service)],
+) -> JSONResponse:
+    """Dynamic Client Registration endpoint (Google-compatible path).
+
+    This is an alias for /oauth/register that matches Google's DCR example.
+    See register_client for full documentation.
+    """
+    return await register_client(request, dcr_request, dcr_service)

@@ -2,6 +2,10 @@
 
 This module implements RFC 7591 Dynamic Client Registration with Google's
 software_statement JWT verification for Gemini Enterprise integration.
+
+Provides two endpoint paths:
+- /oauth/register - RFC 7591 compliant path
+- /dcr - Google's example path (for compatibility)
 """
 
 from insights_agent.dcr.models import (
@@ -15,6 +19,7 @@ from insights_agent.dcr.models import (
 from insights_agent.dcr.google_jwt import GoogleJWTValidator, get_google_jwt_validator
 from insights_agent.dcr.service import DCRService, get_dcr_service
 from insights_agent.dcr.router import router as dcr_router
+from insights_agent.dcr.router import dcr_router as dcr_compat_router
 
 __all__ = [
     # Models
@@ -30,6 +35,7 @@ __all__ = [
     # Service
     "DCRService",
     "get_dcr_service",
-    # Router
-    "dcr_router",
+    # Routers
+    "dcr_router",  # /oauth/register
+    "dcr_compat_router",  # /dcr (Google compatibility)
 ]

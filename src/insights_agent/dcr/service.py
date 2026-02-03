@@ -1,10 +1,11 @@
 """DCR service for handling Dynamic Client Registration requests."""
 
-import hashlib
 import logging
 import secrets
 import time
 from datetime import datetime
+
+from cryptography.fernet import Fernet, InvalidToken
 
 from insights_agent.config import get_settings
 from insights_agent.dcr.google_jwt import GoogleJWTValidator, get_google_jwt_validator
@@ -29,6 +30,11 @@ class DCRService:
     - Cross-references with Marketplace Procurement data
     - Creates OAuth client credentials
     - Returns RFC 7591 compliant responses
+
+    Per Google's DCR spec: "You MUST generate a unique client_id and client_secret
+    for each 'order' specified in the jwt payload and persist that mapping.
+    If an end user creates multiple instances of the agent, return the existing
+    client_id and client_secret pair for the given order."
     """
 
     def __init__(
@@ -47,6 +53,48 @@ class DCRService:
         self._settings = get_settings()
         # In-memory storage for registered clients (use database in production)
         self._registered_clients: dict[str, RegisteredClient] = {}
+        # Index by order_id for quick lookup
+        self._order_to_client: dict[str, str] = {}
+        # Fernet cipher for encrypting client secrets
+        self._fernet: Fernet | None = None
+        if self._settings.dcr_encryption_key:
+            try:
+                self._fernet = Fernet(self._settings.dcr_encryption_key.encode())
+            except Exception as e:
+                logger.error("Invalid DCR encryption key: %s", e)
+
+    def _encrypt_secret(self, secret: str) -> str:
+        """Encrypt a client secret for storage.
+
+        Args:
+            secret: The plaintext client secret.
+
+        Returns:
+            Encrypted secret as base64 string.
+        """
+        if not self._fernet:
+            # Fallback: use a generated key (not recommended for production)
+            logger.warning("DCR_ENCRYPTION_KEY not set, using ephemeral key")
+            self._fernet = Fernet(Fernet.generate_key())
+        return self._fernet.encrypt(secret.encode()).decode()
+
+    def _decrypt_secret(self, encrypted_secret: str) -> str | None:
+        """Decrypt a stored client secret.
+
+        Args:
+            encrypted_secret: The encrypted secret.
+
+        Returns:
+            Decrypted secret or None if decryption fails.
+        """
+        if not self._fernet:
+            logger.error("Cannot decrypt: no encryption key available")
+            return None
+        try:
+            return self._fernet.decrypt(encrypted_secret.encode()).decode()
+        except InvalidToken:
+            logger.error("Failed to decrypt client secret: invalid token")
+            return None
 
     async def register_client(
         self,
@@ -92,17 +140,15 @@ class DCRService:
             )
 
         # Step 4: Check if client already exists for this order
+        # Per Google's DCR spec: return the SAME credentials for the same order
         existing_client = await self._get_client_by_order(claims.order_id)
         if existing_client:
-            # Return existing credentials (generate new secret for security)
             logger.info(
-                "Regenerating credentials for existing order: %s",
+                "Returning existing credentials for order: %s (client_id=%s)",
                 claims.order_id,
+                existing_client.client_id,
             )
-            return await self._regenerate_credentials(
-                existing_client,
-                claims.auth_app_redirect_uris,
-            )
+            return await self._return_existing_credentials(existing_client)
 
         # Step 5: Create new OAuth client credentials
         credentials = await self._create_client_credentials(claims)
@@ -159,49 +205,43 @@ class DCRService:
         Returns:
             RegisteredClient if exists, None otherwise.
         """
-        for client in self._registered_clients.values():
-            if client.order_id == order_id:
-                return client
+        # Use index for quick lookup
+        client_id = self._order_to_client.get(order_id)
+        if client_id:
+            return self._registered_clients.get(client_id)
         return None
 
-    async def _regenerate_credentials(
+    async def _return_existing_credentials(
         self,
         existing_client: RegisteredClient,
-        redirect_uris: list[str],
-    ) -> DCRResponse:
-        """Regenerate credentials for an existing client.
+    ) -> DCRResponse | DCRError:
+        """Return the existing credentials for an order.
 
-        Per DCR spec, we can return new credentials for the same order.
+        Per Google's DCR spec: "return the existing client_id and client_secret
+        pair for the given order"
 
         Args:
             existing_client: The existing registered client.
-            redirect_uris: New redirect URIs from the request.
 
         Returns:
-            DCRResponse with new credentials.
+            DCRResponse with the same credentials.
         """
-        # Generate new secret
-        client_secret = secrets.token_urlsafe(32)
-        secret_hash = hashlib.sha256(client_secret.encode()).hexdigest()
-
-        # Update client
-        existing_client.client_secret_hash = secret_hash
-        existing_client.redirect_uris = redirect_uris
-        self._registered_clients[existing_client.client_id] = existing_client
-
-        # Update procurement service mapping
-        await self._procurement_service.get_or_create_client_credentials(
-            existing_client.order_id
-        )
+        # Decrypt the stored secret
+        client_secret = self._decrypt_secret(existing_client.client_secret_encrypted)
+        if not client_secret:
+            logger.error(
+                "Failed to decrypt secret for client %s",
+                existing_client.client_id,
+            )
+            return DCRError(
+                error=DCRErrorCode.SERVER_ERROR,
+                error_description="Failed to retrieve existing credentials",
+            )
 
         return DCRResponse(
             client_id=existing_client.client_id,
             client_secret=client_secret,
             client_secret_expires_at=0,
-            client_id_issued_at=int(existing_client.created_at.timestamp()),
-            redirect_uris=redirect_uris,
-            grant_types=existing_client.grant_types,
-            token_endpoint_auth_method="client_secret_basic",
         )
 
     async def _create_client_credentials(
@@ -218,15 +258,16 @@ class DCRService:
         """
         try:
             # Generate unique client_id and client_secret
-            client_id = f"gemini_{secrets.token_urlsafe(16)}"
+            # Use order ID in client_id for easier debugging (per Google example)
+            client_id = f"client_{claims.order_id}"
             client_secret = secrets.token_urlsafe(32)
-            secret_hash = hashlib.sha256(client_secret.encode()).hexdigest()
+            encrypted_secret = self._encrypt_secret(client_secret)
             issued_at = int(time.time())
 
             # Create registered client record
             registered_client = RegisteredClient(
                 client_id=client_id,
-                client_secret_hash=secret_hash,
+                client_secret_encrypted=encrypted_secret,
                 order_id=claims.order_id,
                 account_id=claims.account_id,
                 redirect_uris=claims.auth_app_redirect_uris,
@@ -239,8 +280,9 @@ class DCRService:
                 },
             )
 
-            # Store client
+            # Store client with order index
             self._registered_clients[client_id] = registered_client
+            self._order_to_client[claims.order_id] = client_id
 
             # Also update the entitlement in procurement service
             # This creates the client_id -> order_id mapping for usage metering
@@ -253,14 +295,11 @@ class DCRService:
                 client_secret=client_secret,
             )
 
+            # Return only the 3 required fields per Google's example
             return DCRResponse(
                 client_id=client_id,
                 client_secret=client_secret,
                 client_secret_expires_at=0,
-                client_id_issued_at=issued_at,
-                redirect_uris=claims.auth_app_redirect_uris,
-                grant_types=["authorization_code", "refresh_token"],
-                token_endpoint_auth_method="client_secret_basic",
             )
 
         except Exception as e:
@@ -295,8 +334,11 @@ class DCRService:
         if not client:
             return False
 
-        secret_hash = hashlib.sha256(client_secret.encode()).hexdigest()
-        return secrets.compare_digest(secret_hash, client.client_secret_hash)
+        stored_secret = self._decrypt_secret(client.client_secret_encrypted)
+        if not stored_secret:
+            return False
+
+        return secrets.compare_digest(client_secret, stored_secret)
 
     async def get_order_id_for_client(self, client_id: str) -> str | None:
         """Get the Order ID associated with a client_id.

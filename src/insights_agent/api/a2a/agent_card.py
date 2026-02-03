@@ -56,14 +56,22 @@ def _build_oauth_security_scheme() -> OAuth2SecurityScheme:
 
 
 def _build_dcr_extension() -> AgentExtension:
-    """Build DCR extension for Google Marketplace integration."""
+    """Build DCR extension for Google Marketplace integration.
+
+    Provides two endpoints for DCR:
+    - /oauth/register - RFC 7591 compliant path
+    - /dcr - Google-compatible path (per Google's example)
+    """
     settings = get_settings()
 
     return AgentExtension(
         uri="urn:google:agent:dcr",
         description="Dynamic Client Registration for OAuth 2.0",
         params={
+            # Primary endpoint (RFC 7591 compliant)
             "endpoint": f"{settings.agent_provider_url}/oauth/register",
+            # Alternative endpoint (Google example path)
+            "alternativeEndpoint": f"{settings.agent_provider_url}/dcr",
             "supportedGrantTypes": ["authorization_code", "refresh_token"],
         },
     )
