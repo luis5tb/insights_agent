@@ -27,11 +27,74 @@ from insights_agent.core import create_agent
 logger = logging.getLogger(__name__)
 
 
+def _get_session_service():
+    """Get the appropriate session service based on configuration.
+
+    For production, uses DatabaseSessionService which persists sessions to PostgreSQL.
+    For development, uses InMemorySessionService.
+
+    Security Note:
+        The session database (SESSION_DATABASE_URL) can be separate from the
+        marketplace database (DATABASE_URL) for security isolation. This ensures:
+        - Agents only have access to session data, not marketplace/auth data
+        - Compromised agents can't access DCR credentials or order information
+        - Different retention policies can be applied to sessions vs. marketplace data
+
+    Returns:
+        Session service instance (DatabaseSessionService or InMemorySessionService).
+    """
+    settings = get_settings()
+
+    # Prefer SESSION_DATABASE_URL if configured, otherwise fall back to DATABASE_URL
+    session_db_url = settings.session_database_url or settings.database_url
+
+    # Use database session service for production (non-SQLite databases)
+    if session_db_url and not session_db_url.startswith("sqlite"):
+        try:
+            from google.adk.sessions import DatabaseSessionService
+
+            # ADK's DatabaseSessionService uses synchronous SQLAlchemy,
+            # so we need to convert the async URL to sync format
+            db_url = session_db_url
+            if "postgresql+asyncpg" in db_url:
+                # Convert asyncpg URL to sync psycopg2 format
+                db_url = db_url.replace("postgresql+asyncpg", "postgresql+psycopg2")
+            elif "postgresql+aiopg" in db_url:
+                db_url = db_url.replace("postgresql+aiopg", "postgresql+psycopg2")
+
+            # Log which database is being used (without credentials)
+            db_host = db_url.split("@")[-1].split("/")[0] if "@" in db_url else "local"
+            logger.info(
+                "Using DatabaseSessionService for session persistence (host=%s, isolated=%s)",
+                db_host,
+                bool(settings.session_database_url),
+            )
+            return DatabaseSessionService(db_url=db_url)
+        except ImportError as e:
+            logger.warning(
+                "DatabaseSessionService not available (%s), falling back to InMemorySessionService",
+                e,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to initialize DatabaseSessionService (%s), falling back to InMemorySessionService",
+                e,
+            )
+
+    logger.info("Using InMemorySessionService for session management")
+    return InMemorySessionService()
+
+
 def _create_runner() -> Runner:
     """Create a Runner for the ADK agent with usage tracking.
 
     Returns:
-        Configured Runner instance with in-memory services and usage plugin.
+        Configured Runner instance with appropriate services and usage plugin.
+
+    Note:
+        Uses DatabaseSessionService for production (PostgreSQL) to persist
+        sessions across agent restarts and enable horizontal scaling.
+        Falls back to InMemorySessionService for development.
     """
     settings = get_settings()
     agent = create_agent()
@@ -43,10 +106,13 @@ def _create_runner() -> Runner:
         plugins=[UsageTrackingPlugin()],
     )
 
+    # Use database-backed session service for production
+    session_service = _get_session_service()
+
     return Runner(
         app=app,
         artifact_service=InMemoryArtifactService(),
-        session_service=InMemorySessionService(),
+        session_service=session_service,
         memory_service=InMemoryMemoryService(),
     )
 
