@@ -18,34 +18,67 @@ This agent provides AI-powered access to Red Hat Insights services, enabling nat
 - Built with Google ADK and Gemini 2.5 Flash
 - A2A protocol support with SSE streaming for multi-agent ecosystems
 - OAuth 2.0 authentication via Red Hat SSO
-- Dynamic Client Registration (DCR) for Google Marketplace
-- Usage tracking (tokens, requests, tool calls) via `/usage` endpoint
+- Dynamic Client Registration (DCR) with Red Hat SSO (Keycloak)
+- Google Cloud Marketplace integration (Gemini Enterprise)
+- PostgreSQL persistence for production deployments
+- Usage tracking and reporting to Google Cloud Service Control
 - Global rate limiting (requests per minute/hour)
 - Integrated MCP server for Red Hat Insights API access
 
 ## Architecture
 
+The system consists of **two separate services**:
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Pod / Container                          │
-│  ┌─────────────────────┐      ┌─────────────────────────────┐  │
-│  │   Insights Agent    │ HTTP │   Red Hat Insights MCP      │  │
-│  │   (Gemini + ADK)    │◄────►│   Server                    │  │
-│  │                     │:8080 │                             │  │
-│  │   Port 8000         │      │   Authenticates with        │  │
-│  └─────────────────────┘      │   console.redhat.com        │  │
-│           │                   └──────────────┬──────────────┘  │
-│           │                                  │                  │
-└───────────┼──────────────────────────────────┼──────────────────┘
-            │                                  │
-            ▼                                  ▼
-    ┌───────────────┐                 ┌───────────────────┐
-    │   Clients     │                 │ console.redhat.com│
-    │   (A2A)       │                 │ (Insights APIs)   │
-    └───────────────┘                 └───────────────────┘
+                        Google Cloud Marketplace
+                                 │
+           ┌─────────────────────┴─────────────────────┐
+           │ Pub/Sub Events                            │ DCR Requests
+           ▼                                           ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                  Marketplace Handler (Port 8001)                         │
+│                  ────────────────────────────────                        │
+│  - Always running to receive Pub/Sub provisioning events                │
+│  - Hybrid /dcr endpoint (Pub/Sub + DCR)                                 │
+│  - Creates OAuth clients in Red Hat SSO via DCR                         │
+│  - Stores accounts, entitlements, clients in PostgreSQL                 │
+└─────────────────────────────────────────────────────────────────────────┘
+                                 │
+                                 │ Shared PostgreSQL
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Insights Agent (Port 8000)                           │
+│                     ──────────────────────────                           │
+│  ┌─────────────────────┐      ┌─────────────────────────────┐           │
+│  │   Insights Agent    │ HTTP │   Red Hat Insights MCP      │           │
+│  │   (Gemini + ADK)    │◄────►│   Server (Sidecar)          │           │
+│  │                     │      │                             │           │
+│  │   - A2A protocol    │      │   - Advisor, Inventory      │           │
+│  │   - OAuth 2.0       │      │   - Vulnerability, Patch    │           │
+│  │   - Session mgmt    │      │   - Remediations            │           │
+│  └─────────────────────┘      └──────────────┬──────────────┘           │
+└───────────────────────────────────────────────┼─────────────────────────┘
+                                                │
+                                                ▼
+                                       ┌───────────────────┐
+                                       │ console.redhat.com│
+                                       │ (Insights APIs)   │
+                                       └───────────────────┘
 ```
 
-The agent uses the MCP server as a sidecar to access Red Hat Insights APIs. The MCP server handles authentication with console.redhat.com using Lightspeed service account credentials.
+### Service Responsibilities
+
+| Service | Port | Purpose | Scaling |
+|---------|------|---------|---------|
+| **Marketplace Handler** | 8001 | Pub/Sub events, DCR, provisioning | Always on (minScale=1) |
+| **Insights Agent** | 8000 | A2A queries, user interactions, MCP | Scale to zero when idle |
+
+### Deployment Order
+
+1. **Deploy Marketplace Handler first** - Must be running to receive provisioning events
+2. **Deploy Agent after provisioning** - Can be deployed when customers are ready
+
+See [docs/architecture.md](docs/architecture.md) for detailed architecture documentation.
 
 ## Quick Start
 
@@ -194,10 +227,12 @@ insights_agent/
 ├── agent.py                 # ADK CLI entry point
 ├── pyproject.toml          # Project configuration
 ├── .env.example            # Environment template
-├── Containerfile           # Container build (UBI 9)
+├── Containerfile           # Agent container build (UBI 9)
+├── Containerfile.marketplace-handler  # Handler container build
 ├── Makefile                # Development commands
 ├── docs/                   # Documentation
-│   ├── architecture.md     # System architecture
+│   ├── architecture.md     # System architecture (two-service)
+│   ├── architecture-dcr.md # DCR and provisioning flows
 │   ├── authentication.md   # OAuth 2.0 guide
 │   ├── api.md              # API reference
 │   ├── configuration.md    # Config reference
@@ -205,26 +240,41 @@ insights_agent/
 │   └── troubleshooting.md  # Troubleshooting guide
 ├── deploy/
 │   ├── cloudrun/           # Cloud Run deployment
+│   │   ├── service.yaml           # Agent service config
+│   │   ├── marketplace-handler.yaml  # Handler service config
+│   │   └── deploy.sh              # Deploy script (--service all|handler|agent)
 │   └── podman/             # Podman/Kubernetes deployment
-│       ├── insights-agent-pod.yaml
+│       ├── marketplace-handler-pod.yaml  # Handler pod (start first)
+│       ├── insights-agent-pod.yaml       # Agent pod
 │       ├── insights-agent-configmap.yaml
 │       └── insights-agent-secret.yaml
 └── src/
     └── insights_agent/
-        ├── api/            # A2A endpoints and AgentCard
-        ├── auth/           # OAuth 2.0 and DCR
-        ├── config/         # Settings management
-        ├── core/           # Agent definition
-        ├── db/             # Database models
-        ├── metering/       # Usage tracking
-        └── tools/          # MCP integration
+        ├── api/                # A2A endpoints and AgentCard
+        │   └── a2a/            # A2A protocol setup
+        ├── auth/               # OAuth 2.0 authentication
+        ├── config/             # Settings management
+        ├── core/               # Agent definition (ADK)
+        ├── db/                 # Database models (SQLAlchemy)
+        ├── dcr/                # Dynamic Client Registration
+        │   ├── keycloak_client.py  # Red Hat SSO DCR client
+        │   └── service.py          # DCR business logic
+        ├── marketplace/        # Google Marketplace integration
+        │   ├── service.py          # Procurement API
+        │   └── repository.py       # PostgreSQL persistence
+        ├── marketplace_handler/  # Separate handler service
+        │   ├── app.py              # FastAPI app (port 8001)
+        │   └── router.py           # Hybrid /dcr endpoint
+        ├── metering/           # Usage tracking
+        └── tools/              # MCP integration
 ```
 
 ## Documentation
 
 Comprehensive documentation is available in the [docs/](docs/) directory:
 
-- [Architecture Overview](docs/architecture.md) - System design and components
+- [Architecture Overview](docs/architecture.md) - Two-service architecture and data flows
+- [DCR Architecture](docs/architecture-dcr.md) - Dynamic Client Registration and provisioning flows
 - [MCP Server Integration](docs/mcp-integration.md) - Red Hat Insights MCP server setup
 - [Authentication Guide](docs/authentication.md) - OAuth 2.0 and JWT validation
 - [API Reference](docs/api.md) - Endpoints and examples
@@ -234,11 +284,16 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 
 ## Container Deployment (Podman)
 
-The agent is deployed as a pod containing multiple containers:
-- **insights-agent**: Main A2A agent (Gemini + Google ADK)
-- **insights-mcp**: Red Hat Insights MCP server for console.redhat.com API access
-- **postgres**: PostgreSQL database
-- **a2a-inspector**: Web UI for agent interaction (optional)
+The system is deployed as **two separate pods**:
+
+1. **Marketplace Handler Pod** (start first):
+   - **marketplace-handler**: Handles Pub/Sub events and DCR requests
+   - **postgres**: PostgreSQL database (shared with agent)
+
+2. **Insights Agent Pod** (start after handler):
+   - **insights-agent**: Main A2A agent (Gemini + Google ADK)
+   - **insights-mcp**: Red Hat Insights MCP server
+   - **a2a-inspector**: Web UI for agent interaction (optional)
 
 ### Prerequisites
 
@@ -250,6 +305,9 @@ The agent is deployed as a pod containing multiple containers:
 ### Build the Container Images
 
 ```bash
+# Build the marketplace handler image
+podman build -t localhost/marketplace-handler:latest -f Containerfile.marketplace-handler .
+
 # Build the agent image
 podman build -t localhost/insights-agent:latest -f Containerfile .
 
@@ -288,13 +346,18 @@ podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
 
 4. (Optional) Customize configuration in `deploy/podman/insights-agent-configmap.yaml`
 
-### Run the Pod
+### Run the Pods
 
 ```bash
 # First, deploy the secrets (creates a Kubernetes Secret in podman)
 podman kube play deploy/podman/my-secrets.yaml
 
-# Then start the pod with ConfigMap
+# Start the marketplace handler FIRST (contains PostgreSQL)
+podman kube play \
+  --configmap deploy/podman/insights-agent-configmap.yaml \
+  deploy/podman/marketplace-handler-pod.yaml
+
+# Then start the agent pod (connects to handler's PostgreSQL)
 podman kube play \
   --configmap deploy/podman/insights-agent-configmap.yaml \
   deploy/podman/insights-agent-pod.yaml
@@ -303,22 +366,34 @@ podman kube play \
 podman pod ps
 
 # View container logs
-podman logs insights-agent-pod-insights-agent   # Agent logs
-podman logs insights-agent-pod-insights-mcp     # MCP server logs
+podman logs marketplace-handler-marketplace-handler  # Handler logs
+podman logs marketplace-handler-postgres             # PostgreSQL logs
+podman logs insights-agent-pod-insights-agent        # Agent logs
+podman logs insights-agent-pod-insights-mcp          # MCP server logs
 
-# Stop and remove all resources
+# Stop and remove all resources (reverse order)
 podman kube down deploy/podman/insights-agent-pod.yaml
+podman kube down deploy/podman/marketplace-handler-pod.yaml
 podman kube down deploy/podman/my-secrets.yaml
 ```
 
 ### Access the Services
 
+**Marketplace Handler:**
+
 | Service | URL | Description |
 |---------|-----|-------------|
-| Agent API | http://localhost:8000 | Main agent endpoint |
+| Handler Health | http://localhost:8001/health | Handler health status |
+| DCR Endpoint | http://localhost:8001/dcr | Pub/Sub + DCR hybrid endpoint |
+
+**Insights Agent:**
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| Agent API | http://localhost:8000 | Main A2A endpoint |
 | Health Check | http://localhost:8000/health | Agent health status |
 | AgentCard | http://localhost:8000/.well-known/agent.json | A2A discovery |
-| OAuth Authorize | http://localhost:8000/oauth/authorize | OAuth login |
+| OAuth Callback | http://localhost:8000/oauth/callback | OAuth redirect |
 | MCP Server | http://localhost:8081 | MCP server (internal) |
 | A2A Inspector | http://localhost:8080 | Web UI for agent interaction |
 
@@ -344,11 +419,19 @@ The [A2A Inspector](https://github.com/a2aproject/a2a-inspector) provides a web-
 
 ### Pod Services
 
+**Marketplace Handler Pod:**
+
+| Container | Port | Description |
+|-----------|------|-------------|
+| marketplace-handler | 8001 | Pub/Sub events and DCR endpoint |
+| postgres | 5432 | PostgreSQL database (shared) |
+
+**Insights Agent Pod:**
+
 | Container | Port | Description |
 |-----------|------|-------------|
 | insights-agent | 8000 | Main A2A agent API |
 | insights-mcp | 8081 | Red Hat Insights MCP server |
-| postgres | 5432 | PostgreSQL database |
 | a2a-inspector | 8080 | Web UI for agent interaction (optional) |
 
 ### How the MCP Server Works
@@ -371,6 +454,10 @@ By default, database data uses `emptyDir` and is lost when the pod is removed. T
 
 For production deployment to Google Cloud Run, see [deploy/cloudrun/README.md](deploy/cloudrun/README.md).
 
+The system deploys as **two separate Cloud Run services**:
+- **marketplace-handler**: Always running (minScale=1) for Pub/Sub events
+- **insights-agent**: Scales to zero when idle
+
 Quick deploy:
 
 ```bash
@@ -381,17 +468,12 @@ export GOOGLE_CLOUD_LOCATION="us-central1"
 # Run setup script
 ./deploy/cloudrun/setup.sh
 
-# Deploy
-./deploy/cloudrun/deploy.sh
-```
+# Deploy both services
+./deploy/cloudrun/deploy.sh --service all --build --allow-unauthenticated
 
-Or use the ADK CLI:
-
-```bash
-adk deploy cloud_run \
-  --project=$GOOGLE_CLOUD_PROJECT \
-  --region=$GOOGLE_CLOUD_LOCATION \
-  .
+# Or deploy individually:
+./deploy/cloudrun/deploy.sh --service handler --allow-unauthenticated
+./deploy/cloudrun/deploy.sh --service agent --allow-unauthenticated
 ```
 
 ## License
