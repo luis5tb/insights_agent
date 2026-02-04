@@ -1,4 +1,13 @@
-"""FastAPI application for the Insights Agent."""
+"""FastAPI application for the Insights Agent.
+
+This is the A2A agent service that handles:
+- A2A protocol requests (message/send, message/stream)
+- AgentCard discovery (/.well-known/agent.json)
+- OAuth user authentication flow
+
+Note: DCR and Marketplace provisioning are handled by the separate
+marketplace-handler service. See insights_agent.marketplace_handler.
+"""
 
 import logging
 from contextlib import asynccontextmanager
@@ -11,8 +20,6 @@ from insights_agent.api.a2a.agent_card import get_agent_card_dict
 from insights_agent.api.a2a.usage_plugin import get_aggregate_usage
 from insights_agent.auth import AuthenticationMiddleware, oauth_router
 from insights_agent.config import get_settings
-from insights_agent.dcr import dcr_router, dcr_compat_router
-from insights_agent.marketplace import marketplace_router
 from insights_agent.ratelimit import RateLimitMiddleware
 
 logger = logging.getLogger(__name__)
@@ -22,6 +29,17 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup/shutdown events."""
     settings = get_settings()
+
+    # Startup: Initialize database
+    try:
+        from insights_agent.db import init_database
+
+        logger.info("Initializing database: %s", settings.database_url.split("@")[-1])
+        await init_database()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error("Failed to initialize database: %s", e)
+        raise
 
     # Startup: Start the usage reporting scheduler
     if settings.service_control_enabled and settings.service_control_service_name:
@@ -49,6 +67,15 @@ async def lifespan(app: FastAPI):
             await stop_reporting_scheduler()
         except Exception as e:
             logger.error("Failed to stop reporting scheduler: %s", e)
+
+    # Shutdown: Close database connection
+    try:
+        from insights_agent.db import close_database
+
+        logger.info("Closing database connection")
+        await close_database()
+    except Exception as e:
+        logger.error("Failed to close database: %s", e)
 
 
 def create_app() -> FastAPI:
@@ -94,26 +121,10 @@ def create_app() -> FastAPI:
         """AgentCard endpoint (alias for agent.json)."""
         return get_agent_card_dict()
 
-    # Include OAuth 2.0 router
+    # Include OAuth 2.0 router for user authentication
     # Provides: /oauth/authorize, /oauth/callback, /oauth/token, /oauth/userinfo
+    # Note: DCR (/oauth/register, /dcr) is handled by the marketplace-handler service
     app.include_router(oauth_router)
-
-    # Include DCR router (Dynamic Client Registration)
-    # Provides:
-    # - POST /oauth/register - Register new OAuth client (RFC 7591)
-    # - GET /oauth/register/{client_id} - Get client info
-    # - POST /dcr - Google-compatible alias for /oauth/register
-    app.include_router(dcr_router)
-    app.include_router(dcr_compat_router)
-
-    # Include Marketplace Procurement router
-    # Provides:
-    # - POST /marketplace/pubsub - Pub/Sub push endpoint
-    # - GET /marketplace/accounts/{account_id} - Get account info
-    # - GET /marketplace/entitlements/{entitlement_id} - Get entitlement info
-    # - GET /marketplace/orders/{order_id}/validate - Validate order for DCR
-    # - GET /marketplace/accounts/{account_id}/validate - Validate account for DCR
-    app.include_router(marketplace_router)
 
     # Usage statistics endpoint
     # Returns aggregate token and request counts tracked by UsageTrackingPlugin

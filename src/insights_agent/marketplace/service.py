@@ -66,6 +66,7 @@ class ProcurementService:
 
         handlers = {
             # Account events
+            ProcurementEventType.ACCOUNT_CREATION_REQUESTED: self._handle_account_creation_requested,
             ProcurementEventType.ACCOUNT_ACTIVE: self._handle_account_active,
             ProcurementEventType.ACCOUNT_DELETED: self._handle_account_deleted,
             # Entitlement lifecycle
@@ -94,6 +95,48 @@ class ProcurementService:
             logger.warning("No handler for event type: %s", event.event_type)
 
     # Account event handlers
+
+    async def _handle_account_creation_requested(
+        self, event: ProcurementEvent
+    ) -> None:
+        """Handle ACCOUNT_CREATION_REQUESTED event.
+
+        Per the reference implementation, this event triggers:
+        1. Create account record in PENDING state
+        2. Approve the account via Procurement API
+        3. Account becomes ACTIVE after approval
+
+        This must complete before DCR can return credentials for orders
+        associated with this account.
+        """
+        if not event.account:
+            logger.error("ACCOUNT_CREATION_REQUESTED missing account info")
+            return
+
+        # Create account in pending state
+        account = await self._account_repo.get(event.account.id)
+        if not account:
+            account = Account(
+                id=event.account.id,
+                state=AccountState.PENDING,
+                provider_id=event.provider_id,
+            )
+            await self._account_repo.create(account)
+
+        # Approve the account via Procurement API
+        approved = await self._approve_account(event.account.id)
+        if approved:
+            account.state = AccountState.ACTIVE
+            await self._account_repo.update(account)
+            logger.info(
+                "Account creation requested and approved: %s",
+                event.account.id,
+            )
+        else:
+            logger.warning(
+                "Account created but approval failed: %s (will retry on ACCOUNT_ACTIVE)",
+                event.account.id,
+            )
 
     async def _handle_account_active(self, event: ProcurementEvent) -> None:
         """Handle ACCOUNT_ACTIVE event."""
@@ -349,6 +392,28 @@ class ProcurementService:
 
     # Procurement API operations
 
+    async def _get_auth_headers(self) -> dict[str, str]:
+        """Get authentication headers for Procurement API calls.
+
+        Uses Application Default Credentials (ADC) for GCP authentication.
+
+        Returns:
+            Headers dict with Authorization bearer token.
+        """
+        try:
+            import google.auth
+            import google.auth.transport.requests
+
+            credentials, project = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            request = google.auth.transport.requests.Request()
+            credentials.refresh(request)
+            return {"Authorization": f"Bearer {credentials.token}"}
+        except Exception as e:
+            logger.warning("Failed to get ADC credentials: %s", e)
+            return {}
+
     async def _approve_entitlement(self, entitlement_id: str) -> bool:
         """Approve an entitlement via the Procurement API.
 
@@ -359,12 +424,18 @@ class ProcurementService:
             True if approved, False otherwise.
         """
         try:
+            if not self._settings.service_control_service_name:
+                logger.warning("SERVICE_CONTROL_SERVICE_NAME not set, skipping approval")
+                return True  # Allow for development
+
             url = f"{self.PROCUREMENT_API_BASE}/providers/{self._settings.service_control_service_name}/entitlements/{entitlement_id}:approve"
+            headers = await self._get_auth_headers()
 
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url,
                     json={},
+                    headers=headers,
                     timeout=30.0,
                 )
 
@@ -382,6 +453,48 @@ class ProcurementService:
             logger.error("Error approving entitlement %s: %s", entitlement_id, e)
             return False
 
+    async def _approve_account(self, account_id: str) -> bool:
+        """Approve an account via the Procurement API.
+
+        Per the reference implementation, accounts must be approved before
+        DCR can return credentials.
+
+        Args:
+            account_id: The Procurement Account ID to approve.
+
+        Returns:
+            True if approved, False otherwise.
+        """
+        try:
+            if not self._settings.service_control_service_name:
+                logger.warning("SERVICE_CONTROL_SERVICE_NAME not set, skipping approval")
+                return True  # Allow for development
+
+            url = f"{self.PROCUREMENT_API_BASE}/providers/{self._settings.service_control_service_name}/accounts/{account_id}:approve"
+            headers = await self._get_auth_headers()
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    json={},
+                    headers=headers,
+                    timeout=30.0,
+                )
+
+                if response.status_code == 200:
+                    logger.info("Approved account: %s", account_id)
+                    return True
+                else:
+                    logger.error(
+                        "Failed to approve account %s: %s",
+                        account_id,
+                        response.text,
+                    )
+                    return False
+        except Exception as e:
+            logger.error("Error approving account %s: %s", account_id, e)
+            return False
+
     async def _approve_plan_change(
         self,
         entitlement_id: str,
@@ -397,12 +510,18 @@ class ProcurementService:
             True if approved, False otherwise.
         """
         try:
+            if not self._settings.service_control_service_name:
+                logger.warning("SERVICE_CONTROL_SERVICE_NAME not set, skipping approval")
+                return True  # Allow for development
+
             url = f"{self.PROCUREMENT_API_BASE}/providers/{self._settings.service_control_service_name}/entitlements/{entitlement_id}:approvePlanChange"
+            headers = await self._get_auth_headers()
 
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url,
                     json={"pendingPlanName": new_plan},
+                    headers=headers,
                     timeout=30.0,
                 )
 
