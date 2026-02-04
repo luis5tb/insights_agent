@@ -70,7 +70,7 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
 │  │                           Runner                                     │   │
 │  │  ┌─────────────────┐  ┌──────────────────┐  ┌───────────────────┐   │   │
 │  │  │  SessionService │  │ ArtifactService  │  │   MemoryService   │   │   │
-│  │  │   (InMemory)    │  │    (InMemory)    │  │    (InMemory)     │   │   │
+│  │  │ (Database/Mem)  │  │    (InMemory)    │  │    (InMemory)     │   │   │
 │  │  └─────────────────┘  └──────────────────┘  └───────────────────┘   │   │
 │  └───────────────────────────────┬─────────────────────────────────────┘   │
 │                                  │                                          │
@@ -631,16 +631,18 @@ Get user information for authenticated user.
 
 ## Dynamic Client Registration (DCR)
 
-The agent supports Dynamic Client Registration for Google Marketplace / Gemini Enterprise integration.
+The system supports Dynamic Client Registration for Google Marketplace / Gemini Enterprise integration.
+
+**Important**: DCR endpoints are on the **Marketplace Handler** service (port 8001), not the Agent service (port 8000).
 
 ### Endpoints
 
-| Endpoint | Description |
-|----------|-------------|
-| `POST /oauth/register` | RFC 7591 compliant path |
-| `POST /dcr` | Google-compatible path (alias) |
+| Service | Endpoint | Description |
+|---------|----------|-------------|
+| Handler (8001) | `POST /dcr` | Hybrid endpoint for Pub/Sub and DCR requests |
+| Agent (8000) | `POST /oauth/register` | RFC 7591 compliant path (forwards to handler) |
 
-Both endpoints accept the same request format and return the same response.
+The `/dcr` endpoint on the handler accepts both Pub/Sub procurement events and DCR registration requests, routing based on content.
 
 ### POST /oauth/register (or POST /dcr)
 
@@ -677,6 +679,8 @@ The `software_statement` JWT contains:
 ```
 
 **Important**: Per Google's specification, the same `client_id` and `client_secret` are returned for repeat requests with the same order ID. This allows Gemini Enterprise to invoke DCR multiple times for the same order.
+
+**Security Note**: The handler validates that the `google.order` claim in the JWT exists in the database (was received via Pub/Sub procurement). This prevents registration of clients for orders not associated with this service.
 
 **Response (Error):**
 

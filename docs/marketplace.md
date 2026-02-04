@@ -14,6 +14,8 @@ The Insights Agent integrates with Google Cloud Marketplace to enable:
 
 ## Architecture
 
+The system uses a **two-service architecture** to handle marketplace integration:
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          Google Cloud Marketplace                            │
@@ -25,10 +27,29 @@ The Insights Agent integrates with Google Cloud Marketplace to enable:
             │                    │                           │
             ▼                    ▼                           ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Insights Agent                                     │
+│                    Marketplace Handler (Port 8001)                           │
+│                    ─────────────────────────────────                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    Hybrid /dcr Endpoint                              │    │
+│  │  - Pub/Sub Events → Approve accounts/entitlements                   │    │
+│  │  - DCR Requests → Validate order, create OAuth clients via Keycloak │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                              │                                               │
+│                              ▼                                               │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
-│  │   DCR Endpoint  │  │  Usage Metering │  │   Procurement Handler       │  │
-│  │   /register     │  │   & Reporting   │  │   (Pub/Sub Subscriber)      │  │
+│  │   PostgreSQL    │  │   Red Hat SSO   │  │   Google Procurement API    │  │
+│  │   (Orders, DCR) │  │   (Keycloak)    │  │   (Account Approval)        │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                ▲
+                                │ Shared PostgreSQL
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      Insights Agent (Port 8000)                              │
+│                      ──────────────────────────                              │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
+│  │   A2A Protocol  │  │  Usage Metering │  │   OAuth Callback            │  │
+│  │   (JSON-RPC)    │  │   & Reporting   │  │   /oauth/callback           │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
 │                              │                                               │
 │                              ▼                                               │
@@ -39,74 +60,123 @@ The Insights Agent integrates with Google Cloud Marketplace to enable:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Service Responsibilities
+
+| Service | Port | Purpose | Scaling |
+|---------|------|---------|---------|
+| **Marketplace Handler** | 8001 | Pub/Sub events, DCR, provisioning | Always on (minScale=1) |
+| **Insights Agent** | 8000 | A2A queries, user interactions | Scale to zero when idle |
+
+### Deployment Order
+
+1. **Deploy Marketplace Handler first** - Must be running to receive Pub/Sub events
+2. **Deploy Agent after provisioning** - Can be deployed when customers are ready
+
 ## Dynamic Client Registration (DCR)
 
-DCR allows Marketplace customers to automatically register as OAuth clients.
+DCR allows Marketplace customers to automatically register as OAuth clients. The system uses a **two-flow architecture**:
 
-### Flow
+### Flow Overview
 
 ```
-1. Customer subscribes via Marketplace
-2. Marketplace sends procurement notification (Pub/Sub)
-3. Customer's application calls POST /oauth/register
-4. Agent validates request and creates client credentials
-5. Customer uses credentials to authenticate
+Flow 1: Procurement (Async via Pub/Sub)
+──────────────────────────────────────
+1. Customer purchases from Google Cloud Marketplace
+2. Marketplace sends Pub/Sub event to Handler /dcr endpoint
+3. Handler approves account/entitlement via Google Procurement API
+4. Handler stores order in PostgreSQL database
+
+Flow 2: Registration (Sync via software_statement JWT)
+──────────────────────────────────────────────────────
+1. Admin configures agent in Gemini Enterprise
+2. Gemini sends POST /dcr with software_statement JWT
+3. Handler validates Google's JWT signature
+4. **CRITICAL: Handler verifies order_id exists in database** (security check)
+5. Handler creates OAuth client via Red Hat SSO DCR
+6. Handler returns client_id, client_secret to Gemini
 ```
+
+### Security: Order ID Validation
+
+The order ID validation in step 4 is **critical for security**:
+
+- The DCR JWT is validly signed by Google for **any** order
+- Without checking our database, anyone with a valid Google Marketplace JWT (even for a different product) could register a client
+- Our database check ensures we only register clients for orders we received notification for
+
+### Hybrid /dcr Endpoint
+
+The Marketplace Handler exposes a single `/dcr` endpoint that handles both flows:
+
+| Request Type | Content | Handler Action |
+|-------------|---------|----------------|
+| Pub/Sub Event | `{"message": {"data": "..."}}` | Approve account/entitlement |
+| DCR Request | `{"software_statement": "..."}` | Create OAuth client |
 
 ### DCR Endpoint
 
-**POST /oauth/register**
+**POST /dcr** (on Marketplace Handler, port 8001)
 
-Register a new OAuth client.
+Register a new OAuth client via Google's software_statement JWT.
 
 **Request:**
 
 ```json
 {
-  "client_name": "Customer Application",
-  "redirect_uris": [
-    "https://customer-app.example.com/callback"
-  ],
-  "grant_types": ["authorization_code", "refresh_token"],
-  "response_types": ["code"],
-  "token_endpoint_auth_method": "client_secret_basic",
-  "contacts": ["admin@customer.example.com"]
+  "software_statement": "eyJhbGciOiJSUzI1NiIsImtpZCI6Ii4uLiJ9..."
 }
 ```
 
-**Response:**
+The `software_statement` JWT contains:
+
+| Claim | Description |
+|-------|-------------|
+| `iss` | Google's certificate URL |
+| `aud` | Agent's provider URL |
+| `sub` | Procurement Account ID |
+| `google.order` | Marketplace Order ID (validated against database) |
+| `auth_app_redirect_uris` | Redirect URIs for OAuth flow |
+
+**Response (Success):**
 
 ```json
 {
-  "client_id": "dcr_abc123def456",
-  "client_secret": "generated_secret_xyz",
-  "client_name": "Customer Application",
-  "redirect_uris": ["https://customer-app.example.com/callback"],
-  "grant_types": ["authorization_code", "refresh_token"],
-  "response_types": ["code"],
-  "token_endpoint_auth_method": "client_secret_basic",
-  "client_id_issued_at": 1705312200,
+  "client_id": "client_224a96f9-5b79-4b94-a8ea-c3bc3976a8e0",
+  "client_secret": "generated-secret-here",
   "client_secret_expires_at": 0
 }
 ```
 
+**Response (Error):**
+
+```json
+{
+  "error": "unapproved_software_statement",
+  "error_description": "Order not found in database"
+}
+```
+
+**Important**: Per Google's specification, the same `client_id` and `client_secret` are returned for repeat requests with the same order ID. This allows Gemini Enterprise to invoke DCR multiple times for the same order.
+
 ### AgentCard DCR Extension
 
-The AgentCard advertises DCR support:
+The AgentCard (served by the Agent on port 8000) advertises DCR support and points to the Handler:
 
 ```json
 {
   "name": "insights-agent",
   "extensions": {
-    "dynamicClientRegistration": {
-      "registrationEndpoint": "https://agent.example.com/oauth/register",
+    "geminiEnterprise": {
+      "ssoUrl": "https://handler.example.com/dcr",
+      "supportedAuthMethods": ["client_secret_basic"],
       "supportedGrantTypes": ["authorization_code", "refresh_token"],
-      "supportedResponseTypes": ["code"],
-      "supportedAuthMethods": ["client_secret_basic", "client_secret_post"]
+      "supportedResponseTypes": ["code"]
     }
   }
 }
 ```
+
+See [DCR Architecture](architecture-dcr.md) for detailed flow diagrams and security considerations.
 
 ## Procurement Integration
 
@@ -228,7 +298,7 @@ Usage is reported:
 
 ### Rate Limit Enforcement
 
-Rate limits are enforced based on subscription tier:
+Rate limits are enforced using an in-memory sliding window algorithm:
 
 ```python
 async def check_rate_limit(client_id: str) -> bool:
@@ -238,13 +308,17 @@ async def check_rate_limit(client_id: str) -> bool:
     # Get tier limits
     limits = TIER_LIMITS[tier]
 
-    # Check against Redis counters
-    current = await redis.incr(f"rate:{client_id}:minute")
-    if current > limits["requests_per_minute"]:
-        return False
+    # Check against in-memory sliding window counters
+    limiter = get_rate_limiter()
+    allowed, info = limiter.check_limit(
+        client_id,
+        limits["requests_per_minute"]
+    )
 
-    return True
+    return allowed
 ```
+
+See [Rate Limiting](rate-limiting.md) for details on the sliding window algorithm.
 
 ## Setup Instructions
 
@@ -295,17 +369,22 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 ### Test DCR Locally
 
 ```bash
-# Start the agent
+# Start the marketplace handler first (port 8001)
+python -m insights_agent.marketplace_handler
+
+# In another terminal, start the agent (port 8000)
 python -m insights_agent.main
 
-# Test DCR endpoint
-curl -X POST http://localhost:8000/oauth/register \
+# Test DCR endpoint on the handler (requires valid Google JWT)
+# For local testing, you may need to mock the JWT validation
+curl -X POST http://localhost:8001/dcr \
   -H "Content-Type: application/json" \
   -d '{
-    "client_name": "Test Client",
-    "redirect_uris": ["http://localhost:3000/callback"],
-    "grant_types": ["authorization_code"]
+    "software_statement": "your-test-jwt"
   }'
+
+# Test the agent health
+curl http://localhost:8000/health
 ```
 
 ### Test Procurement Events

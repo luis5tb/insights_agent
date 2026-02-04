@@ -113,7 +113,8 @@ AGENT_PORT=8000
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `sqlite+aiosqlite:///./insights_agent.db` | Database connection URL |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./insights_agent.db` | Marketplace database connection URL (orders, DCR clients, auth) |
+| `SESSION_DATABASE_URL` | (uses DATABASE_URL) | Session database URL for ADK sessions. Optional - for security isolation. |
 
 **SQLite (Development):**
 
@@ -132,6 +133,51 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/insights_agent
 ```bash
 DATABASE_URL=postgresql+asyncpg://user:password@/insights_agent?host=/cloudsql/project:region:instance
 ```
+
+**Security Isolation (Optional):**
+
+For production deployments, you can use separate databases for marketplace data and agent sessions:
+
+```bash
+# Shared marketplace database (orders, DCR clients, auth data)
+DATABASE_URL=postgresql+asyncpg://marketplace:pass@db:5432/marketplace
+
+# Separate session database (ADK sessions only)
+SESSION_DATABASE_URL=postgresql+asyncpg://sessions:pass@db:5432/sessions
+```
+
+This separation ensures:
+- Agents only access session data, not marketplace/auth data
+- Compromised agents can't access DCR credentials or order information
+- Different retention policies can be applied to sessions vs. marketplace data
+
+### Dynamic Client Registration (DCR)
+
+DCR allows Google Cloud Marketplace customers to automatically register as OAuth clients.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DCR_ENABLED` | `true` | Enable/disable DCR functionality |
+| `DCR_INITIAL_ACCESS_TOKEN` | - | Initial access token for Red Hat SSO DCR endpoint |
+| `DCR_ENCRYPTION_KEY` | - | Fernet key for encrypting stored client secrets |
+| `DCR_CLIENT_NAME_PREFIX` | `gemini-order-` | Prefix for generated client names |
+
+**Generate Encryption Key:**
+
+```bash
+python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+```
+
+**Example Configuration:**
+
+```bash
+DCR_ENABLED=true
+DCR_INITIAL_ACCESS_TOKEN=your-keycloak-initial-access-token
+DCR_ENCRYPTION_KEY=your-generated-fernet-key
+DCR_CLIENT_NAME_PREFIX=gemini-order-
+```
+
+See [DCR Architecture](architecture-dcr.md) for detailed information on the DCR flow.
 
 ### Rate Limiting
 

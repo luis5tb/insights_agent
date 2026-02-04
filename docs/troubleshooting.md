@@ -56,7 +56,7 @@ python -c "from insights_agent.config import get_settings; print(get_settings())
 |-------|-------|----------|
 | `ValidationError: google_api_key` | Missing API key | Set `GOOGLE_API_KEY` |
 | `ValidationError: lightspeed_client_id` | Missing MCP credentials | Set `LIGHTSPEED_CLIENT_ID` |
-| `Connection refused` | Database not running | Start PostgreSQL/Redis |
+| `Connection refused` | Database not running | Start PostgreSQL |
 
 ### Port Already in Use
 
@@ -246,29 +246,6 @@ alembic upgrade head
 
 # Check current revision
 alembic current
-```
-
-## Redis Issues
-
-### Connection Failures
-
-**Symptom**: Rate limiting not working
-
-```bash
-# Check Redis is running
-redis-cli ping
-
-# Test connection
-redis-cli -h localhost -p 6379 ping
-```
-
-### Rate Limit Not Enforced
-
-**Check Redis Keys**:
-
-```bash
-redis-cli keys "rate:*"
-redis-cli get "rate:client_id:minute"
 ```
 
 ## Container/Pod Issues

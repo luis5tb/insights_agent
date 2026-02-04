@@ -109,6 +109,18 @@ The agent can connect to the MCP server using different transport modes:
 
 The MCP server runs as an HTTP server, and the agent connects to it.
 
+**Podman deployment** (port 8081 to avoid A2A Inspector conflict):
+```yaml
+# Agent configuration
+MCP_TRANSPORT_MODE: http
+MCP_SERVER_URL: http://localhost:8081
+
+# MCP server configuration
+MCP_SERVER_MODE: http
+MCP_SERVER_PORT: 8081
+```
+
+**Cloud Run deployment** (port 8080 for sidecar):
 ```yaml
 # Agent configuration
 MCP_TRANSPORT_MODE: http
