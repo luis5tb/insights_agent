@@ -4,21 +4,43 @@ Deploy the Red Hat Insights Agent to Google Cloud Run for production use.
 
 ## Architecture
 
-The deployment includes two containers running as sidecars:
+The deployment consists of **two separate Cloud Run services**:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Cloud Run Service                         │
-│  ┌─────────────────────┐      ┌─────────────────────────┐  │
-│  │   Insights Agent    │ HTTP │   Insights MCP Server   │  │
-│  │   (Port 8000)       │◄────►│   (Port 8080)           │  │
-│  │                     │      │                         │  │
-│  │   - Gemini 2.5      │      │   - Advisor tools       │  │
-│  │   - A2A protocol    │      │   - Inventory tools     │  │
-│  │   - OAuth 2.0       │      │   - Vulnerability tools │  │
-│  └─────────────────────┘      └───────────┬─────────────┘  │
-│                                           │                 │
-└───────────────────────────────────────────┼─────────────────┘
+                              Google Cloud Marketplace
+                                       │
+                 ┌─────────────────────┴─────────────────────┐
+                 │                                           │
+                 ▼                                           ▼
+      ┌──────────────────────┐                ┌──────────────────────────────────┐
+      │  Pub/Sub (Events)    │                │  Gemini Enterprise (DCR)         │
+      └──────────┬───────────┘                └──────────────────┬───────────────┘
+                 │                                               │
+                 ▼                                               ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                    Marketplace Handler Service (Port 8001)                       │
+│                    ───────────────────────────────────────                       │
+│  - Always running (minScale=1) to receive Pub/Sub events                        │
+│  - Handles account/entitlement approvals via Procurement API                    │
+│  - Handles DCR requests (creates OAuth clients in Red Hat SSO)                  │
+│  - Stores data in PostgreSQL                                                     │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                 │
+                 │ Shared PostgreSQL Database
+                 ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                     Insights Agent Service (Port 8000)                           │
+│                     ─────────────────────────────────────                        │
+│  ┌─────────────────────┐      ┌─────────────────────────┐                       │
+│  │   Insights Agent    │ HTTP │   Insights MCP Server   │                       │
+│  │                     │◄────►│   (Sidecar, Port 8081)  │                       │
+│  │   - Gemini 2.5      │      │                         │                       │
+│  │   - A2A protocol    │      │   - Advisor tools       │                       │
+│  │   - OAuth 2.0       │      │   - Inventory tools     │                       │
+│  │                     │      │   - Vulnerability tools │                       │
+│  └─────────────────────┘      └───────────┬─────────────┘                       │
+│                                           │                                      │
+└───────────────────────────────────────────┼──────────────────────────────────────┘
                                             │
                                             ▼
                                    ┌─────────────────┐
@@ -27,7 +49,19 @@ The deployment includes two containers running as sidecars:
                                    └─────────────────┘
 ```
 
-The MCP server authenticates with console.redhat.com using Lightspeed service account credentials stored in Secret Manager.
+### Service Responsibilities
+
+| Service | Port | Purpose | Scaling |
+|---------|------|---------|---------|
+| **Marketplace Handler** | 8001 | Pub/Sub events, DCR | Always on (minScale=1) |
+| **Insights Agent** | 8000 | A2A queries, user interactions | Scale to zero |
+
+### Deployment Order
+
+1. **Deploy Marketplace Handler first** - Must be running to receive provisioning events
+2. **Deploy Agent after provisioning** - Can be deployed when customers are ready to use the agent
+
+The MCP server runs as a sidecar in the Agent service and authenticates with console.redhat.com using Lightspeed service account credentials stored in Secret Manager.
 
 ## Prerequisites
 
@@ -94,7 +128,17 @@ echo -n 'your-sso-client-id' | \
 echo -n 'your-sso-client-secret' | \
   gcloud secrets versions add redhat-sso-client-secret --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 
-# Database URL (Cloud SQL) - OPTIONAL, not currently used
+# DCR (Dynamic Client Registration) - Required for Gemini Enterprise integration
+# Initial Access Token from Red Hat SSO (Keycloak) admin
+echo -n 'your-initial-access-token' | \
+  gcloud secrets versions add dcr-initial-access-token --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+# Fernet encryption key for DCR client secrets
+# Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+echo -n 'your-fernet-key' | \
+  gcloud secrets versions add dcr-encryption-key --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+# Database URL (Cloud SQL) - Required for production
 # The agent currently uses in-memory storage. This is for future use.
 # echo -n 'postgresql+asyncpg://user:pass@/dbname?host=/cloudsql/PROJECT:REGION:INSTANCE' | \
 #   gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
@@ -116,50 +160,66 @@ docker push gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp:latest
 
 ### 5. Deploy
 
-The deploy script supports multiple deployment methods. The default (`yaml`) is recommended
-as it includes the MCP sidecar container.
+The deploy script supports deploying both services. The default (`yaml`) method is recommended
+as it includes the MCP sidecar container for the agent.
 
 ```bash
-# Build and deploy (recommended for first deployment)
-./deploy/cloudrun/deploy.sh --build
+# Build and deploy both services (recommended for first deployment)
+./deploy/cloudrun/deploy.sh --build --service all --allow-unauthenticated
 
-# Deploy with existing image
-./deploy/cloudrun/deploy.sh --image gcr.io/my-project/insights-agent:v1.0
+# Deploy only the marketplace handler
+./deploy/cloudrun/deploy.sh --service handler --allow-unauthenticated
+
+# Deploy only the agent with existing image
+./deploy/cloudrun/deploy.sh --service agent --image gcr.io/my-project/insights-agent:v1.0
 ```
 
 **Deploy script options:**
 
 | Flag | Description |
 |------|-------------|
+| `--service <service>` | Which service to deploy: `all` (default), `handler`, `agent` |
 | `--method <method>` | Deployment method: `yaml` (default), `adk`, `cloudbuild` |
 | `--image <image>` | Container image for the agent (default: `gcr.io/$PROJECT_ID/insights-agent:latest`) |
+| `--handler-image <image>` | Container image for the marketplace handler (default: `gcr.io/$PROJECT_ID/marketplace-handler:latest`) |
 | `--mcp-image <image>` | Container image for the MCP server (default: `gcr.io/$PROJECT_ID/insights-mcp:latest`) |
-| `--build` | Build the agent image before deploying |
-| `--with-ui` | Include the ADK web UI (only for `adk` method) |
-| `--allow-unauthenticated` | Allow public access without Cloud Run IAM authentication |
+| `--build` | Build the image(s) before deploying |
+| `--with-ui` | Include the ADK web UI (only for `adk` method, agent only) |
+| `--allow-unauthenticated` | Allow public access (required for A2A and Pub/Sub) |
+
+**Service deployment:**
+
+| Service | YAML Config | Description |
+|---------|-------------|-------------|
+| `handler` | `marketplace-handler.yaml` | Pub/Sub events, DCR requests |
+| `agent` | `service.yaml` | A2A queries with MCP sidecar |
+| `all` | Both | Deploy both services |
 
 **Deployment methods:**
 
-| Method | MCP Sidecar | Description |
-|--------|-------------|-------------|
-| `yaml` | ✅ Yes | Uses `service.yaml` with variable substitution (recommended) |
-| `adk` | ❌ No | Uses ADK CLI (does not support sidecars) |
-| `cloudbuild` | ✅ Yes | Uses Cloud Build with `cloudbuild.yaml` |
+| Method | MCP Sidecar | Services | Description |
+|--------|-------------|----------|-------------|
+| `yaml` | ✅ Yes | All | Uses YAML configs with variable substitution (recommended) |
+| `adk` | ❌ No | Agent only | Uses ADK CLI (does not support sidecars) |
+| `cloudbuild` | ✅ Yes | Agent only | Uses Cloud Build with `cloudbuild.yaml` |
 
 **Examples:**
 
 ```bash
-# Deploy using service.yaml (default, includes MCP sidecar)
-./deploy/cloudrun/deploy.sh --build
+# Deploy both services (production setup)
+./deploy/cloudrun/deploy.sh --build --service all --allow-unauthenticated
 
-# Deploy with custom image registry
-./deploy/cloudrun/deploy.sh --image quay.io/myorg/insights-agent:latest
+# Deploy only marketplace handler (for receiving procurement events)
+./deploy/cloudrun/deploy.sh --service handler --allow-unauthenticated
 
-# Deploy with ADK CLI (no MCP sidecar - not recommended for production)
-./deploy/cloudrun/deploy.sh --method adk --with-ui
+# Deploy only agent with custom image
+./deploy/cloudrun/deploy.sh --service agent --image quay.io/myorg/insights-agent:latest
 
-# Deploy using Cloud Build
-./deploy/cloudrun/deploy.sh --method cloudbuild
+# Deploy with ADK CLI (agent only, no MCP sidecar - not recommended for production)
+./deploy/cloudrun/deploy.sh --service agent --method adk --with-ui
+
+# Deploy using Cloud Build (agent only)
+./deploy/cloudrun/deploy.sh --service agent --method cloudbuild
 ```
 
 ## Deployment Options
@@ -394,33 +454,54 @@ This allows requests without a Bearer token.
 
 After deployment, the following endpoints are available:
 
+### Marketplace Handler Service
+
 | Endpoint | Description |
 |----------|-------------|
 | `GET /health` | Health check |
 | `GET /ready` | Readiness check |
-| `GET /.well-known/agent.json` | A2A AgentCard |
+| `POST /dcr` | Hybrid endpoint (Pub/Sub events + DCR requests) |
+| `POST /oauth/register` | DCR endpoint (RFC 7591 compliant path) |
+
+### Insights Agent Service
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Health check |
+| `GET /ready` | Readiness check |
+| `GET /.well-known/agent.json` | A2A AgentCard (public) |
 | `POST /` | A2A JSON-RPC endpoint (message/send, message/stream) |
 | `GET /usage` | Aggregate usage statistics |
-| `GET /oauth/authorize` | OAuth authorization |
-| `GET /oauth/callback` | OAuth callback |
-| `POST /oauth/token` | OAuth token endpoint |
+| `GET /oauth/callback` | OAuth callback from Red Hat SSO |
 
 ## Testing the Deployment
 
 ```bash
-# Get service URL
-SERVICE_URL=$(gcloud run services describe insights-agent \
+# Get service URLs
+HANDLER_URL=$(gcloud run services describe marketplace-handler \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --format='value(status.url)')
 
-# Test health endpoint
-curl $SERVICE_URL/health
+AGENT_URL=$(gcloud run services describe insights-agent \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
 
-# Get AgentCard
-curl $SERVICE_URL/.well-known/agent.json
+# Test marketplace handler health
+curl $HANDLER_URL/health
 
-# View logs
+# Test agent health
+curl $AGENT_URL/health
+
+# Get AgentCard (public endpoint)
+curl $AGENT_URL/.well-known/agent.json
+
+# View logs for each service
+gcloud run logs read marketplace-handler \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT
+
 gcloud run logs read insights-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
@@ -428,14 +509,17 @@ gcloud run logs read insights-agent \
 
 ## Database Options
 
-> **Note**: The current implementation uses **in-memory storage** for all state
-> (sessions, tasks, marketplace entitlements, registered clients). This means
-> data is lost when the service restarts. The `database-url` secret is created
-> but not currently used. Database persistence is planned for a future release.
+The agent uses **PostgreSQL** for persistent storage of:
+- Marketplace accounts and entitlements (from Pub/Sub events)
+- DCR registered clients (order → client_id mapping)
+- Usage tracking records
 
-### Cloud SQL (PostgreSQL) - Future Use
+By default, the agent uses SQLite for local development. For production on
+Cloud Run, use Cloud SQL (PostgreSQL).
 
-When database persistence is implemented, you'll need Cloud SQL:
+### Cloud SQL (PostgreSQL) - Production
+
+To use Cloud SQL for production:
 
 1. Create Cloud SQL instance:
    ```bash

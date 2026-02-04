@@ -1,0 +1,120 @@
+# Cloud Run Service Configuration for Marketplace Handler
+#
+# This is a SEPARATE service from the Agent that handles:
+# 1. Pub/Sub events from Google Cloud Marketplace (async provisioning)
+# 2. DCR requests from Gemini Enterprise (sync client registration)
+#
+# This service must be ALWAYS RUNNING to receive procurement events,
+# even before any agent instances are deployed.
+#
+# Deployment Flow:
+# 1. Customer purchases from Google Marketplace
+# 2. Pub/Sub event → This service (approves account/entitlement)
+# 3. User configures agent in Gemini Enterprise
+# 4. Gemini sends DCR request → This service (creates OAuth client)
+# 5. User interacts with agent → Agent Service (uses OAuth tokens)
+#
+# Usage:
+#   gcloud run services replace deploy/cloudrun/marketplace-handler.yaml \
+#     --region=us-central1 --project=YOUR_PROJECT_ID
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: marketplace-handler
+  labels:
+    app: marketplace-handler
+    component: provisioning
+  annotations:
+    run.googleapis.com/description: "Marketplace provisioning and DCR handler for Insights Agent"
+    run.googleapis.com/ingress: all
+    run.googleapis.com/launch-stage: GA
+spec:
+  template:
+    metadata:
+      annotations:
+        # Scaling: Keep at least 1 instance to receive Pub/Sub events quickly
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "5"
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/startup-cpu-boost: "true"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 60
+      serviceAccountName: insights-agent@${PROJECT_ID}.iam.gserviceaccount.com
+      containers:
+        - name: marketplace-handler
+          image: gcr.io/${PROJECT_ID}/marketplace-handler:latest
+          ports:
+            - name: http1
+              containerPort: 8001
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          env:
+            # Handler Configuration
+            - name: HANDLER_HOST
+              value: "0.0.0.0"
+            - name: HANDLER_PORT
+              value: "8001"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: LOG_FORMAT
+              value: "json"
+            # Google Cloud Configuration
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "${PROJECT_ID}"
+            - name: GOOGLE_CLOUD_LOCATION
+              value: "${REGION}"
+            # Red Hat SSO Configuration
+            - name: RED_HAT_SSO_ISSUER
+              value: "https://sso.redhat.com/auth/realms/redhat-external"
+            # DCR Configuration
+            - name: DCR_ENABLED
+              value: "true"
+            - name: DCR_CLIENT_NAME_PREFIX
+              value: "gemini-order-"
+            # Secrets from Secret Manager
+            - name: RED_HAT_SSO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: redhat-sso-client-id
+                  key: latest
+            - name: RED_HAT_SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: redhat-sso-client-secret
+                  key: latest
+            - name: DCR_INITIAL_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dcr-initial-access-token
+                  key: latest
+            - name: DCR_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dcr-encryption-key
+                  key: latest
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-url
+                  key: latest
+          # Health checks
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            periodSeconds: 30
+            failureThreshold: 3
+  traffic:
+    - percent: 100
+      latestRevision: true

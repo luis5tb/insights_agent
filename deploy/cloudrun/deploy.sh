@@ -3,21 +3,38 @@
 # Google Cloud Run Deployment Script
 # =============================================================================
 #
-# Deploys the Insights Agent to Google Cloud Run with MCP sidecar
+# Deploys BOTH services to Google Cloud Run:
+# 1. marketplace-handler - Handles DCR and Pub/Sub events (always running)
+# 2. insights-agent - A2A agent with MCP sidecar (runs after provisioning)
 #
 # Usage:
 #   ./deploy/cloudrun/deploy.sh [OPTIONS]
 #
 # Options:
+#   --service <service>   Which service to deploy: all, handler, agent
+#                         (default: all)
 #   --method <method>     Deployment method: yaml, adk, cloudbuild
 #                         (default: yaml)
 #   --image <image>       Container image for the agent
 #                         (default: gcr.io/$PROJECT_ID/insights-agent:latest)
+#   --handler-image <image> Container image for the marketplace handler
+#                         (default: gcr.io/$PROJECT_ID/marketplace-handler:latest)
 #   --mcp-image <image>   Container image for the MCP server
-#                         (default: quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest)
+#                         (default: gcr.io/$PROJECT_ID/insights-mcp:latest)
 #   --with-ui             Include ADK web UI (only for adk method)
 #   --allow-unauthenticated  Allow public access
-#   --build               Build the agent image before deploying
+#   --build               Build images before deploying
+#
+# Architecture:
+#   ┌─────────────────────────┐     ┌─────────────────────────┐
+#   │  Marketplace Handler    │     │    Insights Agent       │
+#   │  (Cloud Run #1)         │     │    (Cloud Run #2)       │
+#   │                         │     │                         │
+#   │  - POST /dcr            │     │  - POST / (A2A)         │
+#   │  - Pub/Sub push         │     │  - /.well-known/agent   │
+#   │  - Account approval     │     │  - OAuth flow           │
+#   │  - Keycloak DCR         │     │  - MCP sidecar          │
+#   └─────────────────────────┘     └─────────────────────────┘
 #
 # Prerequisites:
 #   - Run setup.sh first to configure GCP services
@@ -48,24 +65,34 @@ IMAGE_TAG="${IMAGE_TAG:-latest}"
 
 # Default images
 AGENT_IMAGE="${AGENT_IMAGE:-}"
+HANDLER_IMAGE="${HANDLER_IMAGE:-}"
 # MCP image must be in GCR since Cloud Run doesn't support Quay.io directly
 # See README.md for instructions to copy the image from Quay.io to GCR
 MCP_IMAGE="${MCP_IMAGE:-gcr.io/${PROJECT_ID}/insights-mcp:latest}"
 
 # Parse arguments
 DEPLOY_METHOD="yaml"
+DEPLOY_SERVICE="all"  # all, handler, agent
 WITH_UI=false
 ALLOW_UNAUTH=false
 BUILD_IMAGE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --service)
+            DEPLOY_SERVICE="$2"
+            shift 2
+            ;;
         --method)
             DEPLOY_METHOD="$2"
             shift 2
             ;;
         --image)
             AGENT_IMAGE="$2"
+            shift 2
+            ;;
+        --handler-image)
+            HANDLER_IMAGE="$2"
             shift 2
             ;;
         --mcp-image)
@@ -86,7 +113,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             log_error "Unknown option: $1"
-            echo "Usage: $0 [--method yaml|adk|cloudbuild] [--image IMAGE] [--mcp-image IMAGE] [--with-ui] [--allow-unauthenticated] [--build]"
+            echo "Usage: $0 [--service all|handler|agent] [--method yaml|adk|cloudbuild] [--image IMAGE] [--handler-image IMAGE] [--mcp-image IMAGE] [--with-ui] [--allow-unauthenticated] [--build]"
             exit 1
             ;;
     esac
@@ -98,38 +125,55 @@ if [[ -z "$PROJECT_ID" ]]; then
     exit 1
 fi
 
-# Set default agent image if not specified
+# Set default images if not specified
 if [[ -z "$AGENT_IMAGE" ]]; then
     AGENT_IMAGE="gcr.io/${PROJECT_ID}/insights-agent:${IMAGE_TAG}"
 fi
+if [[ -z "$HANDLER_IMAGE" ]]; then
+    HANDLER_IMAGE="gcr.io/${PROJECT_ID}/marketplace-handler:${IMAGE_TAG}"
+fi
 
-log_info "Deploying Insights Agent to Cloud Run"
+log_info "Deploying to Cloud Run"
 log_info "  Project: $PROJECT_ID"
 log_info "  Region: $REGION"
-log_info "  Service: $SERVICE_NAME"
+log_info "  Service(s): $DEPLOY_SERVICE"
 log_info "  Method: $DEPLOY_METHOD"
 log_info "  Agent Image: $AGENT_IMAGE"
+log_info "  Handler Image: $HANDLER_IMAGE"
 log_info "  MCP Image: $MCP_IMAGE"
 
 # =============================================================================
-# Build image if requested
+# Build images if requested
 # =============================================================================
-build_image() {
+build_agent_image() {
     log_info "Building agent image..."
 
     gcloud builds submit \
         --tag "$AGENT_IMAGE" \
         --project "$PROJECT_ID" \
+        --dockerfile Containerfile \
         .
 
     log_info "Image built: $AGENT_IMAGE"
 }
 
+build_handler_image() {
+    log_info "Building marketplace handler image..."
+
+    gcloud builds submit \
+        --tag "$HANDLER_IMAGE" \
+        --project "$PROJECT_ID" \
+        --dockerfile Containerfile.marketplace-handler \
+        .
+
+    log_info "Image built: $HANDLER_IMAGE"
+}
+
 # =============================================================================
 # Option 1: Deploy using service.yaml (recommended - includes MCP sidecar)
 # =============================================================================
-deploy_with_yaml() {
-    log_info "Deploying with service.yaml..."
+deploy_agent_with_yaml() {
+    log_info "Deploying agent with service.yaml..."
 
     # Create temporary file with substituted values
     local tmp_yaml
@@ -149,8 +193,40 @@ deploy_with_yaml() {
 
     # Set IAM policy if allowing unauthenticated
     if [[ "$ALLOW_UNAUTH" == "true" ]]; then
-        log_info "Allowing unauthenticated access..."
+        log_info "Allowing unauthenticated access for agent..."
         gcloud run services add-iam-policy-binding "$SERVICE_NAME" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --member="allUsers" \
+            --role="roles/run.invoker"
+    fi
+
+    # Cleanup
+    rm -f "$tmp_yaml"
+}
+
+deploy_handler_with_yaml() {
+    log_info "Deploying marketplace handler with marketplace-handler.yaml..."
+
+    # Create temporary file with substituted values
+    local tmp_yaml
+    tmp_yaml=$(mktemp)
+
+    # Substitute variables in marketplace-handler.yaml
+    sed -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
+        -e "s|\${REGION}|${REGION}|g" \
+        -e "s|gcr.io/\${PROJECT_ID}/marketplace-handler:latest|${HANDLER_IMAGE}|g" \
+        deploy/cloudrun/marketplace-handler.yaml > "$tmp_yaml"
+
+    # Deploy using the YAML
+    gcloud run services replace "$tmp_yaml" \
+        --region "$REGION" \
+        --project "$PROJECT_ID"
+
+    # Marketplace handler needs to be publicly accessible for Pub/Sub push
+    if [[ "$ALLOW_UNAUTH" == "true" ]]; then
+        log_info "Allowing unauthenticated access for handler..."
+        gcloud run services add-iam-policy-binding "marketplace-handler" \
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --member="allUsers" \
@@ -201,33 +277,67 @@ deploy_with_cloudbuild() {
 # Main deployment
 # =============================================================================
 
-# Build image if requested
+# Build images if requested
 if [[ "$BUILD_IMAGE" == "true" ]]; then
-    build_image
+    case "$DEPLOY_SERVICE" in
+        all)
+            build_handler_image
+            build_agent_image
+            ;;
+        handler)
+            build_handler_image
+            ;;
+        agent)
+            build_agent_image
+            ;;
+    esac
 fi
 
-# Deploy based on method
-case "$DEPLOY_METHOD" in
-    yaml)
-        deploy_with_yaml
-        ;;
-    adk)
-        if command -v adk &>/dev/null; then
-            deploy_with_adk
-        else
-            log_error "ADK CLI not found. Install it or use --method yaml"
+# Deploy based on service and method
+deploy_services() {
+    case "$DEPLOY_METHOD" in
+        yaml)
+            case "$DEPLOY_SERVICE" in
+                all)
+                    deploy_handler_with_yaml
+                    deploy_agent_with_yaml
+                    ;;
+                handler)
+                    deploy_handler_with_yaml
+                    ;;
+                agent)
+                    deploy_agent_with_yaml
+                    ;;
+            esac
+            ;;
+        adk)
+            if [[ "$DEPLOY_SERVICE" != "agent" ]]; then
+                log_error "ADK method only supports agent deployment. Use --method yaml for handler."
+                exit 1
+            fi
+            if command -v adk &>/dev/null; then
+                deploy_with_adk
+            else
+                log_error "ADK CLI not found. Install it or use --method yaml"
+                exit 1
+            fi
+            ;;
+        cloudbuild)
+            if [[ "$DEPLOY_SERVICE" != "agent" ]]; then
+                log_error "Cloud Build method only supports agent deployment. Use --method yaml for handler."
+                exit 1
+            fi
+            deploy_with_cloudbuild
+            ;;
+        *)
+            log_error "Unknown deployment method: $DEPLOY_METHOD"
+            echo "Valid methods: yaml, adk, cloudbuild"
             exit 1
-        fi
-        ;;
-    cloudbuild)
-        deploy_with_cloudbuild
-        ;;
-    *)
-        log_error "Unknown deployment method: $DEPLOY_METHOD"
-        echo "Valid methods: yaml, adk, cloudbuild"
-        exit 1
-        ;;
-esac
+            ;;
+    esac
+}
+
+deploy_services
 
 # =============================================================================
 # Post-deployment
@@ -236,22 +346,58 @@ esac
 log_info "Deployment complete!"
 echo ""
 
-# Get service URL
-SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \
-    --region="$REGION" \
-    --project="$PROJECT_ID" \
-    --format='value(status.url)' 2>/dev/null || echo "")
+# Get and display service URLs based on what was deployed
+show_service_info() {
+    local service_name="$1"
+    local service_url
 
-if [[ -n "$SERVICE_URL" ]]; then
-    log_info "Service URL: $SERVICE_URL"
-    echo ""
-    echo "Test the deployment:"
-    echo "  curl $SERVICE_URL/health"
-    echo "  curl $SERVICE_URL/.well-known/agent.json"
-    echo ""
-    echo "View logs:"
-    echo "  gcloud run logs read $SERVICE_NAME --region=$REGION --project=$PROJECT_ID"
-else
-    log_warn "Could not retrieve service URL. Check deployment status with:"
-    echo "  gcloud run services describe $SERVICE_NAME --region=$REGION --project=$PROJECT_ID"
-fi
+    service_url=$(gcloud run services describe "$service_name" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --format='value(status.url)' 2>/dev/null || echo "")
+
+    if [[ -n "$service_url" ]]; then
+        log_info "$service_name URL: $service_url"
+        echo "  Test: curl $service_url/health"
+    else
+        log_warn "Could not retrieve $service_name URL"
+    fi
+}
+
+# Show info for deployed services
+case "$DEPLOY_SERVICE" in
+    all)
+        echo ""
+        show_service_info "marketplace-handler"
+        echo ""
+        show_service_info "$SERVICE_NAME"
+        echo ""
+        echo "Architecture:"
+        echo "  1. Marketplace Handler receives Pub/Sub events and DCR requests"
+        echo "  2. Agent handles A2A protocol and user interactions"
+        echo ""
+        echo "Test endpoints:"
+        echo "  Handler health: curl \$(gcloud run services describe marketplace-handler --region=$REGION --format='value(status.url)')/health"
+        echo "  Agent card:     curl \$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')/.well-known/agent.json"
+        ;;
+    handler)
+        echo ""
+        show_service_info "marketplace-handler"
+        echo ""
+        echo "The marketplace handler is ready to receive:"
+        echo "  - Pub/Sub events from Google Cloud Marketplace"
+        echo "  - DCR requests from Gemini Enterprise"
+        ;;
+    agent)
+        echo ""
+        show_service_info "$SERVICE_NAME"
+        echo ""
+        echo "Test the agent:"
+        echo "  curl \$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')/.well-known/agent.json"
+        ;;
+esac
+
+echo ""
+echo "View logs:"
+echo "  gcloud run logs read marketplace-handler --region=$REGION --project=$PROJECT_ID"
+echo "  gcloud run logs read $SERVICE_NAME --region=$REGION --project=$PROJECT_ID"

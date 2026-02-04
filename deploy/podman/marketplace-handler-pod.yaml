@@ -1,0 +1,113 @@
+# Marketplace Handler Pod Configuration (Podman Kube)
+#
+# Separate pod for the marketplace handler service that handles:
+# 1. Pub/Sub events from Google Cloud Marketplace (async provisioning)
+# 2. DCR requests from Gemini Enterprise (sync client registration)
+#
+# This service must be ALWAYS RUNNING to receive procurement events.
+# It includes PostgreSQL which is shared with the insights-agent pod.
+#
+# Deployment Order:
+#   1. Start this pod FIRST (it contains PostgreSQL)
+#   2. Then start the insights-agent pod (connects to this PostgreSQL)
+#
+# Usage:
+#   podman play kube deploy/podman/marketplace-handler-pod.yaml
+#
+# Note: Apply secrets first:
+#   podman play kube deploy/podman/insights-agent-secret.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: marketplace-handler
+  labels:
+    app: marketplace-handler
+    component: provisioning
+spec:
+  restartPolicy: Always
+  containers:
+    # ==========================================================================
+    # Marketplace Handler
+    # ==========================================================================
+    - name: marketplace-handler
+      image: localhost/marketplace-handler:latest
+      ports:
+        - containerPort: 8001
+          hostPort: 8001
+      resources:
+        limits:
+          cpu: "1"
+          memory: 512Mi
+      envFrom:
+        - configMapRef:
+            name: insights-agent-config
+      env:
+        # Override port for marketplace handler
+        - name: HANDLER_HOST
+          value: "0.0.0.0"
+        - name: HANDLER_PORT
+          value: "8001"
+        # DCR Configuration
+        - name: DCR_ENABLED
+          value: "true"
+        - name: DCR_CLIENT_NAME_PREFIX
+          value: "gemini-order-"
+        # Secrets
+        - name: RED_HAT_SSO_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: RED_HAT_SSO_CLIENT_ID
+        - name: RED_HAT_SSO_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: RED_HAT_SSO_CLIENT_SECRET
+        - name: DCR_INITIAL_ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: DCR_INITIAL_ACCESS_TOKEN
+              optional: true
+        - name: DCR_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: DCR_ENCRYPTION_KEY
+              optional: true
+        # Database URL - Connect to PostgreSQL in this pod via localhost
+        - name: DATABASE_URL
+          value: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
+
+    # ==========================================================================
+    # PostgreSQL Database (shared with agent via network)
+    # ==========================================================================
+    # The agent pod connects to this PostgreSQL via host.containers.internal:5432
+    - name: postgres
+      image: registry.redhat.io/rhel9/postgresql-16:latest
+      ports:
+        - containerPort: 5432
+          hostPort: 5432  # Exposed on host for agent pod to connect
+      env:
+        - name: POSTGRESQL_USER
+          value: insights
+        - name: POSTGRESQL_PASSWORD
+          value: insights
+        - name: POSTGRESQL_DATABASE
+          value: insights_agent
+      volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/pgsql/data:Z
+      resources:
+        limits:
+          cpu: "0.5"
+          memory: 256Mi
+
+  volumes:
+    - name: postgres-data
+      emptyDir: {}
+      # Uncomment below and comment out emptyDir to persist data between pod restarts
+      # hostPath:
+      #   path: ./data/handler-pgdata
+      #   type: DirectoryOrCreate

@@ -145,10 +145,20 @@ secrets=(
     "redhat-sso-client-secret"
 )
 
-# Optional secrets (database not currently used - in-memory storage)
-optional_secrets=(
-    "database-url"
+# DCR (Dynamic Client Registration) secrets
+# Required when DCR_ENABLED=true (default)
+dcr_secrets=(
+    "dcr-initial-access-token"  # Keycloak IAT for creating OAuth clients
+    "dcr-encryption-key"        # Fernet key for encrypting client secrets
 )
+
+# Database secrets (PostgreSQL for production)
+db_secrets=(
+    "database-url"              # postgresql+asyncpg://user:pass@/db?host=/cloudsql/...
+)
+
+# Combine all optional secrets
+optional_secrets=("${dcr_secrets[@]}" "${db_secrets[@]}")
 
 for secret in "${secrets[@]}"; do
     if ! gcloud secrets describe "$secret" --project="$PROJECT_ID" &>/dev/null; then
