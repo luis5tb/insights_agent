@@ -1,11 +1,21 @@
-"""Repository for storing and retrieving marketplace accounts and entitlements."""
+"""Repository for storing and retrieving marketplace accounts and entitlements.
+
+Uses PostgreSQL via SQLAlchemy for persistence.
+"""
 
 import hashlib
 import logging
 import secrets
 from datetime import datetime
-from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from insights_agent.db import (
+    MarketplaceAccountModel,
+    MarketplaceEntitlementModel,
+    get_session,
+)
 from insights_agent.marketplace.models import (
     Account,
     AccountState,
@@ -20,13 +30,8 @@ logger = logging.getLogger(__name__)
 class AccountRepository:
     """Repository for marketplace accounts.
 
-    In production, this should be backed by a database.
-    This implementation uses in-memory storage for development.
+    Uses PostgreSQL via SQLAlchemy for persistence.
     """
-
-    def __init__(self) -> None:
-        """Initialize the account repository."""
-        self._accounts: dict[str, Account] = {}
 
     async def get(self, account_id: str) -> Account | None:
         """Get an account by ID.
@@ -37,7 +42,16 @@ class AccountRepository:
         Returns:
             Account if found, None otherwise.
         """
-        return self._accounts.get(account_id)
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceAccountModel).where(
+                    MarketplaceAccountModel.id == account_id
+                )
+            )
+            model = result.scalar_one_or_none()
+            if model:
+                return self._model_to_entity(model)
+            return None
 
     async def get_by_provider(self, provider_id: str) -> list[Account]:
         """Get all accounts for a provider.
@@ -48,7 +62,14 @@ class AccountRepository:
         Returns:
             List of accounts.
         """
-        return [a for a in self._accounts.values() if a.provider_id == provider_id]
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceAccountModel).where(
+                    MarketplaceAccountModel.provider_id == provider_id
+                )
+            )
+            models = result.scalars().all()
+            return [self._model_to_entity(m) for m in models]
 
     async def create(self, account: Account) -> Account:
         """Create a new account.
@@ -59,9 +80,17 @@ class AccountRepository:
         Returns:
             The created account.
         """
-        self._accounts[account.id] = account
-        logger.info("Created account: %s", account.id)
-        return account
+        async with get_session() as session:
+            model = MarketplaceAccountModel(
+                id=account.id,
+                provider_id=account.provider_id,
+                state=account.state.value,
+                metadata_=account.metadata,
+            )
+            session.add(model)
+            await session.flush()
+            logger.info("Created account: %s", account.id)
+            return self._model_to_entity(model)
 
     async def update(self, account: Account) -> Account:
         """Update an existing account.
@@ -72,10 +101,22 @@ class AccountRepository:
         Returns:
             The updated account.
         """
-        account.updated_at = datetime.utcnow()
-        self._accounts[account.id] = account
-        logger.info("Updated account: %s (state=%s)", account.id, account.state)
-        return account
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceAccountModel).where(
+                    MarketplaceAccountModel.id == account.id
+                )
+            )
+            model = result.scalar_one_or_none()
+            if not model:
+                raise ValueError(f"Account not found: {account.id}")
+
+            model.provider_id = account.provider_id
+            model.state = account.state.value
+            model.metadata_ = account.metadata
+
+            logger.info("Updated account: %s (state=%s)", account.id, account.state)
+            return self._model_to_entity(model)
 
     async def delete(self, account_id: str) -> bool:
         """Delete an account.
@@ -86,11 +127,18 @@ class AccountRepository:
         Returns:
             True if deleted, False if not found.
         """
-        if account_id in self._accounts:
-            del self._accounts[account_id]
-            logger.info("Deleted account: %s", account_id)
-            return True
-        return False
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceAccountModel).where(
+                    MarketplaceAccountModel.id == account_id
+                )
+            )
+            model = result.scalar_one_or_none()
+            if model:
+                await session.delete(model)
+                logger.info("Deleted account: %s", account_id)
+                return True
+            return False
 
     async def exists(self, account_id: str) -> bool:
         """Check if an account exists.
@@ -101,7 +149,8 @@ class AccountRepository:
         Returns:
             True if exists, False otherwise.
         """
-        return account_id in self._accounts
+        account = await self.get(account_id)
+        return account is not None
 
     async def is_valid(self, account_id: str) -> bool:
         """Check if an account is valid (exists and active).
@@ -115,18 +164,23 @@ class AccountRepository:
         account = await self.get(account_id)
         return account is not None and account.state == AccountState.ACTIVE
 
+    def _model_to_entity(self, model: MarketplaceAccountModel) -> Account:
+        """Convert ORM model to Pydantic entity."""
+        return Account(
+            id=model.id,
+            provider_id=model.provider_id,
+            state=AccountState(model.state),
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            metadata=model.metadata_ or {},
+        )
+
 
 class EntitlementRepository:
     """Repository for marketplace entitlements (orders).
 
-    In production, this should be backed by a database.
-    This implementation uses in-memory storage for development.
+    Uses PostgreSQL via SQLAlchemy for persistence.
     """
-
-    def __init__(self) -> None:
-        """Initialize the entitlement repository."""
-        self._entitlements: dict[str, Entitlement] = {}
-        self._client_id_to_order: dict[str, str] = {}
 
     async def get(self, entitlement_id: str) -> Entitlement | None:
         """Get an entitlement by ID.
@@ -137,7 +191,16 @@ class EntitlementRepository:
         Returns:
             Entitlement if found, None otherwise.
         """
-        return self._entitlements.get(entitlement_id)
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceEntitlementModel).where(
+                    MarketplaceEntitlementModel.id == entitlement_id
+                )
+            )
+            model = result.scalar_one_or_none()
+            if model:
+                return self._model_to_entity(model)
+            return None
 
     async def get_by_account(self, account_id: str) -> list[Entitlement]:
         """Get all entitlements for an account.
@@ -148,34 +211,29 @@ class EntitlementRepository:
         Returns:
             List of entitlements.
         """
-        return [e for e in self._entitlements.values() if e.account_id == account_id]
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceEntitlementModel).where(
+                    MarketplaceEntitlementModel.account_id == account_id
+                )
+            )
+            models = result.scalars().all()
+            return [self._model_to_entity(m) for m in models]
 
-    async def get_by_client_id(self, client_id: str) -> Entitlement | None:
-        """Get an entitlement by OAuth client_id.
-
-        Args:
-            client_id: The OAuth client ID.
-
-        Returns:
-            Entitlement if found, None otherwise.
-        """
-        order_id = self._client_id_to_order.get(client_id)
-        if order_id:
-            return await self.get(order_id)
-        return None
-
-    async def get_order_id_by_client_id(self, client_id: str) -> str | None:
-        """Get the Order ID associated with a client_id.
-
-        This is used for usage metering to associate usage with orders.
-
-        Args:
-            client_id: The OAuth client ID.
+    async def get_all_active(self) -> list[Entitlement]:
+        """Get all active entitlements.
 
         Returns:
-            Order ID if found, None otherwise.
+            List of active entitlements.
         """
-        return self._client_id_to_order.get(client_id)
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceEntitlementModel).where(
+                    MarketplaceEntitlementModel.state == EntitlementState.ACTIVE.value
+                )
+            )
+            models = result.scalars().all()
+            return [self._model_to_entity(m) for m in models]
 
     async def create(self, entitlement: Entitlement) -> Entitlement:
         """Create a new entitlement.
@@ -186,15 +244,29 @@ class EntitlementRepository:
         Returns:
             The created entitlement.
         """
-        self._entitlements[entitlement.id] = entitlement
-        if entitlement.client_id:
-            self._client_id_to_order[entitlement.client_id] = entitlement.id
-        logger.info(
-            "Created entitlement: %s (account=%s)",
-            entitlement.id,
-            entitlement.account_id,
-        )
-        return entitlement
+        async with get_session() as session:
+            model = MarketplaceEntitlementModel(
+                id=entitlement.id,
+                account_id=entitlement.account_id,
+                provider_id=entitlement.provider_id,
+                product_id=entitlement.metadata.get("product_id"),
+                plan=entitlement.plan,
+                state=entitlement.state.value,
+                usage_reporting_id=entitlement.usage_reporting_id,
+                offer_start_time=entitlement.offer_start_time,
+                offer_end_time=entitlement.offer_end_time,
+                cancellation_reason=entitlement.cancellation_reason,
+                metadata_=entitlement.metadata,
+            )
+            session.add(model)
+            await session.flush()
+
+            logger.info(
+                "Created entitlement: %s (account=%s)",
+                entitlement.id,
+                entitlement.account_id,
+            )
+            return self._model_to_entity(model)
 
     async def update(self, entitlement: Entitlement) -> Entitlement:
         """Update an existing entitlement.
@@ -205,16 +277,32 @@ class EntitlementRepository:
         Returns:
             The updated entitlement.
         """
-        entitlement.updated_at = datetime.utcnow()
-        self._entitlements[entitlement.id] = entitlement
-        if entitlement.client_id:
-            self._client_id_to_order[entitlement.client_id] = entitlement.id
-        logger.info(
-            "Updated entitlement: %s (state=%s)",
-            entitlement.id,
-            entitlement.state,
-        )
-        return entitlement
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceEntitlementModel).where(
+                    MarketplaceEntitlementModel.id == entitlement.id
+                )
+            )
+            model = result.scalar_one_or_none()
+            if not model:
+                raise ValueError(f"Entitlement not found: {entitlement.id}")
+
+            model.account_id = entitlement.account_id
+            model.provider_id = entitlement.provider_id
+            model.plan = entitlement.plan
+            model.state = entitlement.state.value
+            model.usage_reporting_id = entitlement.usage_reporting_id
+            model.offer_start_time = entitlement.offer_start_time
+            model.offer_end_time = entitlement.offer_end_time
+            model.cancellation_reason = entitlement.cancellation_reason
+            model.metadata_ = entitlement.metadata
+
+            logger.info(
+                "Updated entitlement: %s (state=%s)",
+                entitlement.id,
+                entitlement.state,
+            )
+            return self._model_to_entity(model)
 
     async def delete(self, entitlement_id: str) -> bool:
         """Delete an entitlement.
@@ -225,13 +313,18 @@ class EntitlementRepository:
         Returns:
             True if deleted, False if not found.
         """
-        entitlement = self._entitlements.pop(entitlement_id, None)
-        if entitlement:
-            if entitlement.client_id:
-                self._client_id_to_order.pop(entitlement.client_id, None)
-            logger.info("Deleted entitlement: %s", entitlement_id)
-            return True
-        return False
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceEntitlementModel).where(
+                    MarketplaceEntitlementModel.id == entitlement_id
+                )
+            )
+            model = result.scalar_one_or_none()
+            if model:
+                await session.delete(model)
+                logger.info("Deleted entitlement: %s", entitlement_id)
+                return True
+            return False
 
     async def exists(self, entitlement_id: str) -> bool:
         """Check if an entitlement exists.
@@ -242,7 +335,8 @@ class EntitlementRepository:
         Returns:
             True if exists, False otherwise.
         """
-        return entitlement_id in self._entitlements
+        entitlement = await self.get(entitlement_id)
+        return entitlement is not None
 
     async def is_valid(self, entitlement_id: str) -> bool:
         """Check if an entitlement is valid (exists and active).
@@ -256,87 +350,22 @@ class EntitlementRepository:
         entitlement = await self.get(entitlement_id)
         return entitlement is not None and entitlement.state == EntitlementState.ACTIVE
 
-    async def set_client_credentials(
-        self,
-        entitlement_id: str,
-        client_id: str,
-        client_secret: str,
-    ) -> Entitlement | None:
-        """Set OAuth client credentials for an entitlement.
-
-        Args:
-            entitlement_id: The entitlement ID.
-            client_id: The OAuth client ID.
-            client_secret: The OAuth client secret (will be hashed).
-
-        Returns:
-            Updated entitlement if found, None otherwise.
-        """
-        entitlement = await self.get(entitlement_id)
-        if not entitlement:
-            return None
-
-        # Hash the client secret for storage
-        secret_hash = hashlib.sha256(client_secret.encode()).hexdigest()
-
-        entitlement.client_id = client_id
-        entitlement.client_secret_hash = secret_hash
-        self._client_id_to_order[client_id] = entitlement_id
-
-        return await self.update(entitlement)
-
-    async def generate_client_credentials(
-        self,
-        entitlement_id: str,
-        account_id: str,
-    ) -> ClientCredentials | None:
-        """Generate new OAuth client credentials for an entitlement.
-
-        Args:
-            entitlement_id: The entitlement/order ID.
-            account_id: The account ID.
-
-        Returns:
-            ClientCredentials with the new credentials, or None if entitlement not found.
-        """
-        entitlement = await self.get(entitlement_id)
-        if not entitlement:
-            return None
-
-        # Generate secure client credentials
-        client_id = f"client_{secrets.token_urlsafe(16)}"
-        client_secret = secrets.token_urlsafe(32)
-
-        # Store credentials in entitlement
-        await self.set_client_credentials(entitlement_id, client_id, client_secret)
-
-        return ClientCredentials(
-            client_id=client_id,
-            client_secret=client_secret,
-            order_id=entitlement_id,
-            account_id=account_id,
+    def _model_to_entity(self, model: MarketplaceEntitlementModel) -> Entitlement:
+        """Convert ORM model to Pydantic entity."""
+        return Entitlement(
+            id=model.id,
+            account_id=model.account_id,
+            provider_id=model.provider_id,
+            plan=model.plan,
+            state=EntitlementState(model.state),
+            usage_reporting_id=model.usage_reporting_id,
+            offer_start_time=model.offer_start_time,
+            offer_end_time=model.offer_end_time,
+            cancellation_reason=model.cancellation_reason,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            metadata=model.metadata_ or {},
         )
-
-    async def verify_client_secret(
-        self,
-        client_id: str,
-        client_secret: str,
-    ) -> bool:
-        """Verify a client secret against stored hash.
-
-        Args:
-            client_id: The OAuth client ID.
-            client_secret: The client secret to verify.
-
-        Returns:
-            True if valid, False otherwise.
-        """
-        entitlement = await self.get_by_client_id(client_id)
-        if not entitlement or not entitlement.client_secret_hash:
-            return False
-
-        secret_hash = hashlib.sha256(client_secret.encode()).hexdigest()
-        return secrets.compare_digest(secret_hash, entitlement.client_secret_hash)
 
 
 # Global repository instances

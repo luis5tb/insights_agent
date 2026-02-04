@@ -39,6 +39,9 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "alembic>=1.13.0",
     "aiosqlite>=0.20.0",
+    # PostgreSQL drivers
+    "asyncpg>=0.29.0",  # Async driver for SQLAlchemy async operations
+    "psycopg2-binary>=2.9.0",  # Sync driver for ADK DatabaseSessionService
     # OpenTelemetry for distributed tracing
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",

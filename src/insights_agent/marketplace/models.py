@@ -11,6 +11,7 @@ class ProcurementEventType(str, Enum):
     """Marketplace Procurement event types from Pub/Sub."""
 
     # Account events
+    ACCOUNT_CREATION_REQUESTED = "ACCOUNT_CREATION_REQUESTED"
     ACCOUNT_ACTIVE = "ACCOUNT_ACTIVE"
     ACCOUNT_DELETED = "ACCOUNT_DELETED"
 
