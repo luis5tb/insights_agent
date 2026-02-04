@@ -3,6 +3,7 @@
 import os
 
 import pytest
+import pytest_asyncio
 
 # Set test environment variables before importing application modules
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
@@ -12,6 +13,9 @@ os.environ["LIGHTSPEED_CLIENT_SECRET"] = "test-client-secret"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["DEBUG"] = "true"
 os.environ["SKIP_JWT_VALIDATION"] = "true"
+os.environ["DCR_ENABLED"] = "false"  # Use static credentials for tests
+os.environ["RED_HAT_SSO_CLIENT_ID"] = "test-static-client-id"
+os.environ["RED_HAT_SSO_CLIENT_SECRET"] = "test-static-client-secret"
 
 
 @pytest.fixture
@@ -26,4 +30,20 @@ def test_settings():
         database_url="sqlite+aiosqlite:///:memory:",
         debug=True,
         skip_jwt_validation=True,
+        dcr_enabled=False,
+        red_hat_sso_client_id="test-static-client-id",
+        red_hat_sso_client_secret="test-static-client-secret",
     )
+
+
+@pytest_asyncio.fixture
+async def db_session():
+    """Initialize database for tests.
+
+    Creates all tables and yields, then cleans up after.
+    """
+    from insights_agent.db import init_database, close_database
+
+    await init_database()
+    yield
+    await close_database()

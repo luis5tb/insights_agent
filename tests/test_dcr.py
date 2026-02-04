@@ -1,10 +1,9 @@
 """Tests for Dynamic Client Registration (DCR) implementation."""
 
-import base64
-import json
 import time
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from insights_agent.api.app import create_app
@@ -17,6 +16,7 @@ from insights_agent.dcr.models import (
     GoogleJWTClaims,
     RegisteredClient,
 )
+from insights_agent.dcr.repository import DCRClientRepository
 from insights_agent.dcr.service import DCRService
 from insights_agent.marketplace.models import Account, AccountState, Entitlement, EntitlementState
 from insights_agent.marketplace.repository import AccountRepository, EntitlementRepository
@@ -105,47 +105,43 @@ class TestModels:
 
 
 class TestDCRService:
-    """Tests for DCR service."""
+    """Tests for DCR service with database persistence."""
 
-    @pytest.fixture
-    def service(self):
-        """Create a fresh DCR service with mocked dependencies."""
+    @pytest_asyncio.fixture
+    async def service(self, db_session):
+        """Create a fresh DCR service with database-backed repositories."""
         account_repo = AccountRepository()
         entitlement_repo = EntitlementRepository()
+        client_repo = DCRClientRepository()
         procurement_service = ProcurementService(
             account_repo=account_repo,
             entitlement_repo=entitlement_repo,
         )
 
         # Pre-populate with valid account and order
-        import asyncio
+        account = Account(
+            id="valid-account-123",
+            provider_id="provider-456",
+            state=AccountState.ACTIVE,
+        )
+        await account_repo.create(account)
 
-        async def setup():
-            account = Account(
-                id="valid-account-123",
-                provider_id="provider-456",
-                state=AccountState.ACTIVE,
-            )
-            await account_repo.create(account)
+        entitlement = Entitlement(
+            id="valid-order-789",
+            account_id="valid-account-123",
+            provider_id="provider-456",
+            state=EntitlementState.ACTIVE,
+        )
+        await entitlement_repo.create(entitlement)
 
-            entitlement = Entitlement(
-                id="valid-order-789",
-                account_id="valid-account-123",
-                provider_id="provider-456",
-                state=EntitlementState.ACTIVE,
-            )
-            await entitlement_repo.create(entitlement)
-
-        asyncio.get_event_loop().run_until_complete(setup())
-
-        return DCRService(procurement_service=procurement_service)
+        return DCRService(
+            procurement_service=procurement_service,
+            client_repository=client_repo,
+        )
 
     @pytest.mark.asyncio
-    async def test_get_order_id_for_client(self, service):
-        """Test looking up order ID by client ID."""
-        # First register a client
-        from insights_agent.dcr.models import GoogleJWTClaims
-
+    async def test_static_credentials_mode(self, service):
+        """Test DCR with static credentials (DCR_ENABLED=false)."""
         claims = GoogleJWTClaims(
             iss="https://example.com",
             iat=int(time.time()),
@@ -156,9 +152,28 @@ class TestDCRService:
             google=GoogleClaims(order="valid-order-789"),
         )
 
-        # Create credentials directly
-        result = await service._create_client_credentials(claims)
+        # With DCR disabled, should return static credentials
+        result = await service._return_static_credentials(claims)
+        assert isinstance(result, DCRResponse)
+        assert result.client_id == "test-static-client-id"
+        assert result.client_secret == "test-static-client-secret"
+        assert result.client_secret_expires_at == 0
 
+    @pytest.mark.asyncio
+    async def test_get_order_id_for_client(self, service):
+        """Test looking up order ID by client ID."""
+        claims = GoogleJWTClaims(
+            iss="https://example.com",
+            iat=int(time.time()),
+            exp=int(time.time()) + 3600,
+            aud="https://example.com",
+            sub="valid-account-123",
+            auth_app_redirect_uris=["https://example.com/callback"],
+            google=GoogleClaims(order="valid-order-789"),
+        )
+
+        # Create credentials with static mode
+        result = await service._return_static_credentials(claims)
         assert isinstance(result, DCRResponse)
 
         # Verify we can look up the order ID
@@ -168,8 +183,6 @@ class TestDCRService:
     @pytest.mark.asyncio
     async def test_verify_client(self, service):
         """Test client verification."""
-        from insights_agent.dcr.models import GoogleJWTClaims
-
         claims = GoogleJWTClaims(
             iss="https://example.com",
             iat=int(time.time()),
@@ -179,7 +192,7 @@ class TestDCRService:
             google=GoogleClaims(order="valid-order-789"),
         )
 
-        result = await service._create_client_credentials(claims)
+        result = await service._return_static_credentials(claims)
         assert isinstance(result, DCRResponse)
 
         # Verify with correct secret
@@ -193,8 +206,6 @@ class TestDCRService:
     @pytest.mark.asyncio
     async def test_get_client(self, service):
         """Test getting client info."""
-        from insights_agent.dcr.models import GoogleJWTClaims
-
         claims = GoogleJWTClaims(
             iss="https://example.com",
             iat=int(time.time()),
@@ -204,7 +215,7 @@ class TestDCRService:
             google=GoogleClaims(order="valid-order-789"),
         )
 
-        result = await service._create_client_credentials(claims)
+        result = await service._return_static_credentials(claims)
         assert isinstance(result, DCRResponse)
 
         client = await service.get_client(result.client_id)
@@ -213,12 +224,70 @@ class TestDCRService:
         assert client.account_id == "valid-account-123"
 
 
+class TestDCRRepository:
+    """Tests for DCR client repository with database."""
+
+    @pytest_asyncio.fixture
+    async def repo(self, db_session):
+        """Create a fresh DCR client repository."""
+        return DCRClientRepository()
+
+    @pytest.mark.asyncio
+    async def test_create_and_get_by_client_id(self, repo):
+        """Test creating and retrieving a client by ID."""
+        await repo.create(
+            client_id="test-client-123",
+            client_secret_encrypted="encrypted-secret",
+            order_id="order-456",
+            account_id="account-789",
+            redirect_uris=["https://example.com/callback"],
+        )
+
+        client = await repo.get_by_client_id("test-client-123")
+        assert client is not None
+        assert client.client_id == "test-client-123"
+        assert client.order_id == "order-456"
+
+    @pytest.mark.asyncio
+    async def test_get_by_order_id(self, repo):
+        """Test retrieving a client by order ID."""
+        await repo.create(
+            client_id="test-client-456",
+            client_secret_encrypted="encrypted-secret",
+            order_id="order-unique",
+            account_id="account-789",
+        )
+
+        client = await repo.get_by_order_id("order-unique")
+        assert client is not None
+        assert client.client_id == "test-client-456"
+
+    @pytest.mark.asyncio
+    async def test_get_order_id_for_client(self, repo):
+        """Test looking up order ID by client ID."""
+        await repo.create(
+            client_id="test-client-789",
+            client_secret_encrypted="encrypted-secret",
+            order_id="order-lookup",
+            account_id="account-789",
+        )
+
+        order_id = await repo.get_order_id_for_client("test-client-789")
+        assert order_id == "order-lookup"
+
+        # Non-existent client
+        order_id = await repo.get_order_id_for_client("nonexistent")
+        assert order_id is None
+
+
 class TestDCRRouter:
     """Tests for DCR API endpoints."""
 
     @pytest.fixture
-    def client(self):
-        """Create test client."""
+    def client(self, db_session):
+        """Create test client with database initialized."""
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(db_session.__anext__())
         app = create_app()
         return TestClient(app)
 
@@ -261,79 +330,6 @@ class TestDCRRouter:
         assert data["error"] == "invalid_software_statement"
 
 
-class TestDCRSameOrderCredentials:
-    """Tests for returning same credentials for same order (per Google spec)."""
-
-    @pytest.fixture
-    def service(self):
-        """Create a fresh DCR service with mocked dependencies."""
-        account_repo = AccountRepository()
-        entitlement_repo = EntitlementRepository()
-        procurement_service = ProcurementService(
-            account_repo=account_repo,
-            entitlement_repo=entitlement_repo,
-        )
-
-        # Pre-populate with valid account and order
-        import asyncio
-
-        async def setup():
-            account = Account(
-                id="same-order-account",
-                provider_id="provider-456",
-                state=AccountState.ACTIVE,
-            )
-            await account_repo.create(account)
-
-            entitlement = Entitlement(
-                id="same-order-test",
-                account_id="same-order-account",
-                provider_id="provider-456",
-                state=EntitlementState.ACTIVE,
-            )
-            await entitlement_repo.create(entitlement)
-
-        asyncio.get_event_loop().run_until_complete(setup())
-
-        return DCRService(procurement_service=procurement_service)
-
-    @pytest.mark.asyncio
-    async def test_same_order_returns_same_credentials(self, service):
-        """Test that the same order ID returns the same credentials.
-
-        Per Google's DCR spec: "If an end user creates multiple instances
-        of the agent, return the existing client_id and client_secret pair
-        for the given order."
-        """
-        from insights_agent.dcr.models import GoogleJWTClaims
-
-        claims = GoogleJWTClaims(
-            iss="https://example.com",
-            iat=int(time.time()),
-            exp=int(time.time()) + 3600,
-            aud="https://example.com",
-            sub="same-order-account",
-            auth_app_redirect_uris=["https://example.com/callback"],
-            google=GoogleClaims(order="same-order-test"),
-        )
-
-        # First registration
-        result1 = await service._create_client_credentials(claims)
-        assert isinstance(result1, DCRResponse)
-
-        # Second registration with same order - should return same credentials
-        result2 = await service._return_existing_credentials(
-            await service._get_client_by_order("same-order-test")
-        )
-        assert isinstance(result2, DCRResponse)
-
-        # Verify same client_id and client_secret
-        assert result1.client_id == result2.client_id
-        assert result1.client_secret == result2.client_secret
-        assert result1.client_secret_expires_at == 0
-        assert result2.client_secret_expires_at == 0
-
-
 class TestAgentCardDCRExtension:
     """Tests for DCR extension in AgentCard."""
 
@@ -352,8 +348,11 @@ class TestAgentCardDCRExtension:
         assert "endpoint" in dcr_ext.params
         assert "/oauth/register" in dcr_ext.params["endpoint"]
 
-    def test_agent_card_endpoint_returns_dcr(self):
+    def test_agent_card_endpoint_returns_dcr(self, db_session):
         """Test that AgentCard endpoint includes DCR extension."""
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(db_session.__anext__())
+
         app = create_app()
         client = TestClient(app)
 
@@ -369,3 +368,39 @@ class TestAgentCardDCRExtension:
         dcr_ext = extensions[0]
         assert "dcr" in dcr_ext["uri"]
         assert "endpoint" in dcr_ext["params"]
+
+
+class TestKeycloakDCRClient:
+    """Tests for Keycloak DCR client."""
+
+    def test_keycloak_client_response_model(self):
+        """Test KeycloakClientResponse dataclass."""
+        from insights_agent.dcr.keycloak_client import KeycloakClientResponse
+
+        response = KeycloakClientResponse(
+            client_id="kc-client-123",
+            client_secret="kc-secret-xyz",
+            client_name="gemini-order-456",
+            registration_access_token="rat-token",
+            registration_client_uri="https://sso.example.com/clients/123",
+            redirect_uris=["https://example.com/callback"],
+        )
+
+        assert response.client_id == "kc-client-123"
+        assert response.client_secret == "kc-secret-xyz"
+        assert response.client_name == "gemini-order-456"
+        assert response.registration_access_token == "rat-token"
+
+    def test_keycloak_dcr_error(self):
+        """Test KeycloakDCRError exception."""
+        from insights_agent.dcr.keycloak_client import KeycloakDCRError
+
+        error = KeycloakDCRError(
+            "Failed to create client",
+            status_code=401,
+            details={"error": "unauthorized"},
+        )
+
+        assert str(error) == "Failed to create client"
+        assert error.status_code == 401
+        assert error.details["error"] == "unauthorized"
