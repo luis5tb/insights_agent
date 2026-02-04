@@ -105,10 +105,11 @@ class Settings(BaseSettings):
         description="Server port",
     )
 
-    # Database Configuration
-    database_url: str = Field(
-        default="sqlite+aiosqlite:///./insights_agent.db",
-        description="Database connection URL",
+    # Marketplace Handler Configuration
+    # The marketplace handler is a separate service that handles DCR and Pub/Sub events
+    marketplace_handler_url: str = Field(
+        default="",
+        description="URL of the marketplace handler service for DCR. If empty, uses agent_provider_url.",
     )
 
     # Google Cloud Service Control
@@ -156,10 +157,52 @@ class Settings(BaseSettings):
     )
 
     # DCR (Dynamic Client Registration) Configuration
+    dcr_enabled: bool = Field(
+        default=True,
+        description="Enable real DCR with Red Hat SSO (Keycloak). When disabled, uses static credentials.",
+    )
+    dcr_initial_access_token: str = Field(
+        default="",
+        description="Keycloak Initial Access Token for creating OAuth clients via DCR",
+    )
+    dcr_client_name_prefix: str = Field(
+        default="gemini-order-",
+        description="Prefix for OAuth client names created via DCR",
+    )
     dcr_encryption_key: str = Field(
         default="",
         description="Fernet encryption key for DCR client secrets (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')",
     )
+
+    # Database Configuration
+    # Marketplace database: stores accounts, entitlements, DCR clients, usage records
+    # This is shared between the marketplace handler and agent for order validation
+    database_url: str = Field(
+        default="sqlite+aiosqlite:///./insights_agent.db",
+        description="Marketplace database URL (PostgreSQL for production). Stores accounts, entitlements, DCR clients.",
+    )
+    database_pool_size: int = Field(
+        default=5,
+        description="Database connection pool size",
+    )
+    database_pool_max_overflow: int = Field(
+        default=10,
+        description="Maximum overflow connections beyond pool size",
+    )
+
+    # Session database: stores ADK sessions, conversation history, memory
+    # Separate from marketplace DB for security isolation - each agent can have its own
+    session_database_url: str = Field(
+        default="",
+        description="Session database URL for ADK sessions. If empty, uses DATABASE_URL. For security isolation, use a separate database.",
+    )
+
+    @property
+    def keycloak_dcr_endpoint(self) -> str:
+        """Get the Keycloak DCR endpoint URL."""
+        # Red Hat SSO issuer format: https://sso.redhat.com/auth/realms/redhat-external
+        # DCR endpoint: https://sso.redhat.com/auth/realms/redhat-external/clients-registrations/openid-connect
+        return f"{self.red_hat_sso_issuer}/clients-registrations/openid-connect"
 
     # Development Settings
     debug: bool = Field(

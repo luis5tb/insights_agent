@@ -1,14 +1,16 @@
 """DCR service for handling Dynamic Client Registration requests."""
 
 import logging
-import secrets
-import time
-from datetime import datetime
 
 from cryptography.fernet import Fernet, InvalidToken
 
 from insights_agent.config import get_settings
 from insights_agent.dcr.google_jwt import GoogleJWTValidator, get_google_jwt_validator
+from insights_agent.dcr.keycloak_client import (
+    KeycloakDCRClient,
+    KeycloakDCRError,
+    get_keycloak_dcr_client,
+)
 from insights_agent.dcr.models import (
     DCRError,
     DCRErrorCode,
@@ -17,6 +19,7 @@ from insights_agent.dcr.models import (
     GoogleJWTClaims,
     RegisteredClient,
 )
+from insights_agent.dcr.repository import DCRClientRepository, get_dcr_client_repository
 from insights_agent.marketplace.service import ProcurementService, get_procurement_service
 
 logger = logging.getLogger(__name__)
@@ -28,33 +31,35 @@ class DCRService:
     This service:
     - Validates software_statement JWTs from Google
     - Cross-references with Marketplace Procurement data
-    - Creates OAuth client credentials
+    - Creates OAuth client credentials (real DCR or static)
     - Returns RFC 7591 compliant responses
 
-    Per Google's DCR spec: "You MUST generate a unique client_id and client_secret
-    for each 'order' specified in the jwt payload and persist that mapping.
-    If an end user creates multiple instances of the agent, return the existing
-    client_id and client_secret pair for the given order."
+    Modes:
+    - DCR_ENABLED=true: Creates real OAuth clients in Red Hat SSO (Keycloak)
+    - DCR_ENABLED=false: Returns static credentials from environment variables
     """
 
     def __init__(
         self,
         jwt_validator: GoogleJWTValidator | None = None,
         procurement_service: ProcurementService | None = None,
+        keycloak_client: KeycloakDCRClient | None = None,
+        client_repository: DCRClientRepository | None = None,
     ) -> None:
         """Initialize the DCR service.
 
         Args:
-            jwt_validator: Google JWT validator (uses default if not provided).
-            procurement_service: Procurement service for validation (uses default if not provided).
+            jwt_validator: Google JWT validator.
+            procurement_service: Procurement service for validation.
+            keycloak_client: Keycloak DCR client for real DCR.
+            client_repository: Repository for storing client mappings.
         """
         self._jwt_validator = jwt_validator or get_google_jwt_validator()
         self._procurement_service = procurement_service or get_procurement_service()
+        self._keycloak_client = keycloak_client
+        self._client_repository = client_repository or get_dcr_client_repository()
         self._settings = get_settings()
-        # In-memory storage for registered clients (use database in production)
-        self._registered_clients: dict[str, RegisteredClient] = {}
-        # Index by order_id for quick lookup
-        self._order_to_client: dict[str, str] = {}
+
         # Fernet cipher for encrypting client secrets
         self._fernet: Fernet | None = None
         if self._settings.dcr_encryption_key:
@@ -62,6 +67,12 @@ class DCRService:
                 self._fernet = Fernet(self._settings.dcr_encryption_key.encode())
             except Exception as e:
                 logger.error("Invalid DCR encryption key: %s", e)
+
+    def _get_keycloak_client(self) -> KeycloakDCRClient:
+        """Get the Keycloak DCR client (lazy initialization)."""
+        if self._keycloak_client is None:
+            self._keycloak_client = get_keycloak_dcr_client()
+        return self._keycloak_client
 
     def _encrypt_secret(self, secret: str) -> str:
         """Encrypt a client secret for storage.
@@ -73,7 +84,6 @@ class DCRService:
             Encrypted secret as base64 string.
         """
         if not self._fernet:
-            # Fallback: use a generated key (not recommended for production)
             logger.warning("DCR_ENCRYPTION_KEY not set, using ephemeral key")
             self._fernet = Fernet(Fernet.generate_key())
         return self._fernet.encrypt(secret.encode()).decode()
@@ -108,7 +118,7 @@ class DCRService:
         Returns:
             DCRResponse on success, DCRError on failure.
         """
-        logger.info("Processing DCR request")
+        logger.info("Processing DCR request (dcr_enabled=%s)", self._settings.dcr_enabled)
 
         # Step 1: Validate the software_statement JWT
         validation_result = await self._jwt_validator.validate_software_statement(
@@ -120,18 +130,15 @@ class DCRService:
 
         claims: GoogleJWTClaims = validation_result
 
-        # Step 2: Validate the Procurement Account ID (sub claim)
+        # Step 2: Validate the Procurement Account ID
         if not await self._validate_account(claims.account_id):
-            logger.warning(
-                "Invalid Procurement Account ID: %s",
-                claims.account_id,
-            )
+            logger.warning("Invalid Procurement Account ID: %s", claims.account_id)
             return DCRError(
                 error=DCRErrorCode.UNAPPROVED_SOFTWARE_STATEMENT,
                 error_description=f"Invalid Procurement Account ID: {claims.account_id}",
             )
 
-        # Step 3: Validate the Order ID (google.order claim)
+        # Step 3: Validate the Order ID
         if not await self._validate_order(claims.order_id):
             logger.warning("Invalid Order ID: %s", claims.order_id)
             return DCRError(
@@ -140,8 +147,7 @@ class DCRService:
             )
 
         # Step 4: Check if client already exists for this order
-        # Per Google's DCR spec: return the SAME credentials for the same order
-        existing_client = await self._get_client_by_order(claims.order_id)
+        existing_client = await self._client_repository.get_by_order_id(claims.order_id)
         if existing_client:
             logger.info(
                 "Returning existing credentials for order: %s (client_id=%s)",
@@ -151,65 +157,24 @@ class DCRService:
             return await self._return_existing_credentials(existing_client)
 
         # Step 5: Create new OAuth client credentials
-        credentials = await self._create_client_credentials(claims)
-
-        if isinstance(credentials, DCRError):
-            return credentials
-
-        logger.info(
-            "Successfully registered client for order %s: client_id=%s",
-            claims.order_id,
-            credentials.client_id,
-        )
-
-        return credentials
+        if self._settings.dcr_enabled:
+            return await self._create_real_client(claims)
+        else:
+            return await self._return_static_credentials(claims)
 
     async def _validate_account(self, account_id: str) -> bool:
-        """Validate that the Procurement Account ID is valid.
-
-        Args:
-            account_id: The Procurement Account ID from JWT.
-
-        Returns:
-            True if valid, False otherwise.
-        """
-        # Skip validation in development mode
+        """Validate that the Procurement Account ID is valid."""
         if self._settings.skip_jwt_validation:
             logger.warning("Skipping account validation - development mode")
             return True
-
         return await self._procurement_service.is_valid_account(account_id)
 
     async def _validate_order(self, order_id: str) -> bool:
-        """Validate that the Order ID is valid.
-
-        Args:
-            order_id: The Order ID from JWT.
-
-        Returns:
-            True if valid, False otherwise.
-        """
-        # Skip validation in development mode
+        """Validate that the Order ID is valid."""
         if self._settings.skip_jwt_validation:
             logger.warning("Skipping order validation - development mode")
             return True
-
         return await self._procurement_service.is_valid_order(order_id)
-
-    async def _get_client_by_order(self, order_id: str) -> RegisteredClient | None:
-        """Get an existing registered client by order ID.
-
-        Args:
-            order_id: The Order ID.
-
-        Returns:
-            RegisteredClient if exists, None otherwise.
-        """
-        # Use index for quick lookup
-        client_id = self._order_to_client.get(order_id)
-        if client_id:
-            return self._registered_clients.get(client_id)
-        return None
 
     async def _return_existing_credentials(
         self,
@@ -219,14 +184,7 @@ class DCRService:
 
         Per Google's DCR spec: "return the existing client_id and client_secret
         pair for the given order"
-
-        Args:
-            existing_client: The existing registered client.
-
-        Returns:
-            DCRResponse with the same credentials.
         """
-        # Decrypt the stored secret
         client_secret = self._decrypt_secret(existing_client.client_secret_encrypted)
         if not client_secret:
             logger.error(
@@ -244,11 +202,11 @@ class DCRService:
             client_secret_expires_at=0,
         )
 
-    async def _create_client_credentials(
+    async def _create_real_client(
         self,
         claims: GoogleJWTClaims,
     ) -> DCRResponse | DCRError:
-        """Create new OAuth client credentials.
+        """Create a real OAuth client in Red Hat SSO (Keycloak).
 
         Args:
             claims: Validated JWT claims.
@@ -256,58 +214,115 @@ class DCRService:
         Returns:
             DCRResponse with new credentials, or DCRError on failure.
         """
-        try:
-            # Generate unique client_id and client_secret
-            # Use order ID in client_id for easier debugging (per Google example)
-            client_id = f"client_{claims.order_id}"
-            client_secret = secrets.token_urlsafe(32)
-            encrypted_secret = self._encrypt_secret(client_secret)
-            issued_at = int(time.time())
+        logger.info(
+            "Creating real OAuth client in Keycloak for order: %s",
+            claims.order_id,
+        )
 
-            # Create registered client record
-            registered_client = RegisteredClient(
-                client_id=client_id,
+        try:
+            keycloak_client = self._get_keycloak_client()
+            response = await keycloak_client.create_client(
+                order_id=claims.order_id,
+                redirect_uris=claims.auth_app_redirect_uris,
+                grant_types=["authorization_code", "refresh_token"],
+            )
+
+            # Encrypt secrets for storage
+            encrypted_secret = self._encrypt_secret(response.client_secret)
+            encrypted_rat = None
+            if response.registration_access_token:
+                encrypted_rat = self._encrypt_secret(response.registration_access_token)
+
+            # Store client mapping in database
+            await self._client_repository.create(
+                client_id=response.client_id,
                 client_secret_encrypted=encrypted_secret,
                 order_id=claims.order_id,
                 account_id=claims.account_id,
-                redirect_uris=claims.auth_app_redirect_uris,
+                redirect_uris=response.redirect_uris,
                 grant_types=["authorization_code", "refresh_token"],
-                created_at=datetime.utcnow(),
+                registration_access_token_encrypted=encrypted_rat,
+                keycloak_client_uuid=None,  # Could extract from registration_client_uri
                 metadata={
                     "iss": claims.iss,
                     "aud": claims.aud,
-                    "registered_at": issued_at,
+                    "client_name": response.client_name,
+                    "registration_client_uri": response.registration_client_uri,
                 },
             )
 
-            # Store client with order index
-            self._registered_clients[client_id] = registered_client
-            self._order_to_client[claims.order_id] = client_id
-
-            # Also update the entitlement in procurement service
-            # This creates the client_id -> order_id mapping for usage metering
-            from insights_agent.marketplace.repository import get_entitlement_repository
-
-            entitlement_repo = get_entitlement_repository()
-            await entitlement_repo.set_client_credentials(
-                entitlement_id=claims.order_id,
-                client_id=client_id,
-                client_secret=client_secret,
+            logger.info(
+                "Successfully created OAuth client for order %s: client_id=%s",
+                claims.order_id,
+                response.client_id,
             )
 
-            # Return only the 3 required fields per Google's example
             return DCRResponse(
-                client_id=client_id,
-                client_secret=client_secret,
+                client_id=response.client_id,
+                client_secret=response.client_secret,
                 client_secret_expires_at=0,
             )
 
+        except KeycloakDCRError as e:
+            logger.exception("Keycloak DCR error: %s", e)
+            return DCRError(
+                error=DCRErrorCode.SERVER_ERROR,
+                error_description=f"Failed to create OAuth client: {e}",
+            )
         except Exception as e:
-            logger.exception("Failed to create client credentials: %s", e)
+            logger.exception("Unexpected error creating client: %s", e)
             return DCRError(
                 error=DCRErrorCode.SERVER_ERROR,
                 error_description=f"Failed to create client: {e}",
             )
+
+    async def _return_static_credentials(
+        self,
+        claims: GoogleJWTClaims,
+    ) -> DCRResponse | DCRError:
+        """Return static credentials when DCR is disabled.
+
+        Uses the pre-configured RED_HAT_SSO_CLIENT_ID and SECRET.
+
+        Args:
+            claims: Validated JWT claims.
+
+        Returns:
+            DCRResponse with static credentials.
+        """
+        logger.info(
+            "DCR disabled - returning static credentials for order: %s",
+            claims.order_id,
+        )
+
+        if not self._settings.red_hat_sso_client_id or not self._settings.red_hat_sso_client_secret:
+            return DCRError(
+                error=DCRErrorCode.SERVER_ERROR,
+                error_description="DCR disabled but RED_HAT_SSO_CLIENT_ID/SECRET not configured",
+            )
+
+        # Store the mapping in database for usage tracking
+        encrypted_secret = self._encrypt_secret(self._settings.red_hat_sso_client_secret)
+
+        await self._client_repository.create(
+            client_id=self._settings.red_hat_sso_client_id,
+            client_secret_encrypted=encrypted_secret,
+            order_id=claims.order_id,
+            account_id=claims.account_id,
+            redirect_uris=claims.auth_app_redirect_uris,
+            grant_types=["authorization_code", "refresh_token"],
+            metadata={
+                "iss": claims.iss,
+                "aud": claims.aud,
+                "static_credentials": True,
+            },
+        )
+
+        return DCRResponse(
+            client_id=self._settings.red_hat_sso_client_id,
+            client_secret=self._settings.red_hat_sso_client_secret,
+            client_secret_expires_at=0,
+        )
 
     async def get_client(self, client_id: str) -> RegisteredClient | None:
         """Get a registered client by client_id.
@@ -318,7 +333,7 @@ class DCRService:
         Returns:
             RegisteredClient if found, None otherwise.
         """
-        return self._registered_clients.get(client_id)
+        return await self._client_repository.get_by_client_id(client_id)
 
     async def verify_client(self, client_id: str, client_secret: str) -> bool:
         """Verify client credentials.
@@ -330,7 +345,7 @@ class DCRService:
         Returns:
             True if valid, False otherwise.
         """
-        client = self._registered_clients.get(client_id)
+        client = await self._client_repository.get_by_client_id(client_id)
         if not client:
             return False
 
@@ -338,6 +353,7 @@ class DCRService:
         if not stored_secret:
             return False
 
+        import secrets
         return secrets.compare_digest(client_secret, stored_secret)
 
     async def get_order_id_for_client(self, client_id: str) -> str | None:
@@ -351,8 +367,7 @@ class DCRService:
         Returns:
             Order ID if found, None otherwise.
         """
-        client = self._registered_clients.get(client_id)
-        return client.order_id if client else None
+        return await self._client_repository.get_order_id_for_client(client_id)
 
 
 # Global service instance
