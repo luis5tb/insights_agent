@@ -339,15 +339,22 @@ podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
    ```
 
    Edit `deploy/podman/my-secrets.yaml` and fill in:
+
+   **API Credentials:**
    - `GOOGLE_API_KEY`: Your Google AI Studio API key
    - `LIGHTSPEED_CLIENT_ID`: Red Hat Insights service account ID
    - `LIGHTSPEED_CLIENT_SECRET`: Red Hat Insights service account secret
    - `RED_HAT_SSO_CLIENT_ID`: OAuth client ID for Red Hat SSO
    - `RED_HAT_SSO_CLIENT_SECRET`: OAuth client secret for Red Hat SSO
+
+   **Database Passwords:**
    - `MARKETPLACE_DB_PASSWORD`: Password for marketplace PostgreSQL (default: `insights`)
    - `SESSION_DB_PASSWORD`: Password for session PostgreSQL (default: `sessions`)
-   - `DATABASE_URL`: Marketplace database connection URL
-   - `SESSION_DATABASE_URL`: Session database connection URL
+
+   **Database URLs:**
+   - `MARKETPLACE_DATABASE_URL`: Marketplace DB URL for marketplace-handler pod (uses `localhost:5432` since PostgreSQL is in the same pod)
+   - `DATABASE_URL`: Marketplace DB URL for insights-agent pod (uses `host.containers.internal:5432` to reach the marketplace-handler pod's PostgreSQL)
+   - `SESSION_DATABASE_URL`: Session DB URL for insights-agent pod (uses `localhost:5433` since session PostgreSQL is in the same pod)
 
 4. (Optional) Customize configuration in `deploy/podman/insights-agent-configmap.yaml`:
    - Database users and names (`MARKETPLACE_DB_USER`, `SESSION_DB_USER`, etc.)
