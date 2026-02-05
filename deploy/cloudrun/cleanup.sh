@@ -68,11 +68,12 @@ fi
 
 log_warn "This will delete the following resources from project: $PROJECT_ID"
 echo ""
-echo "  - Cloud Run service: $SERVICE_NAME"
+echo "  - Cloud Run services: $SERVICE_NAME, marketplace-handler"
 echo "  - Pub/Sub topic: marketplace-entitlements"
 echo "  - Pub/Sub subscription: marketplace-entitlements-sub"
 echo "  - Secrets: google-api-key, lightspeed-client-id, lightspeed-client-secret,"
-echo "             redhat-sso-client-id, redhat-sso-client-secret, database-url"
+echo "             redhat-sso-client-id, redhat-sso-client-secret, database-url,"
+echo "             session-database-url, dcr-initial-access-token, dcr-encryption-key"
 echo "  - Service account: $SERVICE_ACCOUNT"
 echo ""
 
@@ -90,10 +91,11 @@ echo ""
 log_info "Starting cleanup..."
 
 # =============================================================================
-# Step 1: Delete Cloud Run Service
+# Step 1: Delete Cloud Run Services
 # =============================================================================
-log_info "Deleting Cloud Run service..."
+log_info "Deleting Cloud Run services..."
 
+# Delete insights-agent service
 if gcloud run services describe "$SERVICE_NAME" --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
     gcloud run services delete "$SERVICE_NAME" \
         --region="$REGION" \
@@ -102,6 +104,17 @@ if gcloud run services describe "$SERVICE_NAME" --region="$REGION" --project="$P
     log_info "Cloud Run service '$SERVICE_NAME' deleted"
 else
     log_info "Cloud Run service '$SERVICE_NAME' does not exist, skipping"
+fi
+
+# Delete marketplace-handler service
+if gcloud run services describe "marketplace-handler" --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+    gcloud run services delete "marketplace-handler" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --quiet
+    log_info "Cloud Run service 'marketplace-handler' deleted"
+else
+    log_info "Cloud Run service 'marketplace-handler' does not exist, skipping"
 fi
 
 # =============================================================================
@@ -144,6 +157,9 @@ secrets=(
     "redhat-sso-client-id"
     "redhat-sso-client-secret"
     "database-url"
+    "session-database-url"
+    "dcr-initial-access-token"
+    "dcr-encryption-key"
 )
 
 for secret in "${secrets[@]}"; do
@@ -200,17 +216,21 @@ log_info "Cleanup complete!"
 log_info "=========================================="
 echo ""
 echo "The following resources have been removed:"
-echo "  - Cloud Run service"
+echo "  - Cloud Run services (insights-agent, marketplace-handler)"
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
 echo "  - Service account and IAM bindings"
 echo ""
-echo "Note: The following resources were NOT deleted (if created manually):"
+echo "Note: The following resources were NOT deleted (delete manually if needed):"
 echo "  - Cloud SQL instances"
+echo "  - Container images in GCR/Artifact Registry"
 echo "  - VPC connectors"
 echo "  - Cloud Build triggers"
 echo ""
 echo "To delete these, use the respective gcloud commands:"
-echo "  gcloud sql instances delete INSTANCE_NAME --project=$PROJECT_ID"
+echo "  gcloud sql instances delete insights-agent-db --project=$PROJECT_ID"
+echo "  gcloud container images delete gcr.io/$PROJECT_ID/insights-agent --force-delete-tags --quiet"
+echo "  gcloud container images delete gcr.io/$PROJECT_ID/marketplace-handler --force-delete-tags --quiet"
+echo "  gcloud container images delete gcr.io/$PROJECT_ID/insights-mcp --force-delete-tags --quiet"
 echo "  gcloud compute networks vpc-access connectors delete CONNECTOR_NAME --region=$REGION --project=$PROJECT_ID"
 echo ""
