@@ -284,15 +284,16 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 
 ## Container Deployment (Podman)
 
-The system is deployed as **two separate pods**:
+The system is deployed as **two separate pods**, each with its own PostgreSQL database:
 
 1. **Marketplace Handler Pod** (start first):
    - **marketplace-handler**: Handles Pub/Sub events and DCR requests
-   - **postgres**: PostgreSQL database (shared with agent)
+   - **postgres**: PostgreSQL database for marketplace data (orders, entitlements, DCR clients)
 
 2. **Insights Agent Pod** (start after handler):
    - **insights-agent**: Main A2A agent (Gemini + Google ADK)
    - **insights-mcp**: Red Hat Insights MCP server
+   - **session-postgres**: PostgreSQL database for agent sessions (ADK session persistence)
    - **a2a-inspector**: Web UI for agent interaction (optional)
 
 ### Prerequisites
@@ -343,8 +344,15 @@ podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
    - `LIGHTSPEED_CLIENT_SECRET`: Red Hat Insights service account secret
    - `RED_HAT_SSO_CLIENT_ID`: OAuth client ID for Red Hat SSO
    - `RED_HAT_SSO_CLIENT_SECRET`: OAuth client secret for Red Hat SSO
+   - `MARKETPLACE_DB_PASSWORD`: Password for marketplace PostgreSQL (default: `insights`)
+   - `SESSION_DB_PASSWORD`: Password for session PostgreSQL (default: `sessions`)
+   - `DATABASE_URL`: Marketplace database connection URL
+   - `SESSION_DATABASE_URL`: Session database connection URL
 
-4. (Optional) Customize configuration in `deploy/podman/insights-agent-configmap.yaml`
+4. (Optional) Customize configuration in `deploy/podman/insights-agent-configmap.yaml`:
+   - Database users and names (`MARKETPLACE_DB_USER`, `SESSION_DB_USER`, etc.)
+   - Agent settings, logging, rate limiting
+   - MCP server configuration
 
 ### Run the Pods
 
@@ -367,9 +375,10 @@ podman pod ps
 
 # View container logs
 podman logs marketplace-handler-marketplace-handler  # Handler logs
-podman logs marketplace-handler-postgres             # PostgreSQL logs
+podman logs marketplace-handler-postgres             # Marketplace PostgreSQL logs
 podman logs insights-agent-pod-insights-agent        # Agent logs
 podman logs insights-agent-pod-insights-mcp          # MCP server logs
+podman logs insights-agent-pod-session-postgres      # Session PostgreSQL logs
 
 # Stop and remove all resources (reverse order)
 podman kube down deploy/podman/insights-agent-pod.yaml
@@ -424,7 +433,7 @@ The [A2A Inspector](https://github.com/a2aproject/a2a-inspector) provides a web-
 | Container | Port | Description |
 |-----------|------|-------------|
 | marketplace-handler | 8001 | Pub/Sub events and DCR endpoint |
-| postgres | 5432 | PostgreSQL database (shared) |
+| postgres | 5432 | PostgreSQL for marketplace data (orders, entitlements, DCR clients) |
 
 **Insights Agent Pod:**
 
@@ -432,7 +441,22 @@ The [A2A Inspector](https://github.com/a2aproject/a2a-inspector) provides a web-
 |-----------|------|-------------|
 | insights-agent | 8000 | Main A2A agent API |
 | insights-mcp | 8081 | Red Hat Insights MCP server |
+| session-postgres | 5433 | PostgreSQL for agent sessions (ADK session persistence) |
 | a2a-inspector | 8080 | Web UI for agent interaction (optional) |
+
+### Database Architecture
+
+The system uses **two separate PostgreSQL databases** for security isolation:
+
+| Database | Pod | Port | Purpose |
+|----------|-----|------|---------|
+| Marketplace DB | marketplace-handler | 5432 | Orders, entitlements, DCR clients |
+| Session DB | insights-agent | 5433 | ADK agent sessions |
+
+This separation ensures:
+- Agent sessions cannot access marketplace/auth data
+- Compromised agents cannot access DCR credentials or order information
+- Different retention and backup policies can be applied to each database
 
 ### How the MCP Server Works
 
@@ -448,7 +472,19 @@ The Lightspeed credentials (`LIGHTSPEED_CLIENT_ID` and `LIGHTSPEED_CLIENT_SECRET
 
 ### Persistent Storage
 
-By default, database data uses `emptyDir` and is lost when the pod is removed. To persist data, edit `deploy/podman/insights-agent-pod.yaml` and uncomment the `hostPath` volume configuration.
+By default, both PostgreSQL databases use `emptyDir` volumes and data is lost when the pods are removed. To persist data:
+
+1. **Marketplace Database**: Edit `deploy/podman/marketplace-handler-pod.yaml` and change the `postgres-data` volume from `emptyDir` to `hostPath`
+2. **Session Database**: Edit `deploy/podman/insights-agent-pod.yaml` and change the `session-pgdata` volume from `emptyDir` to `hostPath`
+
+Example hostPath configuration:
+```yaml
+volumes:
+  - name: postgres-data  # or session-pgdata
+    hostPath:
+      path: ./data/pgdata
+      type: DirectoryOrCreate
+```
 
 ## Google Cloud Run Deployment
 

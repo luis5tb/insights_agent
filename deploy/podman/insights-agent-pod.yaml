@@ -123,17 +123,22 @@ spec:
               name: insights-agent-secrets
               key: DCR_ENCRYPTION_KEY
               optional: true
-        # Marketplace Database URL - Connect to PostgreSQL in the marketplace-handler pod
+        # Database URL - Connect to PostgreSQL in the marketplace-handler pod
         # Uses host.containers.internal to reach the handler pod's PostgreSQL
-        # This is used for order validation (read-only access needed)
+        # Used for marketplace data (orders, entitlements, DCR clients)
         - name: DATABASE_URL
-          value: "postgresql+asyncpg://insights:insights@host.containers.internal:5432/insights_agent"
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: DATABASE_URL
         # Session Database URL - For ADK session persistence
-        # Option 1: Use same database as marketplace (simpler, less isolation)
-        # Option 2: Use separate session database (more secure, see below)
-        # Uncomment below to use a separate session database for security isolation:
-        # - name: SESSION_DATABASE_URL
-        #   value: "postgresql+asyncpg://sessions:sessions@localhost:5433/agent_sessions"
+        # Required for persistent sessions; if not set, uses in-memory storage
+        - name: SESSION_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: SESSION_DATABASE_URL
+              optional: true
       ports:
         - containerPort: 8000
           hostPort: 8000
@@ -170,33 +175,37 @@ spec:
     # =========================================================================
 
     # =========================================================================
-    # Session PostgreSQL Database (Optional - for security isolation)
+    # Session PostgreSQL Database
     # =========================================================================
-    # Uncomment this section and the SESSION_DATABASE_URL env var above to use
-    # a separate database for ADK sessions. This provides security isolation:
+    # Separate database for ADK sessions. This provides security isolation:
     # - Agent can't access marketplace credentials even if compromised
     # - Sessions can have different retention/backup policies
     # - Independent scaling for session vs. marketplace data
-    #
-    # - name: session-postgres
-    #   image: registry.redhat.io/rhel9/postgresql-16:latest
-    #   env:
-    #     - name: POSTGRESQL_USER
-    #       value: sessions
-    #     - name: POSTGRESQL_PASSWORD
-    #       value: sessions
-    #     - name: POSTGRESQL_DATABASE
-    #       value: agent_sessions
-    #   ports:
-    #     - containerPort: 5433
-    #       hostPort: 5433
-    #   volumeMounts:
-    #     - name: session-pgdata
-    #       mountPath: /var/lib/pgsql/data:Z
-    #   resources:
-    #     limits:
-    #       cpu: "0.5"
-    #       memory: 256Mi
+    - name: session-postgres
+      image: registry.redhat.io/rhel9/postgresql-16:latest
+      envFrom:
+        - configMapRef:
+            name: insights-agent-config
+      env:
+        - name: POSTGRESQL_USER
+          value: "$(SESSION_DB_USER)"
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: SESSION_DB_PASSWORD
+        - name: POSTGRESQL_DATABASE
+          value: "$(SESSION_DB_NAME)"
+      ports:
+        - containerPort: 5433
+          hostPort: 5433
+      volumeMounts:
+        - name: session-pgdata
+          mountPath: /var/lib/pgsql/data:Z
+      resources:
+        limits:
+          cpu: "0.5"
+          memory: 256Mi
 
     # =========================================================================
     # A2A Inspector - Web UI for Agent Interaction
@@ -219,11 +228,8 @@ spec:
       hostPath:
         path: ./config
         type: Directory
-    # NOTE: Marketplace PostgreSQL volume is in the marketplace-handler pod
-    # Uncomment below if using separate session database (see session-postgres above):
-    # - name: session-pgdata
-    #   emptyDir: {}
-    #   # For persistent sessions, use hostPath:
-    #   # hostPath:
-    #   #   path: ./data/session-pgdata
-    #   #   type: DirectoryOrCreate
+    # Session PostgreSQL data volume
+    # Using emptyDir for simplicity; for persistent sessions across pod restarts,
+    # change to hostPath with path: ./data/session-pgdata
+    - name: session-pgdata
+      emptyDir: {}

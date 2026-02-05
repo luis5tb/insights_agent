@@ -36,8 +36,18 @@ data:
   AGENT_HOST: "0.0.0.0"
   AGENT_PORT: "8000"
 
-  # Database Configuration (uses postgres container in same pod)
-  DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
+  # Database Configuration
+  # DATABASE_URL and passwords are stored in secrets (contain credentials)
+  # Marketplace PostgreSQL (in marketplace-handler pod)
+  MARKETPLACE_DB_USER: "insights"
+  MARKETPLACE_DB_NAME: "insights_agent"
+  MARKETPLACE_DB_HOST: "host.containers.internal"
+  MARKETPLACE_DB_PORT: "5432"
+  # Session PostgreSQL (in insights-agent pod)
+  SESSION_DB_USER: "sessions"
+  SESSION_DB_NAME: "agent_sessions"
+  SESSION_DB_HOST: "localhost"
+  SESSION_DB_PORT: "5433"
 
   # Rate Limiting Configuration (in-memory, no Redis required)
   RATE_LIMIT_REQUESTS_PER_MINUTE: "60"

@@ -78,7 +78,10 @@ spec:
               optional: true
         # Database URL - Connect to PostgreSQL in this pod via localhost
         - name: DATABASE_URL
-          value: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: MARKETPLACE_DATABASE_URL
 
     # ==========================================================================
     # PostgreSQL Database (shared with agent via network)
@@ -89,13 +92,19 @@ spec:
       ports:
         - containerPort: 5432
           hostPort: 5432  # Exposed on host for agent pod to connect
+      envFrom:
+        - configMapRef:
+            name: insights-agent-config
       env:
         - name: POSTGRESQL_USER
-          value: insights
+          value: "$(MARKETPLACE_DB_USER)"
         - name: POSTGRESQL_PASSWORD
-          value: insights
+          valueFrom:
+            secretKeyRef:
+              name: insights-agent-secrets
+              key: MARKETPLACE_DB_PASSWORD
         - name: POSTGRESQL_DATABASE
-          value: insights_agent
+          value: "$(MARKETPLACE_DB_NAME)"
       volumeMounts:
         - name: postgres-data
           mountPath: /var/lib/pgsql/data:Z

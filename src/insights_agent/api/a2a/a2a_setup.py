@@ -34,8 +34,9 @@ def _get_session_service():
     For development, uses InMemorySessionService.
 
     Security Note:
-        The session database (SESSION_DATABASE_URL) can be separate from the
-        marketplace database (DATABASE_URL) for security isolation. This ensures:
+        SESSION_DATABASE_URL must be explicitly set to use database persistence.
+        This prevents accidental use of the marketplace database (DATABASE_URL)
+        for session storage, ensuring:
         - Agents only have access to session data, not marketplace/auth data
         - Compromised agents can't access DCR credentials or order information
         - Different retention policies can be applied to sessions vs. marketplace data
@@ -45,8 +46,9 @@ def _get_session_service():
     """
     settings = get_settings()
 
-    # Prefer SESSION_DATABASE_URL if configured, otherwise fall back to DATABASE_URL
-    session_db_url = settings.session_database_url or settings.database_url
+    # Only use database session service if SESSION_DATABASE_URL is explicitly set
+    # Do NOT fall back to DATABASE_URL to avoid mixing session and marketplace data
+    session_db_url = settings.session_database_url
 
     # Use database session service for production (non-SQLite databases)
     if session_db_url and not session_db_url.startswith("sqlite"):
@@ -65,9 +67,8 @@ def _get_session_service():
             # Log which database is being used (without credentials)
             db_host = db_url.split("@")[-1].split("/")[0] if "@" in db_url else "local"
             logger.info(
-                "Using DatabaseSessionService for session persistence (host=%s, isolated=%s)",
+                "Using DatabaseSessionService for session persistence (host=%s)",
                 db_host,
-                bool(settings.session_database_url),
             )
             return DatabaseSessionService(db_url=db_url)
         except ImportError as e:
