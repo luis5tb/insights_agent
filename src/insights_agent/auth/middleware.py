@@ -86,7 +86,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             # Store user in request state for access in handlers
             request.state.user = user
             request.state.access_token = token
-            logger.debug("Authenticated user: %s", user.sub)
+            logger.debug("Authenticated user: %s", user.user_id)
         except JWTValidationError as e:
             logger.warning("JWT validation failed: %s", e)
             return self._unauthorized_response(str(e))

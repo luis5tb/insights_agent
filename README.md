@@ -433,6 +433,73 @@ The [A2A Inspector](https://github.com/a2aproject/a2a-inspector) provides a web-
 
 > **Note:** If you don't need the web UI, you can skip building the inspector image. The pod will start with a warning about the missing image but other containers will work normally.
 
+### Authentication Testing
+
+The agent supports OAuth 2.0 authentication via Red Hat SSO. For local testing, you can use the OCM CLI to obtain a valid token.
+
+#### Prerequisites
+
+Install the OCM CLI from https://console.redhat.com/openshift/token
+
+#### Obtaining a Token
+
+1. **Login with browser-based authentication:**
+   ```bash
+   ocm login --use-auth-code
+   ```
+   This opens a browser window for Red Hat SSO authentication.
+
+2. **Get the access token:**
+   ```bash
+   ocm token
+   ```
+   This prints the current access token.
+
+#### Configure the Agent for OCM Tokens
+
+Update your `deploy/podman/my-secrets.yaml` to use `ocm-cli` as the client ID (matching the token's audience):
+
+```yaml
+RED_HAT_SSO_CLIENT_ID: "ocm-cli"
+```
+
+Then redeploy the secrets and restart the agent pod.
+
+#### Testing with the Token
+
+**Option 1: A2A Inspector**
+
+1. Open http://localhost:8080
+2. Enter `http://localhost:8000` as the agent URL
+3. Add the Authorization header with your token in the Inspector settings
+
+**Option 2: curl**
+
+```bash
+# Get token
+TOKEN=$(ocm token)
+
+# Test the A2A endpoint
+curl -X POST http://localhost:8000/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "parts": [{"type": "text", "text": "Show my systems"}]
+      }
+    },
+    "id": "1"
+  }'
+```
+
+#### Development Mode (Skip Authentication)
+
+For development without real tokens, set `SKIP_JWT_VALIDATION: "true"` in the configmap. Any token will be accepted.
+
 ### Pod Services
 
 **Marketplace Handler Pod:**

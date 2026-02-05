@@ -72,7 +72,7 @@ data:
 
   # Development Settings
   DEBUG: "true"
-  SKIP_JWT_VALIDATION: "true"
+  SKIP_JWT_VALIDATION: "false"
 
   # OpenTelemetry Configuration
   # Set OTEL_ENABLED to "true" to enable distributed tracing
