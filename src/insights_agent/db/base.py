@@ -1,10 +1,10 @@
 """Database engine and session configuration."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -82,20 +82,48 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-async def init_database() -> None:
+async def init_database(max_retries: int = 30, retry_delay: float = 2.0) -> None:
     """Initialize the database, creating all tables.
 
-    This should be called on application startup.
+    This should be called on application startup. Includes retry logic to wait
+    for the database to be ready (e.g., when PostgreSQL is starting up in the same pod).
+
+    Args:
+        max_retries: Maximum number of connection attempts (default: 30).
+        retry_delay: Delay in seconds between retries (default: 2.0).
     """
     engine = get_engine()
 
     # Import models to register them with Base
     from insights_agent.db import models  # noqa: F401
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database tables created/verified")
+            return
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries:
+                logger.warning(
+                    "Database connection attempt %d/%d failed: %s. Retrying in %.1fs...",
+                    attempt,
+                    max_retries,
+                    str(e),
+                    retry_delay,
+                )
+                await asyncio.sleep(retry_delay)
+            else:
+                logger.error(
+                    "Database connection failed after %d attempts: %s",
+                    max_retries,
+                    str(e),
+                )
 
-    logger.info("Database tables created/verified")
+    # If we get here, all retries failed
+    raise RuntimeError(f"Failed to connect to database after {max_retries} attempts") from last_error
 
 
 async def close_database() -> None:

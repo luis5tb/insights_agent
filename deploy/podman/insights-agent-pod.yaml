@@ -183,19 +183,22 @@ spec:
     # - Independent scaling for session vs. marketplace data
     - name: session-postgres
       image: registry.redhat.io/rhel9/postgresql-16:latest
-      envFrom:
-        - configMapRef:
-            name: insights-agent-config
       env:
         - name: POSTGRESQL_USER
-          value: "$(SESSION_DB_USER)"
+          valueFrom:
+            configMapKeyRef:
+              name: insights-agent-config
+              key: SESSION_DB_USER
         - name: POSTGRESQL_PASSWORD
           valueFrom:
             secretKeyRef:
               name: insights-agent-secrets
               key: SESSION_DB_PASSWORD
         - name: POSTGRESQL_DATABASE
-          value: "$(SESSION_DB_NAME)"
+          valueFrom:
+            configMapKeyRef:
+              name: insights-agent-config
+              key: SESSION_DB_NAME
       ports:
         - containerPort: 5433
           hostPort: 5433
