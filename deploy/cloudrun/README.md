@@ -103,7 +103,45 @@ The setup script enables required APIs, creates a service account, and sets up s
 | `SERVICE_NAME` | `insights-agent` | Cloud Run service name |
 | `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub for marketplace integration |
 
-### 3. Configure Secrets
+### 3. Set Up Cloud SQL Database
+
+Cloud Run requires PostgreSQL for production. Create a Cloud SQL instance with two databases:
+
+```bash
+# Create Cloud SQL instance
+gcloud sql instances create insights-agent-db \
+  --database-version=POSTGRES_16 \
+  --tier=db-f1-micro \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT
+
+# Create marketplace database and user
+gcloud sql databases create insights_agent \
+  --instance=insights-agent-db \
+  --project=$GOOGLE_CLOUD_PROJECT
+
+gcloud sql users create insights \
+  --instance=insights-agent-db \
+  --password=YOUR_MARKETPLACE_PASSWORD \
+  --project=$GOOGLE_CLOUD_PROJECT
+
+# Create session database and user
+gcloud sql databases create agent_sessions \
+  --instance=insights-agent-db \
+  --project=$GOOGLE_CLOUD_PROJECT
+
+gcloud sql users create sessions \
+  --instance=insights-agent-db \
+  --password=YOUR_SESSION_PASSWORD \
+  --project=$GOOGLE_CLOUD_PROJECT
+
+# Get the connection name for later use
+CONNECTION_NAME=$(gcloud sql instances describe insights-agent-db \
+  --project=$GOOGLE_CLOUD_PROJECT --format='value(connectionName)')
+echo "Connection name: $CONNECTION_NAME"
+```
+
+### 4. Configure Secrets
 
 Update the placeholder secrets with actual values:
 
@@ -138,13 +176,17 @@ echo -n 'your-initial-access-token' | \
 echo -n 'your-fernet-key' | \
   gcloud secrets versions add dcr-encryption-key --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 
-# Database URL (Cloud SQL) - Required for production
-# The agent currently uses in-memory storage. This is for future use.
-# echo -n 'postgresql+asyncpg://user:pass@/dbname?host=/cloudsql/PROJECT:REGION:INSTANCE' | \
-#   gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+# Database URLs (use CONNECTION_NAME from step 3)
+# Marketplace database: stores orders, entitlements, DCR clients
+echo -n "postgresql+asyncpg://insights:YOUR_MARKETPLACE_PASSWORD@/insights_agent?host=/cloudsql/$CONNECTION_NAME" | \
+  gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+# Session database: stores agent sessions (required for persistence)
+echo -n "postgresql+asyncpg://sessions:YOUR_SESSION_PASSWORD@/agent_sessions?host=/cloudsql/$CONNECTION_NAME" | \
+  gcloud secrets versions add session-database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 ```
 
-### 4. Copy MCP Image to GCR
+### 5. Copy MCP Image to GCR
 
 Cloud Run doesn't support Quay.io directly. Copy the MCP server image to GCR:
 
@@ -158,7 +200,7 @@ docker tag quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/
 docker push gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp:latest
 ```
 
-### 5. Deploy
+### 6. Deploy
 
 The deploy script supports deploying both services. The default (`yaml`) method is recommended
 as it includes the MCP sidecar container for the agent.
@@ -507,57 +549,49 @@ gcloud run logs read insights-agent \
   --project=$GOOGLE_CLOUD_PROJECT
 ```
 
-## Database Options
+## Database Architecture
 
-The agent uses **PostgreSQL** for persistent storage of:
-- Marketplace accounts and entitlements (from Pub/Sub events)
-- DCR registered clients (order → client_id mapping)
-- Usage tracking records
+Cloud Run deployments **require PostgreSQL** (Cloud SQL) for production. The system uses **two databases** for security isolation:
 
-By default, the agent uses SQLite for local development. For production on
-Cloud Run, use Cloud SQL (PostgreSQL).
+| Database | Purpose | Service |
+|----------|---------|---------|
+| Marketplace DB | Orders, entitlements, DCR clients | Both handler and agent |
+| Session DB | ADK agent sessions | Agent only |
 
-### Cloud SQL (PostgreSQL) - Production
+This separation ensures:
+- Agent sessions cannot access marketplace/auth data
+- Compromised agents cannot access DCR credentials
+- Different retention policies can be applied
 
-To use Cloud SQL for production:
+> **Setup:** See [Step 3. Set Up Cloud SQL Database](#3-set-up-cloud-sql-database) in Quick Start.
 
-1. Create Cloud SQL instance:
-   ```bash
-   gcloud sql instances create insights-agent-db \
-     --database-version=POSTGRES_16 \
-     --tier=db-f1-micro \
-     --region=$GOOGLE_CLOUD_LOCATION \
-     --project=$GOOGLE_CLOUD_PROJECT
-   ```
+### Adding Cloud SQL to Existing Services
 
-2. Create database and user:
-   ```bash
-   gcloud sql databases create insights_agent \
-     --instance=insights-agent-db \
-     --project=$GOOGLE_CLOUD_PROJECT
+If you deployed services before setting up Cloud SQL, add the connection:
 
-   gcloud sql users create insights \
-     --instance=insights-agent-db \
-     --password=YOUR_PASSWORD \
-     --project=$GOOGLE_CLOUD_PROJECT
-   ```
+```bash
+CONNECTION_NAME=$(gcloud sql instances describe insights-agent-db \
+  --project=$GOOGLE_CLOUD_PROJECT --format='value(connectionName)')
 
-3. Update DATABASE_URL secret:
-   ```bash
-   CONNECTION_NAME=$(gcloud sql instances describe insights-agent-db \
-     --project=$GOOGLE_CLOUD_PROJECT --format='value(connectionName)')
+# Add to marketplace handler
+gcloud run services update marketplace-handler \
+  --add-cloudsql-instances=$CONNECTION_NAME \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT
 
-   echo -n "postgresql+asyncpg://insights:YOUR_PASSWORD@/insights_agent?host=/cloudsql/$CONNECTION_NAME" | \
-     gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
-   ```
+# Add to insights agent
+gcloud run services update insights-agent \
+  --add-cloudsql-instances=$CONNECTION_NAME \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT
+```
 
-4. Add Cloud SQL connection to Cloud Run:
-   ```bash
-   gcloud run services update insights-agent \
-     --add-cloudsql-instances=$CONNECTION_NAME \
-     --region=$GOOGLE_CLOUD_LOCATION \
-     --project=$GOOGLE_CLOUD_PROJECT
-   ```
+### Session Database Behavior
+
+- If `SESSION_DATABASE_URL` is set: Uses PostgreSQL for session persistence
+- If `SESSION_DATABASE_URL` is not set: Uses in-memory storage (sessions lost on restart)
+
+For production, always configure `SESSION_DATABASE_URL` to ensure session persistence across container restarts and scaling events.
 
 ## CI/CD with Cloud Build
 

@@ -110,14 +110,14 @@ spec:
                 secretKeyRef:
                   name: database-url
                   key: latest
-            # Session Database (optional - for security isolation)
-            # If not set, uses DATABASE_URL. For production, use a separate
-            # database so agent sessions are isolated from marketplace/auth data.
-            # - name: SESSION_DATABASE_URL
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: session-database-url
-            #       key: latest
+            # Session Database (required for session persistence)
+            # If not set, uses in-memory storage (sessions lost on restart)
+            # For production, always configure this for session persistence
+            - name: SESSION_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: session-database-url
+                  key: latest
             # DCR (Dynamic Client Registration) Configuration
             - name: DCR_ENABLED
               value: "true"
