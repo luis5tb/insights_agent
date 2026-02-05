@@ -180,10 +180,11 @@ deploy_agent_with_yaml() {
     tmp_yaml=$(mktemp)
 
     # Substitute variables in service.yaml
-    sed -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
-        -e "s|\${REGION}|${REGION}|g" \
-        -e "s|gcr.io/\${PROJECT_ID}/insights-agent:latest|${AGENT_IMAGE}|g" \
+    # Note: Image substitution must happen BEFORE PROJECT_ID substitution
+    sed -e "s|gcr.io/\${PROJECT_ID}/insights-agent:latest|${AGENT_IMAGE}|g" \
         -e "s|\${MCP_IMAGE}|${MCP_IMAGE}|g" \
+        -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
+        -e "s|\${REGION}|${REGION}|g" \
         deploy/cloudrun/service.yaml > "$tmp_yaml"
 
     # Deploy using the YAML
@@ -213,9 +214,10 @@ deploy_handler_with_yaml() {
     tmp_yaml=$(mktemp)
 
     # Substitute variables in marketplace-handler.yaml
-    sed -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
+    # Note: Image substitution must happen BEFORE PROJECT_ID substitution
+    sed -e "s|gcr.io/\${PROJECT_ID}/marketplace-handler:latest|${HANDLER_IMAGE}|g" \
+        -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
         -e "s|\${REGION}|${REGION}|g" \
-        -e "s|gcr.io/\${PROJECT_ID}/marketplace-handler:latest|${HANDLER_IMAGE}|g" \
         deploy/cloudrun/marketplace-handler.yaml > "$tmp_yaml"
 
     # Deploy using the YAML
