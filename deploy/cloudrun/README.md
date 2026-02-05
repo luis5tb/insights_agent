@@ -108,10 +108,11 @@ The setup script enables required APIs, creates a service account, and sets up s
 Cloud Run requires PostgreSQL for production. Create a Cloud SQL instance with two databases:
 
 ```bash
-# Create Cloud SQL instance
+# Create Cloud SQL instance (using smallest Enterprise tier)
 gcloud sql instances create insights-agent-db \
   --database-version=POSTGRES_16 \
-  --tier=db-f1-micro \
+  --edition=ENTERPRISE \
+  --tier=db-g1-small \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
 

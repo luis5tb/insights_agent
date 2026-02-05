@@ -152,9 +152,10 @@ dcr_secrets=(
     "dcr-encryption-key"        # Fernet key for encrypting client secrets
 )
 
-# Database secrets (PostgreSQL for production)
+# Database secrets (PostgreSQL for production - REQUIRED)
 db_secrets=(
-    "database-url"              # postgresql+asyncpg://user:pass@/db?host=/cloudsql/...
+    "database-url"              # Marketplace DB: postgresql+asyncpg://user:pass@/db?host=/cloudsql/...
+    "session-database-url"      # Session DB: postgresql+asyncpg://user:pass@/db?host=/cloudsql/...
 )
 
 # Combine all optional secrets
@@ -181,16 +182,16 @@ for secret in "${secrets[@]}"; do
         --quiet || true
 done
 
-# Create optional secrets (with note about being optional)
-log_info "Setting up optional secrets..."
+# Create DCR and database secrets
+log_info "Setting up DCR and database secrets..."
 for secret in "${optional_secrets[@]}"; do
     if ! gcloud secrets describe "$secret" --project="$PROJECT_ID" &>/dev/null; then
-        log_info "  Creating optional secret: $secret"
+        log_info "  Creating secret: $secret"
         echo -n "PLACEHOLDER" | gcloud secrets create "$secret" \
             --data-file=- \
             --project="$PROJECT_ID" \
             --replication-policy="automatic"
-        log_warn "  Secret '$secret' created (OPTIONAL - not currently used)"
+        log_warn "  Secret '$secret' created with placeholder. Update after Cloud SQL setup."
     else
         log_info "  Secret '$secret' already exists"
     fi
@@ -242,7 +243,10 @@ log_info "=========================================="
 echo ""
 echo "Next steps:"
 echo ""
-echo "1. Update secrets with actual values:"
+echo "1. Set up Cloud SQL database (see README for full instructions):"
+echo "   gcloud sql instances create insights-agent-db --database-version=POSTGRES_16 --edition=ENTERPRISE --tier=db-g1-small --region=$REGION --project=$PROJECT_ID"
+echo ""
+echo "2. Update secrets with actual values:"
 echo ""
 echo "   # Google API Key (for Vertex AI / Gemini)"
 echo "   echo -n 'YOUR_API_KEY' | gcloud secrets versions add google-api-key --data-file=- --project=$PROJECT_ID"
@@ -255,16 +259,18 @@ echo "   # Red Hat SSO credentials (for user authentication)"
 echo "   echo -n 'YOUR_SSO_CLIENT_ID' | gcloud secrets versions add redhat-sso-client-id --data-file=- --project=$PROJECT_ID"
 echo "   echo -n 'YOUR_SSO_CLIENT_SECRET' | gcloud secrets versions add redhat-sso-client-secret --data-file=- --project=$PROJECT_ID"
 echo ""
-echo "2. Copy the MCP server image to GCR (Cloud Run doesn't support Quay.io):"
+echo "   # Database URLs (after Cloud SQL setup)"
+echo "   CONNECTION_NAME=\$(gcloud sql instances describe insights-agent-db --project=$PROJECT_ID --format='value(connectionName)')"
+echo "   echo -n \"postgresql+asyncpg://insights:PASSWORD@/insights_agent?host=/cloudsql/\$CONNECTION_NAME\" | gcloud secrets versions add database-url --data-file=- --project=$PROJECT_ID"
+echo "   echo -n \"postgresql+asyncpg://sessions:PASSWORD@/agent_sessions?host=/cloudsql/\$CONNECTION_NAME\" | gcloud secrets versions add session-database-url --data-file=- --project=$PROJECT_ID"
+echo ""
+echo "3. Copy the MCP server image to GCR (Cloud Run doesn't support Quay.io):"
 echo "   docker pull quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest"
 echo "   docker tag quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest gcr.io/$PROJECT_ID/insights-mcp:latest"
 echo "   docker push gcr.io/$PROJECT_ID/insights-mcp:latest"
 echo ""
-echo "3. Build and deploy the agent (includes MCP sidecar):"
-echo "   ./deploy/cloudrun/deploy.sh --build"
-echo ""
-echo "4. Or deploy with a custom image:"
-echo "   ./deploy/cloudrun/deploy.sh --image gcr.io/$PROJECT_ID/insights-agent:v1.0"
+echo "4. Build and deploy the agent (includes MCP sidecar):"
+echo "   ./deploy/cloudrun/deploy.sh --build --service all --allow-unauthenticated"
 echo ""
 echo "5. Get the service URL:"
 echo "   gcloud run services describe $SERVICE_NAME --region=$REGION --project=$PROJECT_ID --format='value(status.url)'"
