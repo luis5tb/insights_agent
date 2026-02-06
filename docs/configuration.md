@@ -95,7 +95,7 @@ MCP_READ_ONLY=true
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_PROVIDER_URL` | `https://localhost:8000` | Agent public URL (for AgentCard) |
-| `AGENT_NAME` | `insights-agent` | Agent name |
+| `AGENT_NAME` | `insights_agent` | Agent name |
 | `AGENT_DESCRIPTION` | Red Hat Insights Agent... | Agent description |
 | `AGENT_HOST` | `0.0.0.0` | Server bind address |
 | `AGENT_PORT` | `8000` | Server port |
@@ -104,7 +104,7 @@ MCP_READ_ONLY=true
 
 ```bash
 AGENT_PROVIDER_URL=https://insights-agent.example.com
-AGENT_NAME=insights-agent
+AGENT_NAME=insights_agent
 AGENT_HOST=0.0.0.0
 AGENT_PORT=8000
 ```

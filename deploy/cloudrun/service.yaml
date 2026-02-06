@@ -27,11 +27,13 @@ spec:
       annotations:
         # Scaling configuration
         autoscaling.knative.dev/minScale: "0"
-        autoscaling.knative.dev/maxScale: "10"
+        autoscaling.knative.dev/maxScale: "2"
         # CPU allocation
         run.googleapis.com/cpu-throttling: "false"
         # Startup probe
         run.googleapis.com/startup-cpu-boost: "true"
+        # Cloud SQL connection
+        run.googleapis.com/cloudsql-instances: "emerge-partners:us-central1:insights-agent-db"
     spec:
       containerConcurrency: 80
       timeoutSeconds: 300
@@ -62,7 +64,7 @@ spec:
             - name: AGENT_PORT
               value: "8000"
             - name: AGENT_NAME
-              value: "insights-agent"
+              value: "insights_agent"
             - name: LOG_LEVEL
               value: "INFO"
             - name: LOG_FORMAT
@@ -163,6 +165,13 @@ spec:
         #   docker push gcr.io/${PROJECT_ID}/insights-mcp:latest
         - name: insights-mcp
           image: ${MCP_IMAGE}
+          args:
+            - "--readonly"
+            - "http"
+            - "--port"
+            - "8080"
+            - "--host"
+            - "0.0.0.0"
           resources:
             limits:
               cpu: "1"
@@ -179,26 +188,6 @@ spec:
                 secretKeyRef:
                   name: lightspeed-client-secret
                   key: latest
-            # MCP server configuration
-            - name: MCP_SERVER_MODE
-              value: "http"
-            - name: MCP_SERVER_PORT
-              value: "8080"
-            - name: READ_ONLY
-              value: "true"
-          startupProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 3
-            periodSeconds: 5
-            failureThreshold: 3
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            periodSeconds: 30
-            failureThreshold: 3
   traffic:
     - percent: 100
       latestRevision: true

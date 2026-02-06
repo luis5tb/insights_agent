@@ -364,6 +364,42 @@ This step is required before running `deploy.sh`. The deploy script defaults to 
 | Network egress | Standard GCP rates | Free within same region |
 | Requests | No charge | Pull requests are free |
 
+### Customizing MCP Server Configuration
+
+The MCP server configuration is hardcoded in `deploy/cloudrun/service.yaml` because Cloud Run does not support environment variable expansion in the `args` field (unlike Kubernetes/Podman).
+
+**Current MCP server settings:**
+```yaml
+args:
+  - "--readonly"      # Run in read-only mode
+  - "http"            # Use HTTP transport
+  - "--port"
+  - "8080"            # Listen on port 8080
+  - "--host"
+  - "0.0.0.0"         # Bind to all interfaces
+```
+
+**To change MCP server settings:**
+
+1. Edit `deploy/cloudrun/service.yaml` directly:
+   ```bash
+   vim deploy/cloudrun/service.yaml
+   # Find the "insights-mcp" container section
+   # Modify the args array as needed
+   ```
+
+2. Common customizations:
+   - **Change port**: Modify `"8080"` to your desired port (also update `MCP_SERVER_URL` in the agent container env)
+   - **Enable write operations**: Remove `"--readonly"` flag (not recommended for production)
+   - **Change transport**: Modify `"http"` to `"sse"` or `"stdio"` (requires corresponding agent changes)
+
+3. Redeploy after making changes:
+   ```bash
+   ./deploy/cloudrun/deploy.sh --service agent
+   ```
+
+**Note**: If you change the MCP server port, you must also update the `MCP_SERVER_URL` environment variable in the agent container to match.
+
 ### Alternative: Use Docker Hub
 
 Instead of GCR, you can copy the image to Docker Hub (free storage, but has rate limits):

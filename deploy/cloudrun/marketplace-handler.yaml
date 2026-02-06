@@ -35,9 +35,11 @@ spec:
       annotations:
         # Scaling: Keep at least 1 instance to receive Pub/Sub events quickly
         autoscaling.knative.dev/minScale: "1"
-        autoscaling.knative.dev/maxScale: "5"
+        autoscaling.knative.dev/maxScale: "1"
         run.googleapis.com/cpu-throttling: "false"
         run.googleapis.com/startup-cpu-boost: "true"
+        # Cloud SQL connection
+        run.googleapis.com/cloudsql-instances: "emerge-partners:us-central1:insights-agent-db"
     spec:
       containerConcurrency: 80
       timeoutSeconds: 60

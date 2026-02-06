@@ -121,6 +121,7 @@ roles=(
     "roles/servicemanagement.serviceController"
     "roles/logging.logWriter"
     "roles/monitoring.metricWriter"
+    "roles/cloudsql.client"
 )
 
 for role in "${roles[@]}"; do

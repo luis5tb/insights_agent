@@ -401,5 +401,5 @@ esac
 
 echo ""
 echo "View logs:"
-echo "  gcloud run logs read marketplace-handler --region=$REGION --project=$PROJECT_ID"
-echo "  gcloud run logs read $SERVICE_NAME --region=$REGION --project=$PROJECT_ID"
+echo "  gcloud run services logs read marketplace-handler --region=$REGION --project=$PROJECT_ID"
+echo "  gcloud run services logs read $SERVICE_NAME --region=$REGION --project=$PROJECT_ID"

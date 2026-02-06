@@ -11,7 +11,7 @@ This guide helps diagnose and resolve common issues with the Insights Agent.
 curl http://localhost:8000/health
 
 # Expected response
-{"status": "healthy", "agent": "insights-agent"}
+{"status": "healthy", "agent": "insights_agent"}
 ```
 
 ### Readiness Check
@@ -21,7 +21,7 @@ curl http://localhost:8000/health
 curl http://localhost:8000/ready
 
 # Expected response
-{"status": "ready", "agent": "insights-agent"}
+{"status": "ready", "agent": "insights_agent"}
 ```
 
 ### View Logs
@@ -34,7 +34,7 @@ python -m insights_agent.main 2>&1 | tee agent.log
 podman logs insights-agent-pod-insights-agent
 
 # Cloud Run
-gcloud run logs read insights-agent --region=us-central1
+gcloud run services logs read insights-agent --region=us-central1
 ```
 
 ## Startup Issues
