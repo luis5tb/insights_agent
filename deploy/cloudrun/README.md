@@ -679,7 +679,7 @@ AGENT_URL=$(gcloud run services describe insights-agent \
 
 # Test agent card endpoint (requires authentication)
 curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-  $AGENT_URL/.well-known/agent.json | jq .
+  $AGENT_URL/.well-known/agent-card.json | jq .
 ```
 
 ### Test A2A Requests with Local Proxy
@@ -745,19 +745,53 @@ export RED_HAT_TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI..."
 
 **3. Test the A2A endpoint:**
 
+The agent uses the A2A (Agent-to-Agent) protocol, which is based on JSON-RPC 2.0. All requests must include:
+- `jsonrpc`: "2.0"
+- `method`: "message/send" (for non-streaming) or "message/stream" (for streaming)
+- `params`: Contains the message object
+- `id`: Unique request identifier
+
 ```bash
 # Send a test message to the agent
 curl -X POST http://localhost:8080/ \
   -H "Authorization: Bearer $RED_HAT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "messages": [
-      {
+    "jsonrpc": "2.0",
+    "method": "message/send",
+    "params": {
+      "message": {
         "role": "user",
-        "parts": [{"text": "What are the latest CVEs affecting my systems?"}]
+        "parts": [{"type": "text", "text": "What are the latest CVEs affecting my systems?"}]
+      }
+    },
+    "id": "1"
+  }' | jq .
+```
+
+**Expected response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "id": "task-abc123",
+    "status": {
+      "state": "completed"
+    },
+    "artifacts": [
+      {
+        "parts": [
+          {
+            "type": "text",
+            "text": "Based on your systems, here are the latest CVEs..."
+          }
+        ]
       }
     ]
-  }' | jq .
+  },
+  "id": "1"
+}
 ```
 
 **4. Test other endpoints:**
@@ -817,10 +851,68 @@ If you prefer to test without the proxy, you'll need to:
    curl -X POST $AGENT_URL/ \
      -H "Authorization: Bearer $RED_HAT_TOKEN" \
      -H "Content-Type: application/json" \
-     -d '{"messages": [{"role": "user", "parts": [{"text": "Hello"}]}]}'
+     -d '{
+       "jsonrpc": "2.0",
+       "method": "message/send",
+       "params": {
+         "message": {
+           "role": "user",
+           "parts": [{"type": "text", "text": "Hello"}]
+         }
+       },
+       "id": "1"
+     }'
    ```
 
 **Security Note:** Allowing unauthenticated access makes the service publicly accessible. Only use this for development/testing environments, not production.
+
+### Troubleshooting Testing Issues
+
+**"Method Not Allowed" or "detail": "Method Not Allowed"**
+
+This usually means you're testing the endpoint without proper authentication or the request format is incorrect:
+
+```bash
+# Make sure you're using the proxy and have a valid token
+export RED_HAT_TOKEN=$(ocm token)
+
+# Verify token is valid (should show decoded JWT payload)
+echo $RED_HAT_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq .
+
+# Make sure proxy is running
+# You should see: "Listening on http://localhost:8080"
+gcloud run services proxy insights-agent --region=us-central1 --port=8080
+```
+
+**"Invalid Authorization header format"**
+
+The agent expects a Red Hat SSO Bearer token, not a Google Cloud identity token. Make sure:
+- You're using `ocm token` or completing the OAuth flow
+- The token is a valid JWT from Red Hat SSO
+- You're including it as: `-H "Authorization: Bearer $RED_HAT_TOKEN"`
+
+**"Field required" error for "method"**
+
+You're not using the correct A2A JSON-RPC format. Make sure your request includes:
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "message/send",
+  "params": { "message": {...} },
+  "id": "1"
+}
+```
+
+**Empty response or connection refused**
+
+- Ensure the proxy is running in a separate terminal
+- Verify the agent is deployed and healthy:
+  ```bash
+  gcloud run services describe insights-agent \
+    --region=us-central1 \
+    --format='value(status.conditions.status)'
+  # Should show: True;True;True
+  ```
 
 ## Monitoring
 
