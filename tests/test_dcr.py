@@ -160,50 +160,6 @@ class TestDCRService:
         assert result.client_secret_expires_at == 0
 
     @pytest.mark.asyncio
-    async def test_get_order_id_for_client(self, service):
-        """Test looking up order ID by client ID."""
-        claims = GoogleJWTClaims(
-            iss="https://example.com",
-            iat=int(time.time()),
-            exp=int(time.time()) + 3600,
-            aud="https://example.com",
-            sub="valid-account-123",
-            auth_app_redirect_uris=["https://example.com/callback"],
-            google=GoogleClaims(order="valid-order-789"),
-        )
-
-        # Create credentials with static mode
-        result = await service._return_static_credentials(claims)
-        assert isinstance(result, DCRResponse)
-
-        # Verify we can look up the order ID
-        order_id = await service.get_order_id_for_client(result.client_id)
-        assert order_id == "valid-order-789"
-
-    @pytest.mark.asyncio
-    async def test_verify_client(self, service):
-        """Test client verification."""
-        claims = GoogleJWTClaims(
-            iss="https://example.com",
-            iat=int(time.time()),
-            exp=int(time.time()) + 3600,
-            aud="https://example.com",
-            sub="valid-account-123",
-            google=GoogleClaims(order="valid-order-789"),
-        )
-
-        result = await service._return_static_credentials(claims)
-        assert isinstance(result, DCRResponse)
-
-        # Verify with correct secret
-        is_valid = await service.verify_client(result.client_id, result.client_secret)
-        assert is_valid is True
-
-        # Verify with wrong secret
-        is_valid = await service.verify_client(result.client_id, "wrong-secret")
-        assert is_valid is False
-
-    @pytest.mark.asyncio
     async def test_get_client(self, service):
         """Test getting client info."""
         claims = GoogleJWTClaims(
@@ -261,23 +217,6 @@ class TestDCRRepository:
         client = await repo.get_by_order_id("order-unique")
         assert client is not None
         assert client.client_id == "test-client-456"
-
-    @pytest.mark.asyncio
-    async def test_get_order_id_for_client(self, repo):
-        """Test looking up order ID by client ID."""
-        await repo.create(
-            client_id="test-client-789",
-            client_secret_encrypted="encrypted-secret",
-            order_id="order-lookup",
-            account_id="account-789",
-        )
-
-        order_id = await repo.get_order_id_for_client("test-client-789")
-        assert order_id == "order-lookup"
-
-        # Non-existent client
-        order_id = await repo.get_order_id_for_client("nonexistent")
-        assert order_id is None
 
 
 class TestDCRRouter:

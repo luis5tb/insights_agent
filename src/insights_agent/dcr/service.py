@@ -335,40 +335,6 @@ class DCRService:
         """
         return await self._client_repository.get_by_client_id(client_id)
 
-    async def verify_client(self, client_id: str, client_secret: str) -> bool:
-        """Verify client credentials.
-
-        Args:
-            client_id: The OAuth client ID.
-            client_secret: The OAuth client secret.
-
-        Returns:
-            True if valid, False otherwise.
-        """
-        client = await self._client_repository.get_by_client_id(client_id)
-        if not client:
-            return False
-
-        stored_secret = self._decrypt_secret(client.client_secret_encrypted)
-        if not stored_secret:
-            return False
-
-        import secrets
-        return secrets.compare_digest(client_secret, stored_secret)
-
-    async def get_order_id_for_client(self, client_id: str) -> str | None:
-        """Get the Order ID associated with a client_id.
-
-        Used for usage metering.
-
-        Args:
-            client_id: The OAuth client ID.
-
-        Returns:
-            Order ID if found, None otherwise.
-        """
-        return await self._client_repository.get_order_id_for_client(client_id)
-
 
 # Global service instance
 _dcr_service: DCRService | None = None

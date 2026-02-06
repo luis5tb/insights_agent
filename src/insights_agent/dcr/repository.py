@@ -105,66 +105,6 @@ class DCRClientRepository:
 
             return self._model_to_entity(model)
 
-    async def update(self, client: RegisteredClient) -> RegisteredClient:
-        """Update an existing registered client.
-
-        Args:
-            client: The RegisteredClient to update.
-
-        Returns:
-            The updated RegisteredClient.
-        """
-        async with get_session() as session:
-            result = await session.execute(
-                select(DCRClientModel).where(DCRClientModel.client_id == client.client_id)
-            )
-            model = result.scalar_one_or_none()
-            if not model:
-                raise ValueError(f"Client not found: {client.client_id}")
-
-            model.client_secret_encrypted = client.client_secret_encrypted
-            model.redirect_uris = client.redirect_uris
-            model.grant_types = client.grant_types
-            model.metadata_ = client.metadata
-
-            logger.info("Updated DCR client: %s", client.client_id)
-
-            return self._model_to_entity(model)
-
-    async def delete(self, client_id: str) -> bool:
-        """Delete a registered client.
-
-        Args:
-            client_id: The OAuth client ID.
-
-        Returns:
-            True if deleted, False if not found.
-        """
-        async with get_session() as session:
-            result = await session.execute(
-                select(DCRClientModel).where(DCRClientModel.client_id == client_id)
-            )
-            model = result.scalar_one_or_none()
-            if model:
-                await session.delete(model)
-                logger.info("Deleted DCR client: %s", client_id)
-                return True
-            return False
-
-    async def get_order_id_for_client(self, client_id: str) -> str | None:
-        """Get the order ID for a client.
-
-        Used for usage metering.
-
-        Args:
-            client_id: The OAuth client ID.
-
-        Returns:
-            Order ID if found, None otherwise.
-        """
-        client = await self.get_by_client_id(client_id)
-        return client.order_id if client else None
-
     def _model_to_entity(self, model: DCRClientModel) -> RegisteredClient:
         """Convert ORM model to Pydantic entity.
 

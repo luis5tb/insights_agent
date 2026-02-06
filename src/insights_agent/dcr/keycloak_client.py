@@ -164,64 +164,6 @@ class KeycloakDCRClient:
                 status_code=500,
             ) from e
 
-    async def delete_client(
-        self,
-        registration_client_uri: str,
-        registration_access_token: str,
-    ) -> bool:
-        """Delete an OAuth client from Keycloak.
-
-        Args:
-            registration_client_uri: URI for the client (from creation response).
-            registration_access_token: Access token for managing the client.
-
-        Returns:
-            True if deleted successfully.
-
-        Raises:
-            KeycloakDCRError: If deletion fails.
-        """
-        headers = {
-            "Authorization": f"Bearer {registration_access_token}",
-        }
-
-        logger.info("Deleting OAuth client: %s", registration_client_uri)
-
-        try:
-            if self._http_client:
-                response = await self._http_client.delete(
-                    registration_client_uri,
-                    headers=headers,
-                )
-            else:
-                async with httpx.AsyncClient() as client:
-                    response = await client.delete(
-                        registration_client_uri,
-                        headers=headers,
-                        timeout=30.0,
-                    )
-
-            if response.status_code == 204:
-                logger.info("Successfully deleted OAuth client")
-                return True
-
-            logger.error(
-                "Failed to delete OAuth client: status=%d",
-                response.status_code,
-            )
-            raise KeycloakDCRError(
-                "Failed to delete OAuth client",
-                status_code=response.status_code,
-            )
-
-        except httpx.RequestError as e:
-            logger.exception("HTTP error deleting Keycloak client: %s", e)
-            raise KeycloakDCRError(
-                f"HTTP error deleting Keycloak client: {e}",
-                status_code=500,
-            ) from e
-
-
 # Global client instance
 _keycloak_client: KeycloakDCRClient | None = None
 
