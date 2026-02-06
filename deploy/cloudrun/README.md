@@ -686,19 +686,38 @@ curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
 
 The local proxy handles Google Cloud Run authentication, allowing you to test with just your Red Hat SSO token.
 
+**Important:** The MCP sidecar inside Cloud Run uses port 8080. To avoid port conflicts, run the proxy on a different port (e.g., 8099).
+
 **1. Start the local proxy:**
 
 ```bash
-# Start proxy on localhost:8080
+# Start proxy on localhost:8099 (NOT 8080 - that's used by MCP sidecar)
 gcloud run services proxy insights-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
-  --port=8080
+  --port=8099
 ```
 
 This command will keep running in your terminal. The proxy authenticates all requests to Cloud Run using your current `gcloud` credentials.
 
-**2. Get a Red Hat SSO access token:**
+**2. Configure AGENT_PROVIDER_URL for local testing:**
+
+The agent card needs to advertise the proxy URL so tools like A2A Inspector connect to it:
+
+```bash
+# In a new terminal, set the agent URL to point to your local proxy
+gcloud run services update insights-agent \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="AGENT_PROVIDER_URL=http://localhost:8099"
+
+# Wait for the update to complete (takes ~30 seconds)
+# The proxy automatically handles the connection to Cloud Run
+```
+
+**Important:** This makes the agent advertise itself as `http://localhost:8099/` to ALL clients. This is fine for local testing, but remember to restore the real URL when done (see cleanup section below).
+
+**3. Get a Red Hat SSO access token:**
 
 In a new terminal, use one of these methods:
 
@@ -723,18 +742,18 @@ Initiate the OAuth flow through the agent:
 
 ```bash
 # Start OAuth flow (open this URL in your browser)
-echo "http://localhost:8080/oauth/authorize?state=test123"
+echo "http://localhost:8099/oauth/authorize?state=test123"
 ```
 
 After logging in to Red Hat SSO, you'll be redirected to a callback URL with a code parameter. Extract the code and exchange it for tokens:
 
 ```bash
 # Exchange authorization code for access token
-curl -X POST http://localhost:8080/oauth/token \
+curl -X POST http://localhost:8099/oauth/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=authorization_code" \
   -d "code=YOUR_AUTHORIZATION_CODE" \
-  -d "redirect_uri=http://localhost:8080/oauth/callback"
+  -d "redirect_uri=http://localhost:8099/oauth/callback"
 ```
 
 Save the `access_token` from the response:
@@ -743,17 +762,17 @@ Save the `access_token` from the response:
 export RED_HAT_TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI..."
 ```
 
-**3. Test the A2A endpoint:**
+**4. Test the A2A endpoint:**
 
 The agent uses the A2A (Agent-to-Agent) protocol, which is based on JSON-RPC 2.0. All requests must include:
 - `jsonrpc`: "2.0"
 - `method`: "message/send" (for non-streaming) or "message/stream" (for streaming)
-- `params`: Contains the message object
+- `params`: Contains the message object with `messageId`
 - `id`: Unique request identifier
 
 ```bash
-# Send a test message to the agent
-curl -X POST http://localhost:8080/ \
+# Send a test message to the agent (note: using port 8099, not 8080)
+curl -X POST http://localhost:8099/ \
   -H "Authorization: Bearer $RED_HAT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -794,41 +813,111 @@ curl -X POST http://localhost:8080/ \
 }
 ```
 
-**4. Test other endpoints:**
+**5. Test other endpoints:**
 
 ```bash
 # Get user information
-curl http://localhost:8080/oauth/userinfo \
+curl http://localhost:8099/oauth/userinfo \
   -H "Authorization: Bearer $RED_HAT_TOKEN" | jq .
 
 # Check health endpoint (no auth required)
-curl http://localhost:8080/health | jq .
+curl http://localhost:8099/health | jq .
 
 # Get usage statistics
-curl http://localhost:8080/usage | jq .
+curl http://localhost:8099/usage | jq .
+
+# Get agent card (should show http://localhost:8099/)
+curl http://localhost:8099/.well-known/agent-card.json | jq -r '.url'
 ```
+
+### Test with A2A Inspector
+
+The [A2A Inspector](https://github.com/a2aproject/a2a-inspector) provides a web-based UI for testing A2A agents.
+
+**1. Prerequisites:**
+
+```bash
+# Make sure the proxy is running (from step 1 above)
+# Make sure AGENT_PROVIDER_URL is set to http://localhost:8099 (from step 2 above)
+# Make sure you have a Red Hat SSO token (from step 3 above)
+```
+
+**2. Start A2A Inspector:**
+
+```bash
+# Clone and run A2A Inspector (if not already installed)
+git clone https://github.com/a2aproject/a2a-inspector.git /tmp/a2a-inspector
+cd /tmp/a2a-inspector
+./scripts/run.sh  # Usually runs on port 5001
+```
+
+**3. Configure A2A Inspector:**
+
+In the A2A Inspector web UI (usually at `http://localhost:5001`):
+
+1. **Agent URL**: Enter `http://localhost:8099/`
+2. **Authentication**:
+   - Select "Bearer Token" or "OAuth"
+   - Paste your Red Hat SSO token: `$(ocm token)`
+3. Click "Connect" - it will fetch the agent card from `http://localhost:8099/.well-known/agent-card.json`
+
+The A2A Inspector will read the agent card and see `"url": "http://localhost:8099/"`, which points back to your local proxy. All messages will flow through the proxy to Cloud Run.
+
+**4. Send test messages:**
+
+In the A2A Inspector UI:
+- Type: "What are my RHEL systems?"
+- Type: "Show CVEs affecting my infrastructure"
+- Type: "What is the lifecycle for RHEL 8?"
+
+The inspector will send properly formatted JSON-RPC requests with `messageId` fields automatically.
 
 ### Cleanup After Testing
 
-When you're done testing, clean up the local proxy:
+When you're done testing, clean up the local proxy and restore the production configuration.
 
-**1. Stop the proxy:**
+**1. Restore AGENT_PROVIDER_URL to the real Cloud Run URL:**
+
+```bash
+# Get the actual Cloud Run service URL
+SERVICE_URL=$(gcloud run services describe insights-agent \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
+
+# Restore the agent card to advertise the real Cloud Run URL
+gcloud run services update insights-agent \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="AGENT_PROVIDER_URL=$SERVICE_URL"
+
+# Verify the agent card now shows the correct URL
+curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  $SERVICE_URL/.well-known/agent-card.json | jq -r '.url'
+# Should show: https://insights-agent-xxxxx.run.app/
+```
+
+**2. Stop the proxy:**
 
 Press `Ctrl+C` in the terminal where the proxy is running.
 
-**2. Clean up port (if needed):**
+**3. Clean up port (if needed):**
 
 If the port is still in use:
 
 ```bash
-# Find and kill process using port 8080
-lsof -ti:8080 | xargs kill -9
+# Find and kill process using port 8099
+lsof -ti:8099 | xargs kill -9
 
 # Or on systems without lsof
-fuser -k 8080/tcp
+fuser -k 8099/tcp
 ```
 
 **Note:** The proxy doesn't create any cloud resources - it only runs locally on your machine. Stopping the proxy (Ctrl+C) is sufficient to clean up.
+
+**Why port 8099 instead of 8080?**
+
+The MCP sidecar inside Cloud Run uses port 8080 internally. If you run the proxy on port 8080, the agent will try to connect to the proxy instead of the MCP sidecar, causing "Failed to create MCP session" errors. Using port 8099 (or any other port except 8080) avoids this conflict.
 
 ### Testing Without Proxy (Direct Cloud Run Access)
 
