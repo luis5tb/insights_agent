@@ -99,10 +99,10 @@ class UsageReporter:
             Consumer ID if found, None otherwise.
         """
         try:
-            from insights_agent.marketplace.service import get_procurement_service
+            from insights_agent.marketplace.repository import get_entitlement_repository
 
-            procurement = get_procurement_service()
-            entitlement = await procurement.get_entitlement(order_id)
+            repo = get_entitlement_repository()
+            entitlement = await repo.get(order_id)
 
             if entitlement and entitlement.usage_reporting_id:
                 return entitlement.usage_reporting_id
@@ -113,7 +113,7 @@ class UsageReporter:
                 return f"project:{entitlement.provider_id}"
 
         except ImportError:
-            logger.warning("Marketplace service not available")
+            logger.warning("Marketplace repository not available")
         except Exception as e:
             logger.error("Failed to get consumer ID for order %s: %s", order_id, e)
 
@@ -301,16 +301,11 @@ class UsageReporter:
             List of active order IDs.
         """
         try:
-            from insights_agent.marketplace.models import EntitlementState
             from insights_agent.marketplace.repository import get_entitlement_repository
 
             repo = get_entitlement_repository()
-            # Get all entitlements and filter active ones
-            all_entitlements = list(repo._entitlements.values())
-            return [
-                e.id for e in all_entitlements
-                if e.state == EntitlementState.ACTIVE
-            ]
+            active_entitlements = await repo.get_all_active()
+            return [e.id for e in active_entitlements]
         except ImportError:
             logger.warning("Marketplace repository not available")
             return []

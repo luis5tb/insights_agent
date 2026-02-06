@@ -136,22 +136,6 @@ class ProcurementEvent(BaseModel):
         populate_by_name = True
 
 
-class PubSubMessage(BaseModel):
-    """Pub/Sub message wrapper."""
-
-    message_id: str = Field(..., alias="messageId", description="Pub/Sub message ID")
-    publish_time: str = Field(
-        ...,
-        alias="publishTime",
-        description="Message publish timestamp",
-    )
-    data: str = Field(..., description="Base64-encoded message data")
-    attributes: dict[str, str] = Field(
-        default_factory=dict,
-        description="Message attributes",
-    )
-
-
 class Account(BaseModel):
     """Stored account record."""
 
@@ -186,14 +170,6 @@ class Entitlement(BaseModel):
     )
     plan: str | None = Field(None, description="Current pricing plan")
     provider_id: str = Field(..., description="Provider ID")
-    client_id: str | None = Field(
-        None,
-        description="OAuth client_id created for this order",
-    )
-    client_secret_hash: str | None = Field(
-        None,
-        description="Hashed OAuth client_secret",
-    )
     usage_reporting_id: str | None = Field(
         None,
         description="Consumer ID for Service Control usage reporting",
@@ -224,14 +200,3 @@ class Entitlement(BaseModel):
     )
 
 
-class ClientCredentials(BaseModel):
-    """OAuth client credentials for an order."""
-
-    client_id: str = Field(..., description="OAuth client ID")
-    client_secret: str = Field(..., description="OAuth client secret")
-    order_id: str = Field(..., description="Associated Order ID (Entitlement ID)")
-    account_id: str = Field(..., description="Associated Account ID")
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Creation timestamp",
-    )

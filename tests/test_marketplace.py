@@ -1,12 +1,7 @@
 """Tests for Marketplace Procurement integration."""
 
-import base64
-import json
-
 import pytest
-from fastapi.testclient import TestClient
 
-from insights_agent.api.app import create_app
 from insights_agent.marketplace.models import (
     Account,
     AccountState,
@@ -94,7 +89,7 @@ class TestAccountRepository:
         created = await repo.create(account)
 
         assert created.id == "account-123"
-        assert await repo.exists("account-123")
+        assert await repo.get("account-123") is not None
 
     @pytest.mark.asyncio
     async def test_get_account(self, repo):
@@ -163,60 +158,7 @@ class TestEntitlementRepository:
         created = await repo.create(entitlement)
 
         assert created.id == "order-123"
-        assert await repo.exists("order-123")
-
-    @pytest.mark.asyncio
-    async def test_get_by_account(self, repo):
-        """Test getting entitlements by account."""
-        for i in range(3):
-            entitlement = Entitlement(
-                id=f"order-{i}",
-                account_id="account-123",
-                provider_id="provider-456",
-            )
-            await repo.create(entitlement)
-
-        entitlements = await repo.get_by_account("account-123")
-
-        assert len(entitlements) == 3
-
-    @pytest.mark.asyncio
-    async def test_generate_client_credentials(self, repo):
-        """Test generating OAuth credentials."""
-        entitlement = Entitlement(
-            id="order-123",
-            account_id="account-456",
-            provider_id="provider-789",
-        )
-        await repo.create(entitlement)
-
-        credentials = await repo.generate_client_credentials(
-            entitlement_id="order-123",
-            account_id="account-456",
-        )
-
-        assert credentials is not None
-        assert credentials.client_id.startswith("client_")
-        assert credentials.order_id == "order-123"
-
-    @pytest.mark.asyncio
-    async def test_get_order_id_by_client_id(self, repo):
-        """Test looking up order ID by client ID."""
-        entitlement = Entitlement(
-            id="order-123",
-            account_id="account-456",
-            provider_id="provider-789",
-        )
-        await repo.create(entitlement)
-
-        credentials = await repo.generate_client_credentials(
-            entitlement_id="order-123",
-            account_id="account-456",
-        )
-
-        order_id = await repo.get_order_id_by_client_id(credentials.client_id)
-
-        assert order_id == "order-123"
+        assert await repo.get("order-123") is not None
 
 
 class TestProcurementService:
@@ -258,66 +200,3 @@ class TestProcurementService:
 
         assert await service.is_valid_order("order-456")
 
-    @pytest.mark.asyncio
-    async def test_get_or_create_credentials(self, service):
-        """Test getting or creating credentials for an order."""
-        # First create an active entitlement
-        event = ProcurementEvent(
-            event_id="event-123",
-            event_type=ProcurementEventType.ENTITLEMENT_ACTIVE,
-            provider_id="provider-123",
-            entitlement={"id": "order-456"},
-        )
-        await service.process_event(event)
-
-        credentials = await service.get_or_create_client_credentials("order-456")
-
-        assert credentials is not None
-        assert credentials.order_id == "order-456"
-
-
-class TestMarketplaceRouter:
-    """Tests for marketplace API endpoints."""
-
-    @pytest.fixture
-    def client(self):
-        """Create test client."""
-        app = create_app()
-        return TestClient(app)
-
-    def test_pubsub_push_endpoint(self, client):
-        """Test Pub/Sub push endpoint."""
-        event_data = {
-            "eventId": "event-123",
-            "eventType": "ACCOUNT_ACTIVE",
-            "providerId": "provider-123",
-            "account": {"id": "account-456"},
-        }
-        encoded_data = base64.b64encode(json.dumps(event_data).encode()).decode()
-
-        push_body = {
-            "message": {
-                "data": encoded_data,
-                "messageId": "msg-123",
-                "publishTime": "2024-01-01T00:00:00Z",
-            },
-        }
-
-        response = client.post("/marketplace/pubsub", json=push_body)
-
-        assert response.status_code == 200
-        assert response.json()["status"] == "ok"
-
-    def test_validate_order_not_found(self, client):
-        """Test order validation for nonexistent order."""
-        response = client.get("/marketplace/orders/nonexistent/validate")
-
-        assert response.status_code == 200
-        assert response.json()["valid"] is False
-
-    def test_validate_account_not_found(self, client):
-        """Test account validation for nonexistent account."""
-        response = client.get("/marketplace/accounts/nonexistent/validate")
-
-        assert response.status_code == 200
-        assert response.json()["valid"] is False

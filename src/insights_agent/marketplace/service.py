@@ -9,7 +9,6 @@ from insights_agent.config import get_settings
 from insights_agent.marketplace.models import (
     Account,
     AccountState,
-    ClientCredentials,
     Entitlement,
     EntitlementState,
     ProcurementEvent,
@@ -223,18 +222,6 @@ class ProcurementService:
                 provider_id=event.provider_id,
             )
             await self._entitlement_repo.create(entitlement)
-
-        # Pre-generate OAuth credentials for this order
-        credentials = await self._entitlement_repo.generate_client_credentials(
-            entitlement_id=event.entitlement.id,
-            account_id=entitlement.account_id,
-        )
-        if credentials:
-            logger.info(
-                "Generated OAuth credentials for order %s: client_id=%s",
-                event.entitlement.id,
-                credentials.client_id,
-            )
 
         logger.info("Entitlement activated: %s", event.entitlement.id)
 
@@ -566,44 +553,6 @@ class ProcurementService:
             True if valid, False otherwise.
         """
         return await self._entitlement_repo.is_valid(order_id)
-
-    async def get_or_create_client_credentials(
-        self,
-        order_id: str,
-    ) -> ClientCredentials | None:
-        """Get existing or create new client credentials for an order.
-
-        This is used by the DCR endpoint to return credentials.
-
-        Args:
-            order_id: The Order/Entitlement ID.
-
-        Returns:
-            ClientCredentials if order exists, None otherwise.
-        """
-        entitlement = await self._entitlement_repo.get(order_id)
-        if not entitlement:
-            return None
-
-        # If credentials already exist, we need to generate new ones
-        # (DCR should return the secret, but we only store the hash)
-        return await self._entitlement_repo.generate_client_credentials(
-            entitlement_id=order_id,
-            account_id=entitlement.account_id,
-        )
-
-    async def get_order_id_from_client_id(self, client_id: str) -> str | None:
-        """Get the Order ID associated with a client_id.
-
-        Used for usage metering.
-
-        Args:
-            client_id: The OAuth client ID.
-
-        Returns:
-            Order ID if found, None otherwise.
-        """
-        return await self._entitlement_repo.get_order_id_by_client_id(client_id)
 
 
 # Global service instance

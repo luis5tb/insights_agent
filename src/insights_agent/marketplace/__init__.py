@@ -4,6 +4,9 @@ This module handles Pub/Sub events from Google Cloud Marketplace for:
 - Account creation and management
 - Entitlement lifecycle (creation, activation, cancellation)
 - Order tracking for DCR and usage metering
+
+Marketplace endpoints are served by the marketplace-handler service.
+See insights_agent.marketplace_handler.router for the actual routing.
 """
 
 from insights_agent.marketplace.models import (
@@ -13,7 +16,6 @@ from insights_agent.marketplace.models import (
     EntitlementState,
     ProcurementEvent,
     ProcurementEventType,
-    PubSubMessage,
 )
 from insights_agent.marketplace.repository import (
     AccountRepository,
@@ -29,7 +31,6 @@ from insights_agent.marketplace.pubsub_handler import (
     PubSubHandler,
     get_pubsub_handler,
 )
-from insights_agent.marketplace.router import router as marketplace_router
 
 __all__ = [
     # Models
@@ -39,7 +40,6 @@ __all__ = [
     "EntitlementState",
     "ProcurementEvent",
     "ProcurementEventType",
-    "PubSubMessage",
     # Repository
     "AccountRepository",
     "EntitlementRepository",
@@ -51,6 +51,4 @@ __all__ = [
     # Pub/Sub Handler
     "PubSubHandler",
     "get_pubsub_handler",
-    # Router
-    "marketplace_router",
 ]

@@ -3,9 +3,7 @@
 Uses PostgreSQL via SQLAlchemy for persistence.
 """
 
-import hashlib
 import logging
-import secrets
 from datetime import datetime
 
 from sqlalchemy import select
@@ -19,7 +17,6 @@ from insights_agent.db import (
 from insights_agent.marketplace.models import (
     Account,
     AccountState,
-    ClientCredentials,
     Entitlement,
     EntitlementState,
 )
@@ -52,24 +49,6 @@ class AccountRepository:
             if model:
                 return self._model_to_entity(model)
             return None
-
-    async def get_by_provider(self, provider_id: str) -> list[Account]:
-        """Get all accounts for a provider.
-
-        Args:
-            provider_id: The provider ID.
-
-        Returns:
-            List of accounts.
-        """
-        async with get_session() as session:
-            result = await session.execute(
-                select(MarketplaceAccountModel).where(
-                    MarketplaceAccountModel.provider_id == provider_id
-                )
-            )
-            models = result.scalars().all()
-            return [self._model_to_entity(m) for m in models]
 
     async def create(self, account: Account) -> Account:
         """Create a new account.
@@ -117,40 +96,6 @@ class AccountRepository:
 
             logger.info("Updated account: %s (state=%s)", account.id, account.state)
             return self._model_to_entity(model)
-
-    async def delete(self, account_id: str) -> bool:
-        """Delete an account.
-
-        Args:
-            account_id: The account ID to delete.
-
-        Returns:
-            True if deleted, False if not found.
-        """
-        async with get_session() as session:
-            result = await session.execute(
-                select(MarketplaceAccountModel).where(
-                    MarketplaceAccountModel.id == account_id
-                )
-            )
-            model = result.scalar_one_or_none()
-            if model:
-                await session.delete(model)
-                logger.info("Deleted account: %s", account_id)
-                return True
-            return False
-
-    async def exists(self, account_id: str) -> bool:
-        """Check if an account exists.
-
-        Args:
-            account_id: The account ID.
-
-        Returns:
-            True if exists, False otherwise.
-        """
-        account = await self.get(account_id)
-        return account is not None
 
     async def is_valid(self, account_id: str) -> bool:
         """Check if an account is valid (exists and active).
@@ -201,24 +146,6 @@ class EntitlementRepository:
             if model:
                 return self._model_to_entity(model)
             return None
-
-    async def get_by_account(self, account_id: str) -> list[Entitlement]:
-        """Get all entitlements for an account.
-
-        Args:
-            account_id: The account ID.
-
-        Returns:
-            List of entitlements.
-        """
-        async with get_session() as session:
-            result = await session.execute(
-                select(MarketplaceEntitlementModel).where(
-                    MarketplaceEntitlementModel.account_id == account_id
-                )
-            )
-            models = result.scalars().all()
-            return [self._model_to_entity(m) for m in models]
 
     async def get_all_active(self) -> list[Entitlement]:
         """Get all active entitlements.
@@ -303,40 +230,6 @@ class EntitlementRepository:
                 entitlement.state,
             )
             return self._model_to_entity(model)
-
-    async def delete(self, entitlement_id: str) -> bool:
-        """Delete an entitlement.
-
-        Args:
-            entitlement_id: The entitlement ID to delete.
-
-        Returns:
-            True if deleted, False if not found.
-        """
-        async with get_session() as session:
-            result = await session.execute(
-                select(MarketplaceEntitlementModel).where(
-                    MarketplaceEntitlementModel.id == entitlement_id
-                )
-            )
-            model = result.scalar_one_or_none()
-            if model:
-                await session.delete(model)
-                logger.info("Deleted entitlement: %s", entitlement_id)
-                return True
-            return False
-
-    async def exists(self, entitlement_id: str) -> bool:
-        """Check if an entitlement exists.
-
-        Args:
-            entitlement_id: The entitlement ID.
-
-        Returns:
-            True if exists, False otherwise.
-        """
-        entitlement = await self.get(entitlement_id)
-        return entitlement is not None
 
     async def is_valid(self, entitlement_id: str) -> bool:
         """Check if an entitlement is valid (exists and active).
