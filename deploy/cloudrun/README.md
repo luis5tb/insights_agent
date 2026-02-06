@@ -662,6 +662,166 @@ gcloud run domain-mappings create \
 
 Follow the instructions to verify domain ownership and configure DNS.
 
+## Testing the Agent
+
+Once deployed, you can test the agent using a local proxy that handles Google Cloud Run authentication.
+
+### Test Agent Card
+
+Verify the agent is running and accessible:
+
+```bash
+# Get the agent URL
+AGENT_URL=$(gcloud run services describe insights-agent \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
+
+# Test agent card endpoint (requires authentication)
+curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  $AGENT_URL/.well-known/agent.json | jq .
+```
+
+### Test A2A Requests with Local Proxy
+
+The local proxy handles Google Cloud Run authentication, allowing you to test with just your Red Hat SSO token.
+
+**1. Start the local proxy:**
+
+```bash
+# Start proxy on localhost:8080
+gcloud run services proxy insights-agent \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --port=8080
+```
+
+This command will keep running in your terminal. The proxy authenticates all requests to Cloud Run using your current `gcloud` credentials.
+
+**2. Get a Red Hat SSO access token:**
+
+In a new terminal, use one of these methods:
+
+**Option A: Using `ocm` CLI (Easiest)**
+
+If you have the [ocm CLI](https://github.com/openshift-online/ocm-cli) installed:
+
+```bash
+# Login to OCM (if not already logged in)
+ocm login
+
+# Get access token
+export RED_HAT_TOKEN=$(ocm token)
+
+# Verify token is valid
+echo $RED_HAT_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq .
+```
+
+**Option B: Using OAuth Flow**
+
+Initiate the OAuth flow through the agent:
+
+```bash
+# Start OAuth flow (open this URL in your browser)
+echo "http://localhost:8080/oauth/authorize?state=test123"
+```
+
+After logging in to Red Hat SSO, you'll be redirected to a callback URL with a code parameter. Extract the code and exchange it for tokens:
+
+```bash
+# Exchange authorization code for access token
+curl -X POST http://localhost:8080/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=authorization_code" \
+  -d "code=YOUR_AUTHORIZATION_CODE" \
+  -d "redirect_uri=http://localhost:8080/oauth/callback"
+```
+
+Save the `access_token` from the response:
+
+```bash
+export RED_HAT_TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI..."
+```
+
+**3. Test the A2A endpoint:**
+
+```bash
+# Send a test message to the agent
+curl -X POST http://localhost:8080/ \
+  -H "Authorization: Bearer $RED_HAT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {
+        "role": "user",
+        "parts": [{"text": "What are the latest CVEs affecting my systems?"}]
+      }
+    ]
+  }' | jq .
+```
+
+**4. Test other endpoints:**
+
+```bash
+# Get user information
+curl http://localhost:8080/oauth/userinfo \
+  -H "Authorization: Bearer $RED_HAT_TOKEN" | jq .
+
+# Check health endpoint (no auth required)
+curl http://localhost:8080/health | jq .
+
+# Get usage statistics
+curl http://localhost:8080/usage | jq .
+```
+
+### Cleanup After Testing
+
+When you're done testing, clean up the local proxy:
+
+**1. Stop the proxy:**
+
+Press `Ctrl+C` in the terminal where the proxy is running.
+
+**2. Clean up port (if needed):**
+
+If the port is still in use:
+
+```bash
+# Find and kill process using port 8080
+lsof -ti:8080 | xargs kill -9
+
+# Or on systems without lsof
+fuser -k 8080/tcp
+```
+
+**Note:** The proxy doesn't create any cloud resources - it only runs locally on your machine. Stopping the proxy (Ctrl+C) is sufficient to clean up.
+
+### Testing Without Proxy (Direct Cloud Run Access)
+
+If you prefer to test without the proxy, you'll need to:
+
+1. **Allow unauthenticated access** (requires admin permissions):
+   ```bash
+   gcloud run services add-iam-policy-binding insights-agent \
+     --region=$GOOGLE_CLOUD_LOCATION \
+     --project=$GOOGLE_CLOUD_PROJECT \
+     --member="allUsers" \
+     --role="roles/run.invoker"
+   ```
+
+2. **Test directly** with the Cloud Run URL:
+   ```bash
+   # Get Red Hat SSO token (using ocm or OAuth flow)
+   export RED_HAT_TOKEN=$(ocm token)
+
+   curl -X POST $AGENT_URL/ \
+     -H "Authorization: Bearer $RED_HAT_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"messages": [{"role": "user", "parts": [{"text": "Hello"}]}]}'
+   ```
+
+**Security Note:** Allowing unauthenticated access makes the service publicly accessible. Only use this for development/testing environments, not production.
+
 ## Monitoring
 
 View metrics in Google Cloud Console:
