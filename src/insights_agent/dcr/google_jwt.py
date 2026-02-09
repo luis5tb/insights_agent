@@ -115,6 +115,54 @@ class GoogleJWTValidator:
         self._expected_audience = expected_audience or self._settings.agent_provider_url
         self._cert_cache = GoogleCertificateCache()
 
+    async def _decode_without_verification(
+        self,
+        software_statement: str,
+    ) -> GoogleJWTClaims | DCRError:
+        """Decode a software_statement JWT without signature or issuer verification.
+
+        Used in development mode (SKIP_JWT_VALIDATION=true) to allow testing
+        with any service account, not just Google's cloud-agentspace account.
+        """
+        logger.warning("Skipping JWT signature/issuer validation - development mode")
+        try:
+            claims = jwt.decode(
+                software_statement,
+                options={
+                    "verify_signature": False,
+                    "verify_exp": False,
+                    "verify_aud": False,
+                },
+                algorithms=["RS256"],
+            )
+        except DecodeError as e:
+            return DCRError(
+                error=DCRErrorCode.INVALID_SOFTWARE_STATEMENT,
+                error_description=f"Failed to decode JWT (dev mode): {e}",
+            )
+
+        google_claims = claims.get("google", {})
+        if not google_claims.get("order"):
+            return DCRError(
+                error=DCRErrorCode.INVALID_SOFTWARE_STATEMENT,
+                error_description="Missing google.order claim",
+            )
+
+        try:
+            jwt_claims = GoogleJWTClaims(**claims)
+        except Exception as e:
+            return DCRError(
+                error=DCRErrorCode.INVALID_SOFTWARE_STATEMENT,
+                error_description=f"Invalid claims format (dev mode): {e}",
+            )
+
+        logger.info(
+            "Dev mode: accepted software_statement for order %s (account: %s)",
+            jwt_claims.order_id,
+            jwt_claims.account_id,
+        )
+        return jwt_claims
+
     async def validate_software_statement(
         self,
         software_statement: str,
@@ -127,6 +175,9 @@ class GoogleJWTValidator:
         Returns:
             GoogleJWTClaims on success, DCRError on failure.
         """
+        if self._settings.skip_jwt_validation:
+            return await self._decode_without_verification(software_statement)
+
         try:
             # Decode header to get key ID
             unverified_header = jwt.get_unverified_header(software_statement)

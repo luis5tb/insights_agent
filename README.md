@@ -230,6 +230,8 @@ insights_agent/
 ├── Containerfile           # Agent container build (UBI 9)
 ├── Containerfile.marketplace-handler  # Handler container build
 ├── Makefile                # Development commands
+├── scripts/                # Testing and utility scripts
+│   └── test_dcr.py         # DCR endpoint test client
 ├── docs/                   # Documentation
 │   ├── architecture.md     # System architecture (two-service)
 │   ├── architecture-dcr.md # DCR and provisioning flows
@@ -498,6 +500,163 @@ curl -X POST http://localhost:8000/ \
 #### Development Mode (Skip Authentication)
 
 For development without real tokens, set `SKIP_JWT_VALIDATION: "true"` in the configmap. Any token will be accepted.
+
+### Testing DCR Locally
+
+The Dynamic Client Registration (DCR) flow can be tested locally without admin access to the production Red Hat SSO. There are two modes: **static credentials** (no Keycloak needed) and **real DCR** against a local Keycloak instance.
+
+Both modes require `SKIP_JWT_VALIDATION=true` on the marketplace handler so it accepts JWTs signed by your own GCP service account instead of Google's production `cloud-agentspace` account.
+
+#### Prerequisites
+
+1. A GCP service account with the IAM Credentials API enabled:
+   ```bash
+   gcloud services enable iamcredentials.googleapis.com
+
+   gcloud iam service-accounts create dcr-test \
+     --display-name "DCR test signer"
+
+   gcloud iam service-accounts add-iam-policy-binding \
+     dcr-test@<PROJECT>.iam.gserviceaccount.com \
+     --member="user:<YOUR_EMAIL>" \
+     --role="roles/iam.serviceAccountTokenCreator"
+   ```
+
+2. Python dependencies and authentication:
+   ```bash
+   pip install google-cloud-iam requests
+   gcloud auth application-default login
+   ```
+
+3. Generate a Fernet encryption key:
+   ```bash
+   python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+   ```
+
+#### Option A: Static Credentials (No Keycloak)
+
+This mode skips Keycloak entirely. The handler returns pre-configured credentials for every DCR request.
+
+1. Start the marketplace handler with:
+   ```bash
+   SKIP_JWT_VALIDATION=true \
+   DCR_ENABLED=false \
+   RED_HAT_SSO_CLIENT_ID=my-test-client \
+   RED_HAT_SSO_CLIENT_SECRET=my-test-secret \
+   DCR_ENCRYPTION_KEY=<your-fernet-key> \
+   DATABASE_URL=sqlite+aiosqlite:///./insights_agent.db \
+   AGENT_PROVIDER_URL=https://your-agent-domain.com \
+   python -m uvicorn insights_agent.marketplace.app:create_app --factory --host 0.0.0.0 --port 8001
+   ```
+
+2. Run the test script:
+   ```bash
+   export TEST_SERVICE_ACCOUNT=dcr-test@<PROJECT>.iam.gserviceaccount.com
+   python scripts/test_dcr.py
+   ```
+
+   The response will contain the static `my-test-client` / `my-test-secret` credentials.
+
+#### Option B: Real DCR with Local Keycloak
+
+This mode exercises the full DCR flow — real OAuth client creation in a locally-controlled Keycloak instance.
+
+1. **Start Keycloak in Podman:**
+   ```bash
+   podman run -d \
+     --name keycloak-test \
+     -p 8180:8080 \
+     -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+     -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+     quay.io/keycloak/keycloak:26.0 start-dev --http-port=8080
+   ```
+
+   Admin console will be available at http://localhost:8180/admin (admin / admin).
+
+2. **Get an admin token:**
+   ```bash
+   ADMIN_TOKEN=$(curl -s -X POST \
+     "http://localhost:8180/realms/master/protocol/openid-connect/token" \
+     -d "client_id=admin-cli" \
+     -d "username=admin" \
+     -d "password=admin" \
+     -d "grant_type=password" \
+     | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+   ```
+
+3. **Create a test realm:**
+   ```bash
+   curl -s -X POST "http://localhost:8180/admin/realms" \
+     -H "Authorization: Bearer $ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"realm": "test-realm", "enabled": true}'
+   ```
+
+4. **Generate an Initial Access Token (IAT) for DCR:**
+   ```bash
+   IAT=$(curl -s -X POST \
+     "http://localhost:8180/admin/realms/test-realm/clients-initial-access" \
+     -H "Authorization: Bearer $ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"count": 100, "expiration": 86400}' \
+     | python -c "import sys,json; print(json.load(sys.stdin)['token'])")
+   echo "Initial Access Token: $IAT"
+   ```
+
+5. **Start the marketplace handler:**
+   ```bash
+   SKIP_JWT_VALIDATION=true \
+   DCR_ENABLED=true \
+   RED_HAT_SSO_ISSUER=http://localhost:8180/realms/test-realm \
+   DCR_INITIAL_ACCESS_TOKEN=$IAT \
+   DCR_ENCRYPTION_KEY=<your-fernet-key> \
+   DATABASE_URL=sqlite+aiosqlite:///./insights_agent.db \
+   AGENT_PROVIDER_URL=https://your-agent-domain.com \
+   python -m uvicorn insights_agent.marketplace.app:create_app --factory --host 0.0.0.0 --port 8001
+   ```
+
+6. **Run the test script:**
+   ```bash
+   export TEST_SERVICE_ACCOUNT=dcr-test@<PROJECT>.iam.gserviceaccount.com
+   python scripts/test_dcr.py
+   ```
+
+   The handler will create a real OAuth client in your local Keycloak. You can verify it at http://localhost:8180/admin -> test-realm -> Clients.
+
+7. **You can also test Keycloak DCR directly** (bypassing the handler entirely):
+   ```bash
+   curl -s -X POST \
+     "http://localhost:8180/realms/test-realm/clients-registrations/openid-connect" \
+     -H "Authorization: Bearer $IAT" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "client_name": "gemini-order-test-123",
+       "redirect_uris": ["http://localhost:8000/oauth/callback"],
+       "grant_types": ["authorization_code", "refresh_token"],
+       "token_endpoint_auth_method": "client_secret_basic",
+       "application_type": "web"
+     }'
+   ```
+
+8. **Clean up:**
+   ```bash
+   podman stop keycloak-test && podman rm keycloak-test
+   ```
+
+#### Test Script Reference
+
+The test script at `scripts/test_dcr.py` is configurable via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TEST_SERVICE_ACCOUNT` | (required) | GCP service account email for signing JWTs |
+| `MARKETPLACE_HANDLER_URL` | `http://localhost:8001` | Marketplace handler base URL |
+| `PROVIDER_URL` | `https://your-agent-domain.com` | JWT audience (must match handler's `AGENT_PROVIDER_URL`) |
+| `TEST_ORDER_ID` | random UUID | Marketplace order ID |
+| `TEST_ACCOUNT_ID` | `test-procurement-account-001` | Procurement account ID |
+| `TEST_REDIRECT_URIS` | `https://gemini.google.com/callback` | Comma-separated redirect URIs |
+
+The script sends two identical requests to verify idempotency — per Google's DCR spec, the handler must return the same `client_id`/`client_secret` for the same order.
 
 ### Pod Services
 
