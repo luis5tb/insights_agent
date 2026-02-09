@@ -346,12 +346,6 @@ src/insights_agent/
 │   ├── router.py                  # Marketplace endpoints (used by handler)
 │   └── pubsub.py                  # Pub/Sub event handling
 │
-├── marketplace_handler/           # SEPARATE SERVICE (port 8001)
-│   ├── __init__.py                # Module exports
-│   ├── __main__.py                # Entry point: python -m insights_agent.marketplace_handler
-│   ├── app.py                     # FastAPI app factory
-│   └── router.py                  # Hybrid /dcr endpoint (Pub/Sub + DCR)
-│
 ├── api/                           # AGENT SERVICE (port 8000)
 │   ├── app.py                     # FastAPI app factory
 │   └── a2a/
@@ -366,7 +360,7 @@ src/insights_agent/
 
 | Service | Entry Point | Port | Container |
 |---------|-------------|------|-----------|
-| Marketplace Handler | `python -m insights_agent.marketplace_handler` | 8001 | `marketplace-handler` |
+| Marketplace Handler | `python -m insights_agent.marketplace` | 8001 | `marketplace-handler` |
 | Insights Agent | `python -m insights_agent` | 8000 | `insights-agent` |
 
 ---

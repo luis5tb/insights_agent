@@ -34,7 +34,7 @@ def main():
     logging.info(f"Starting Marketplace Handler on {host}:{port}")
 
     uvicorn.run(
-        "insights_agent.marketplace_handler:create_app",
+        "insights_agent.marketplace:create_app",
         host=host,
         port=port,
         factory=True,

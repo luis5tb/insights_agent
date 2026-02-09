@@ -3,8 +3,8 @@
 This module implements RFC 7591 Dynamic Client Registration with Google's
 software_statement JWT verification for Gemini Enterprise integration.
 
-DCR endpoints are served by the marketplace-handler service.
-See insights_agent.marketplace_handler.router for the actual routing.
+DCR endpoints are served by the marketplace handler service.
+See insights_agent.marketplace.router for the actual routing.
 """
 
 from insights_agent.dcr.models import (

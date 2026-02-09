@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from insights_agent.config import get_settings
-from insights_agent.marketplace_handler.router import router as handler_router
+from insights_agent.marketplace.router import router as handler_router
 
 logger = logging.getLogger(__name__)
 

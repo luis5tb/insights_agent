@@ -1,14 +1,14 @@
 """Google Cloud Marketplace Procurement integration module.
 
-This module handles Pub/Sub events from Google Cloud Marketplace for:
-- Account creation and management
-- Entitlement lifecycle (creation, activation, cancellation)
-- Order tracking for DCR and usage metering
+This module handles:
+- Pub/Sub events from Google Cloud Marketplace (account/entitlement lifecycle)
+- DCR requests from Gemini Enterprise (OAuth client registration)
+- Order tracking for usage metering
 
-Marketplace endpoints are served by the marketplace-handler service.
-See insights_agent.marketplace_handler.router for the actual routing.
+The marketplace handler service is run via: python -m insights_agent.marketplace
 """
 
+from insights_agent.marketplace.app import create_app
 from insights_agent.marketplace.models import (
     Account,
     AccountState,
@@ -27,12 +27,10 @@ from insights_agent.marketplace.service import (
     ProcurementService,
     get_procurement_service,
 )
-from insights_agent.marketplace.pubsub_handler import (
-    PubSubHandler,
-    get_pubsub_handler,
-)
 
 __all__ = [
+    # App
+    "create_app",
     # Models
     "Account",
     "AccountState",
@@ -48,7 +46,4 @@ __all__ = [
     # Service
     "ProcurementService",
     "get_procurement_service",
-    # Pub/Sub Handler
-    "PubSubHandler",
-    "get_pubsub_handler",
 ]

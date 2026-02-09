@@ -6,7 +6,7 @@ This is the A2A agent service that handles:
 - OAuth user authentication flow
 
 Note: DCR and Marketplace provisioning are handled by the separate
-marketplace-handler service. See insights_agent.marketplace_handler.
+marketplace-handler service. See insights_agent.marketplace.
 """
 
 import logging

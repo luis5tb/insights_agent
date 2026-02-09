@@ -259,12 +259,11 @@ insights_agent/
         ├── dcr/                # Dynamic Client Registration
         │   ├── keycloak_client.py  # Red Hat SSO DCR client
         │   └── service.py          # DCR business logic
-        ├── marketplace/        # Google Marketplace integration
+        ├── marketplace/        # Google Marketplace integration & handler service
+        │   ├── app.py              # Handler FastAPI app (port 8001)
+        │   ├── router.py           # Hybrid /dcr endpoint
         │   ├── service.py          # Procurement API
         │   └── repository.py       # PostgreSQL persistence
-        ├── marketplace_handler/  # Separate handler service
-        │   ├── app.py              # FastAPI app (port 8001)
-        │   └── router.py           # Hybrid /dcr endpoint
         ├── metering/           # Usage tracking
         └── tools/              # MCP integration
 ```

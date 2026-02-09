@@ -370,7 +370,7 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 
 ```bash
 # Start the marketplace handler first (port 8001)
-python -m insights_agent.marketplace_handler
+python -m insights_agent.marketplace
 
 # In another terminal, start the agent (port 8000)
 python -m insights_agent.main

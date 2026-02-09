@@ -278,11 +278,9 @@ src/insights_agent/
 │   ├── repository.py          # PostgreSQL repositories
 │   ├── router.py              # Marketplace endpoints
 │   └── service.py             # Procurement API integration
-├── marketplace_handler/        # Separate Handler Service
-│   ├── __init__.py            # Module exports
-│   ├── __main__.py            # Entry point (port 8001)
-│   ├── app.py                 # FastAPI app factory (Handler)
-│   └── router.py              # Hybrid /dcr endpoint
+│   ├── app.py                 # Handler FastAPI app factory (port 8001)
+│   ├── router.py              # Hybrid /dcr endpoint
+│   └── __main__.py            # Entry point: python -m insights_agent.marketplace
 ├── metering/                   # Usage tracking
 │   └── tracker.py             # Usage metering
 └── tools/                      # MCP integration
