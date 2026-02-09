@@ -98,6 +98,7 @@ dmypy.json
 *.pem
 *.key
 service-account*.json
+dcr-test-key.json
 credentials.json
 vertex-credentials.json
 my-secrets.yaml

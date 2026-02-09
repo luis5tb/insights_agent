@@ -109,11 +109,34 @@ mode (DCR_ENABLED=false) works without Keycloak.
          -p 8180:8080 \
          -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
          -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+         -e KC_HTTP_ENABLED=true \
+         -e KC_HOSTNAME=host.containers.internal \
+         -e KC_HOSTNAME_PORT=8180 \
+         -e KC_HOSTNAME_STRICT=true \
          quay.io/keycloak/keycloak:26.0 start-dev --http-port=8080
 
-   Admin console: http://localhost:8180/admin  (admin / admin)
+   IMPORTANT: KC_HOSTNAME_STRICT=true with KC_HOSTNAME=host.containers.internal
+   ensures Keycloak uses a consistent issuer for all tokens regardless of how
+   requests arrive (localhost vs host.containers.internal).  Without this, the
+   IAT generated via localhost would have a mismatched issuer when the handler
+   presents it via host.containers.internal, causing "Failed decode token".
 
-2. Get an admin token:
+2. Disable SSL and create the test realm:
+
+   Since KC_HOSTNAME_STRICT=true treats localhost as external, you must
+   disable SSL via kcadm.sh from inside the container:
+
+       podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
+         config credentials --server http://localhost:8080 \
+         --realm master --user admin --password admin
+
+       podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
+         update realms/master -s sslRequired=NONE
+
+       podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
+         create realms -s realm=test-realm -s enabled=true -s sslRequired=NONE
+
+3. Get an admin token:
 
        ADMIN_TOKEN=$(curl -s -X POST \
          "http://localhost:8180/realms/master/protocol/openid-connect/token" \
@@ -122,13 +145,6 @@ mode (DCR_ENABLED=false) works without Keycloak.
          -d "password=admin" \
          -d "grant_type=password" \
          | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-
-3. Create a test realm:
-
-       curl -s -X POST "http://localhost:8180/admin/realms" \
-         -H "Authorization: Bearer $ADMIN_TOKEN" \
-         -H "Content-Type: application/json" \
-         -d '{"realm": "test-realm", "enabled": true}'
 
 4. Generate an Initial Access Token (IAT) for DCR:
 
@@ -144,7 +160,7 @@ mode (DCR_ENABLED=false) works without Keycloak.
 
        DCR_ENABLED=true
        SKIP_JWT_VALIDATION=true
-       RED_HAT_SSO_ISSUER=http://localhost:8180/realms/test-realm
+       RED_HAT_SSO_ISSUER=http://host.containers.internal:8180/realms/test-realm
        DCR_INITIAL_ACCESS_TOKEN=<the IAT from step 4>
 
 6. Run this script.  The handler will create a real OAuth client in

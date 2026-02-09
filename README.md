@@ -610,12 +610,43 @@ This mode exercises the full DCR flow -- real OAuth client creation in a locally
      -p 8180:8080 \
      -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
      -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+     -e KC_HTTP_ENABLED=true \
+     -e KC_HOSTNAME=host.containers.internal \
+     -e KC_HOSTNAME_PORT=8180 \
+     -e KC_HOSTNAME_STRICT=true \
      quay.io/keycloak/keycloak:26.0 start-dev --http-port=8080
    ```
 
-   Admin console will be available at http://localhost:8180/admin (admin / admin).
+   > **Why these hostname settings?** The marketplace handler container reaches
+   > Keycloak via `host.containers.internal:8180`, but you interact with Keycloak
+   > from the host via `localhost:8180`. With `KC_HOSTNAME_STRICT=true`, Keycloak
+   > uses a consistent issuer (`http://host.containers.internal:8180/...`) for all
+   > tokens regardless of which hostname the request arrives on. Without this, the
+   > IAT (Initial Access Token) would have a `localhost` issuer that mismatches
+   > when the handler presents it via `host.containers.internal`, causing
+   > "Failed decode token" errors.
 
-2. **Get an admin token:**
+2. **Disable SSL requirement and create the test realm:**
+
+   Since `KC_HOSTNAME_STRICT=true` treats `localhost` requests as external,
+   you must disable the SSL requirement via `kcadm.sh` from inside the container:
+
+   ```bash
+   # Authenticate kcadm.sh (uses internal port 8080)
+   podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
+     config credentials --server http://localhost:8080 \
+     --realm master --user admin --password admin
+
+   # Disable SSL on master realm
+   podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
+     update realms/master -s sslRequired=NONE
+
+   # Create test-realm with SSL disabled
+   podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
+     create realms -s realm=test-realm -s enabled=true -s sslRequired=NONE
+   ```
+
+3. **Get an admin token:**
    ```bash
    ADMIN_TOKEN=$(curl -s -X POST \
      "http://localhost:8180/realms/master/protocol/openid-connect/token" \
@@ -624,14 +655,6 @@ This mode exercises the full DCR flow -- real OAuth client creation in a locally
      -d "password=admin" \
      -d "grant_type=password" \
      | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-   ```
-
-3. **Create a test realm:**
-   ```bash
-   curl -s -X POST "http://localhost:8180/admin/realms" \
-     -H "Authorization: Bearer $ADMIN_TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"realm": "test-realm", "enabled": true}'
    ```
 
 4. **Generate an Initial Access Token (IAT) for DCR:**
