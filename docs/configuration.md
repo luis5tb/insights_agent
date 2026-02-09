@@ -177,7 +177,7 @@ DCR_ENCRYPTION_KEY=your-generated-fernet-key
 DCR_CLIENT_NAME_PREFIX=gemini-order-
 ```
 
-See [DCR Architecture](architecture-dcr.md) for detailed information on the DCR flow.
+See [Authentication - DCR](authentication.md#dynamic-client-registration-dcr) for detailed information on the DCR flow.
 
 ### Rate Limiting
 

@@ -74,89 +74,12 @@ The system uses a **two-service architecture** to handle marketplace integration
 
 ## Dynamic Client Registration (DCR)
 
-DCR allows Marketplace customers to automatically register as OAuth clients. The system uses a **two-flow architecture**:
-
-### Flow Overview
-
-```
-Flow 1: Procurement (Async via Pub/Sub)
-──────────────────────────────────────
-1. Customer purchases from Google Cloud Marketplace
-2. Marketplace sends Pub/Sub event to Handler /dcr endpoint
-3. Handler approves account/entitlement via Google Procurement API
-4. Handler stores order in PostgreSQL database
-
-Flow 2: Registration (Sync via software_statement JWT)
-──────────────────────────────────────────────────────
-1. Admin configures agent in Gemini Enterprise
-2. Gemini sends POST /dcr with software_statement JWT
-3. Handler validates Google's JWT signature
-4. **CRITICAL: Handler verifies order_id exists in database** (security check)
-5. Handler creates OAuth client via Red Hat SSO DCR
-6. Handler returns client_id, client_secret to Gemini
-```
-
-### Security: Order ID Validation
-
-The order ID validation in step 4 is **critical for security**:
-
-- The DCR JWT is validly signed by Google for **any** order
-- Without checking our database, anyone with a valid Google Marketplace JWT (even for a different product) could register a client
-- Our database check ensures we only register clients for orders we received notification for
-
-### Hybrid /dcr Endpoint
-
-The Marketplace Handler exposes a single `/dcr` endpoint that handles both flows:
+DCR allows Marketplace customers to automatically register as OAuth clients. The Marketplace Handler exposes a single `/dcr` endpoint that handles both procurement events and DCR requests:
 
 | Request Type | Content | Handler Action |
 |-------------|---------|----------------|
 | Pub/Sub Event | `{"message": {"data": "..."}}` | Approve account/entitlement |
 | DCR Request | `{"software_statement": "..."}` | Create OAuth client |
-
-### DCR Endpoint
-
-**POST /dcr** (on Marketplace Handler, port 8001)
-
-Register a new OAuth client via Google's software_statement JWT.
-
-**Request:**
-
-```json
-{
-  "software_statement": "eyJhbGciOiJSUzI1NiIsImtpZCI6Ii4uLiJ9..."
-}
-```
-
-The `software_statement` JWT contains:
-
-| Claim | Description |
-|-------|-------------|
-| `iss` | Google's certificate URL |
-| `aud` | Agent's provider URL |
-| `sub` | Procurement Account ID |
-| `google.order` | Marketplace Order ID (validated against database) |
-| `auth_app_redirect_uris` | Redirect URIs for OAuth flow |
-
-**Response (Success):**
-
-```json
-{
-  "client_id": "client_224a96f9-5b79-4b94-a8ea-c3bc3976a8e0",
-  "client_secret": "generated-secret-here",
-  "client_secret_expires_at": 0
-}
-```
-
-**Response (Error):**
-
-```json
-{
-  "error": "unapproved_software_statement",
-  "error_description": "Order not found in database"
-}
-```
-
-**Important**: Per Google's specification, the same `client_id` and `client_secret` are returned for repeat requests with the same order ID. This allows Gemini Enterprise to invoke DCR multiple times for the same order.
 
 ### AgentCard DCR Extension
 
@@ -164,19 +87,23 @@ The AgentCard (served by the Agent on port 8000) advertises DCR support and poin
 
 ```json
 {
-  "name": "insights-agent",
-  "extensions": {
-    "geminiEnterprise": {
-      "ssoUrl": "https://handler.example.com/dcr",
-      "supportedAuthMethods": ["client_secret_basic"],
-      "supportedGrantTypes": ["authorization_code", "refresh_token"],
-      "supportedResponseTypes": ["code"]
-    }
+  "capabilities": {
+    "extensions": [
+      {
+        "uri": "urn:google:agent:dcr",
+        "description": "Dynamic Client Registration for OAuth 2.0",
+        "params": {
+          "endpoint": "https://handler.example.com/oauth/register",
+          "alternativeEndpoint": "https://handler.example.com/dcr",
+          "supportedGrantTypes": ["authorization_code", "refresh_token"]
+        }
+      }
+    ]
   }
 }
 ```
 
-See [DCR Architecture](architecture-dcr.md) for detailed flow diagrams and security considerations.
+For the complete DCR flow, JWT validation, Keycloak integration, security considerations, and local testing instructions, see [Authentication - DCR](authentication.md#dynamic-client-registration-dcr).
 
 ## Procurement Integration
 
@@ -188,12 +115,22 @@ Marketplace sends procurement events via Pub/Sub:
 
 | Event | Description |
 |-------|-------------|
+| `ACCOUNT_CREATION_REQUESTED` | New customer account |
+| `ACCOUNT_ACTIVE` | Account approved and active |
+| `ACCOUNT_DELETED` | Account deleted |
 | `ENTITLEMENT_CREATION_REQUESTED` | New subscription request |
 | `ENTITLEMENT_ACTIVE` | Subscription activated |
+| `ENTITLEMENT_RENEWED` | Subscription renewed |
+| `ENTITLEMENT_OFFER_ACCEPTED` | Offer auto-accepted |
 | `ENTITLEMENT_PLAN_CHANGE_REQUESTED` | Plan upgrade/downgrade |
-| `ENTITLEMENT_CANCELLED` | Subscription canceled |
+| `ENTITLEMENT_PLAN_CHANGED` | Plan change completed |
+| `ENTITLEMENT_PLAN_CHANGE_CANCELLED` | Plan change cancelled |
 | `ENTITLEMENT_PENDING_CANCELLATION` | Pending cancellation |
+| `ENTITLEMENT_CANCELLATION_REVERTED` | Cancellation reverted |
+| `ENTITLEMENT_CANCELLING` | Cancellation in progress |
+| `ENTITLEMENT_CANCELLED` | Subscription cancelled |
 | `ENTITLEMENT_DELETED` | Subscription deleted |
+| `ENTITLEMENT_OFFER_ENDED` | Offer period ended |
 
 **Message Format:**
 
@@ -341,7 +278,7 @@ gcloud pubsub topics create marketplace-entitlements
 # Create push subscription to your service
 gcloud pubsub subscriptions create marketplace-entitlements-sub \
   --topic=marketplace-entitlements \
-  --push-endpoint=https://your-agent.run.app/webhooks/procurement
+  --push-endpoint=https://your-marketplace-handler.run.app/dcr
 ```
 
 ### 3. Configure Service Control

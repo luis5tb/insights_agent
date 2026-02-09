@@ -248,14 +248,14 @@ This flow handles actual user interactions with the agent:
 src/insights_agent/
 ├── api/                        # Agent API layer
 │   ├── app.py                 # FastAPI application factory (Agent)
-│   ├── a2a/                   # A2A protocol
-│   │   ├── router.py          # A2A JSON-RPC endpoints
-│   │   └── agent_card.py      # AgentCard builder
-│   └── models.py              # API request/response models
+│   └── a2a/                   # A2A protocol
+│       ├── router.py          # A2A JSON-RPC endpoints
+│       └── agent_card.py      # AgentCard builder
 ├── auth/                       # Authentication (shared)
 │   ├── jwt.py                 # JWT validation and JWKS
 │   ├── oauth.py               # OAuth client
 │   ├── router.py              # OAuth endpoints (callback)
+│   ├── middleware.py           # Auth middleware
 │   ├── dependencies.py        # FastAPI dependencies
 │   └── models.py              # Auth data models
 ├── config/                     # Configuration (shared)
@@ -264,27 +264,24 @@ src/insights_agent/
 │   └── agent.py               # ADK agent definition
 ├── db/                         # Database (shared)
 │   ├── base.py                # SQLAlchemy engine and Base
-│   └── models.py              # ORM models
+│   └── models.py              # ORM models (accounts, entitlements, DCR clients, usage)
 ├── dcr/                        # Dynamic Client Registration
 │   ├── google_jwt.py          # Google JWT validation
 │   ├── keycloak_client.py     # Keycloak DCR API client
 │   ├── models.py              # DCR Pydantic models
 │   ├── repository.py          # PostgreSQL repository
-│   ├── router.py              # DCR endpoints
 │   └── service.py             # DCR business logic
-├── marketplace/                # Marketplace integration
-│   ├── models.py              # Marketplace Pydantic models
-│   ├── pubsub.py              # Pub/Sub event handling
-│   ├── repository.py          # PostgreSQL repositories
-│   ├── router.py              # Marketplace endpoints
-│   └── service.py             # Procurement API integration
+├── marketplace/                # Marketplace Handler service
 │   ├── app.py                 # Handler FastAPI app factory (port 8001)
-│   ├── router.py              # Hybrid /dcr endpoint
+│   ├── router.py              # Hybrid /dcr endpoint (Pub/Sub + DCR)
+│   ├── models.py              # Marketplace Pydantic models
+│   ├── repository.py          # PostgreSQL repositories
+│   ├── service.py             # Procurement API integration
 │   └── __main__.py            # Entry point: python -m insights_agent.marketplace
-├── metering/                   # Usage tracking
-│   └── tracker.py             # Usage metering
 └── tools/                      # MCP integration
     ├── mcp_config.py          # MCP server configuration
+    ├── mcp_headers.py         # MCP auth headers
+    ├── insights_tools.py      # Insights tool wrappers
     └── skills.py              # Agent skills definition
 ```
 
@@ -379,3 +376,80 @@ Authentication is enforced at the **application layer** via OAuth middleware.
 - CORS configured for allowed origins
 - Rate limiting prevents abuse
 - Pub/Sub verification via message signature
+
+## Database Schema
+
+The system uses PostgreSQL for persistence. For production deployments, the marketplace database (shared by both services) is separate from the session database (agent only).
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     Marketplace Database (Shared)                            │
+│                                                                              │
+│  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐    │
+│  │ marketplace_       │  │ marketplace_       │  │ dcr_clients        │    │
+│  │ accounts           │  │ entitlements       │  │                    │    │
+│  │ - id               │  │ - id (order_id)    │  │ - client_id        │    │
+│  │ - state            │  │ - account_id       │  │ - client_secret    │    │
+│  │ - provider_id      │  │ - state            │  │ - order_id         │    │
+│  └────────────────────┘  └────────────────────┘  └────────────────────┘    │
+│                                                                              │
+│  ┌────────────────────┐                                                     │
+│  │ usage_records      │                                                     │
+│  │ - order_id         │                                                     │
+│  │ - tokens           │                                                     │
+│  │ - reported         │                                                     │
+│  └────────────────────┘                                                     │
+│                                                                              │
+│  Access: Marketplace Handler (read/write), Agent (read-only for validation) │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     Session Database (Agent Only)                            │
+│                                                                              │
+│  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐    │
+│  │ sessions           │  │ events             │  │ artifacts          │    │
+│  │ - session_id       │  │ - event_id         │  │ - artifact_id      │    │
+│  │ - user_id          │  │ - session_id       │  │ - session_id       │    │
+│  │ - state            │  │ - content          │  │ - content          │    │
+│  └────────────────────┘  └────────────────────┘  └────────────────────┘    │
+│                                                                              │
+│  Access: Agent only (read/write)                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Variable | Service | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | Both | Marketplace database (accounts, orders, DCR clients) |
+| `SESSION_DATABASE_URL` | Agent | Session database (ADK sessions). If empty, uses `DATABASE_URL` |
+
+## Architecture Decision Records
+
+### ADR-1: Real DCR with Red Hat SSO (Keycloak)
+
+**Status**: Accepted
+
+**Context**: Google Cloud Marketplace requires agents to implement DCR (RFC 7591) to create OAuth client credentials for each marketplace order. Options considered: (1) return tracking credentials without creating real OAuth clients, or (2) create actual OAuth clients in Red Hat SSO via its DCR API.
+
+**Decision**: Implement real DCR with Red Hat SSO (Keycloak). Each order gets a real, functioning OAuth client with proper OAuth 2.0 flow and per-order isolation.
+
+**Consequences**: Requires DCR to be enabled on the Red Hat SSO realm and an Initial Access Token from the admin. More complex setup but more robust architecture.
+
+### ADR-2: PostgreSQL for Persistence
+
+**Status**: Accepted
+
+**Context**: Marketplace accounts, entitlements, DCR clients, and usage records need durable storage that survives container restarts and supports horizontal scaling.
+
+**Decision**: Use PostgreSQL with SQLAlchemy async for all persistence.
+
+**Consequences**: Adds SQLAlchemy and asyncpg dependencies. Enables horizontal scaling (multiple instances share state) and provides durability and auditability.
+
+### ADR-3: Configurable DCR Mode
+
+**Status**: Accepted
+
+**Context**: Not all deployments have DCR enabled on Red Hat SSO, and development/testing environments may not need real DCR.
+
+**Decision**: Make DCR mode configurable via `DCR_ENABLED`. When `true` (default), real OAuth clients are created in Keycloak. When `false`, static credentials from environment variables are returned.
+
+**Consequences**: Two code paths to maintain. Clear documentation needed for each mode. See [Authentication](authentication.md#dynamic-client-registration-dcr) for details.

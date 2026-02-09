@@ -4,7 +4,171 @@ This document describes the authentication mechanisms used by the Insights Agent
 
 ## Overview
 
-The Insights Agent uses OAuth 2.0 with Red Hat SSO (sso.redhat.com) as the identity provider. This enables secure authentication for Red Hat customers accessing the agent.
+The system uses four distinct authentication flows:
+
+1. **Dynamic Client Registration (DCR)** -- Handler creates per-order OAuth clients in Red Hat SSO
+2. **OAuth 2.0 Authorization Code** -- Users authenticate via Red Hat SSO to obtain access tokens
+3. **JWT Token Validation** -- Agent validates access tokens on every protected A2A request
+4. **MCP Service Account** -- Agent passes Lightspeed credentials to the MCP sidecar, which obtains its own OAuth2 token from sso.redhat.com to call console.redhat.com APIs
+
+## Authentication Architecture
+
+```
+ Google Cloud Marketplace                  End User / Gemini
+ (Gemini Enterprise)                       (Client App)
+   |                  |                          |
+   | 1. Pub/Sub       | 2. DCR Request           | 5. GET /oauth/authorize
+   |    event          |    (software_statement)  |
+   v                  v                          v
++------------------------------------------------------+    +---------------------------+
+|            Marketplace Handler (8001)                 |    |   Insights Agent (8000)   |
+|                                                       |    |                           |
+|  +--------------------------------------------------+ |    | +-------+  +-----------+  |
+|  |             Hybrid /dcr Endpoint                  | |    | | Agent |  | OAuth     |  |
+|  |                                                   | |    | | Card  |  | Endpoints |  |
+|  |  Pub/Sub path:         DCR path:                  | |    | +-------+  +-----+-----+  |
+|  |  - Decode msg          - Validate Google JWT  [3] | |    |                  |         |
+|  |  - Approve via         - Verify order in DB       | |    |  6. Redirect     |         |
+|  |    Procurement API     - Create OAuth client  [4] | |    |     to SSO       |         |
+|  |  - Store account/      - Return client_id +       | |    |                  v         |
+|  |    entitlement           client_secret            | |    |        +---------+------+  |
+|  +---+--------------------+----------+---------------+ |    |        | 7. Exchange    |  |
+|      |                    |          |                  |    |        |    code for    |  |
+|      v                    |          v                  |    |        |    tokens      |  |
+|  +----------+             |   +-------------+           |    |        +--------+------+  |
+|  |PostgreSQL|             |   | Red Hat SSO |           |    |                 |         |
+|  |(accounts,|             |   | (Keycloak)  |           |    | 8. Validate JWT |         |
+|  | orders,  |             |   | DCR endpoint|           |    |    on every     |         |
+|  | dcr      |             |   +-------------+           |    |    A2A request  |         |
+|  | clients) |             |          ^                  |    |    (JWKS cache) |         |
+|  +----------+             |          |                  |    |                 v         |
++------------------------------------------------------+    |        +---------+------+  |
+                            |          |                      |        | A2A Endpoint   |  |
+                            v          |                      |        | POST /         |  |
+                   +----------------+  |                      |        | (authenticated)|  |
+                   | 3. Fetch       |  |                      |        +--------+-------+  |
+                   |    Google      |  |                      |                 |          |
+                   |    X.509       |  |                      |                 v          |
+                   |    certs       |  |                      |  +-----------------------------+
+                   +----------------+  |                      |  |  9. MCP Tool Calls          |
+                                       |                      |  |     lightspeed-client-id     |
+                          +------------+                      |  |     lightspeed-client-secret |
+                          |                                   |  +-------------+---------------+
+                          |  Red Hat SSO (sso.redhat.com)     |                |               |
+                          |  +-----------------------------+  |                v               |
+                          +->| - OIDC / OAuth2 provider    |  |  +----------------------------+|
+                             | - JWKS keys for validation  |<----| MCP Sidecar (8081)         ||
+                             | - DCR endpoint              |  |  | 10. OAuth2 token from SSO  ||
+                             +-----------------------------+  |  |     (Lightspeed SA creds)  ||
+                                                              |  +-------------+--------------+|
+                                                              |                |               |
+                                                              +---------------------------+---+
+                                                                               |
+                                                                               v
+                                                                  +------------------------+
+                                                                  | console.redhat.com     |
+                                                                  | 11. API calls with     |
+                                                                  |     Bearer token       |
+                                                                  | (Advisor, Inventory,   |
+                                                                  |  Vulnerability, Patch) |
+                                                                  +------------------------+
+```
+
+**Flow summary:**
+
+| Step | Direction | Description |
+|------|-----------|-------------|
+| 1 | Google -> Handler | Pub/Sub procurement event (account/entitlement approval) |
+| 2 | Google -> Handler | DCR request with `software_statement` JWT |
+| 3 | Handler -> Google | Fetch X.509 certificates to validate JWT signature |
+| 4 | Handler -> Red Hat SSO | Create OAuth client via Keycloak DCR endpoint |
+| 5 | User -> Agent | Initiate OAuth authorization flow |
+| 6-7 | Agent <-> Red Hat SSO | Redirect to SSO, exchange authorization code for tokens |
+| 8 | Agent | Validate JWT on every A2A request (JWKS fetched from SSO) |
+| 9 | Agent -> MCP Sidecar | Tool call with Lightspeed credentials in headers |
+| 10 | MCP Sidecar -> Red Hat SSO | Obtain OAuth2 token using Lightspeed service account |
+| 11 | MCP Sidecar -> console.redhat.com | Call Insights APIs with Bearer token |
+
+## Dynamic Client Registration (DCR)
+
+DCR is handled by the **Marketplace Handler** service (port 8001). It creates per-order OAuth clients in Red Hat SSO so that each marketplace customer gets isolated credentials.
+
+### How DCR Works
+
+1. Admin configures the agent in Gemini Enterprise
+2. Gemini sends `POST /dcr` to the Handler with a `software_statement` JWT signed by Google
+3. Handler validates the JWT:
+   - Fetches Google's X.509 certificates from the issuer URL
+   - Verifies RS256 signature, expiration, and audience
+   - Extracts `google.order` (order ID) and `sub` (account ID)
+4. Handler verifies the order exists in the marketplace database (security check)
+5. Handler calls Red Hat SSO's DCR endpoint to create an OAuth client
+6. Handler stores the encrypted client credentials in PostgreSQL
+7. Handler returns `{client_id, client_secret, client_secret_expires_at: 0}` to Gemini
+
+For repeat requests with the same order ID, the same credentials are returned (idempotent).
+
+### Software Statement JWT Claims
+
+The `software_statement` JWT from Google contains:
+
+| Claim | Description |
+|-------|-------------|
+| `iss` | Google certificate URL (for signature verification) |
+| `aud` | Agent's provider URL (`AGENT_PROVIDER_URL`) |
+| `sub` | Procurement Account ID |
+| `google.order` | Marketplace Order ID (validated against database) |
+| `auth_app_redirect_uris` | Redirect URIs for the OAuth client |
+| `iat` / `exp` | Issued-at and expiration timestamps |
+
+### DCR Modes
+
+| Mode | Setting | Behavior |
+|------|---------|----------|
+| **Real DCR** | `DCR_ENABLED=true` (default) | Creates actual OAuth clients in Red Hat SSO via Keycloak DCR |
+| **Static credentials** | `DCR_ENABLED=false` | Returns `RED_HAT_SSO_CLIENT_ID` / `RED_HAT_SSO_CLIENT_SECRET` for all requests |
+
+Real DCR requires a `DCR_INITIAL_ACCESS_TOKEN` from the Red Hat SSO admin. Static mode is suitable for development or when using a pre-registered OAuth client.
+
+### DCR Configuration
+
+```bash
+# Real DCR mode
+DCR_ENABLED=true
+DCR_INITIAL_ACCESS_TOKEN="<token-from-keycloak-admin>"
+DCR_CLIENT_NAME_PREFIX="gemini-order-"
+DCR_ENCRYPTION_KEY="<fernet-key>"   # Encrypts stored client secrets
+
+# Red Hat SSO -- DCR endpoint derived as {issuer}/clients-registrations/openid-connect
+RED_HAT_SSO_ISSUER="https://sso.redhat.com/auth/realms/redhat-external"
+```
+
+### Testing DCR Locally
+
+For local testing without admin access to the production Red Hat SSO, see the [Testing DCR Locally](../README.md#testing-dcr-locally) section in the README. It covers:
+
+- **Static credentials mode** -- no Keycloak needed
+- **Local Keycloak in Podman** -- full DCR flow against a local instance
+
+A test script is available at `scripts/test_dcr.py` that signs a software_statement JWT with a GCP service account you control. When the handler runs with `SKIP_JWT_VALIDATION=true`, it accepts JWTs from any service account (not just Google's production account).
+
+### Security Considerations
+
+- **Order ID validation**: The handler verifies the order exists in the database before creating a client. Without this check, any valid Google JWT (even for a different product) could register a client.
+- **Secret encryption**: Client secrets are encrypted with Fernet before storage in PostgreSQL.
+- **Initial Access Token**: Stored as a secret, never in code. Has limited uses (configurable in Keycloak).
+- **Registration Access Tokens**: Encrypted and stored for future client management.
+
+## MCP Sidecar Authentication
+
+The MCP sidecar authenticates to console.redhat.com using a Lightspeed service account (machine-to-machine, no user interaction). The agent passes the credentials to the sidecar via HTTP headers on every tool call.
+
+| Variable | Description |
+|----------|-------------|
+| `LIGHTSPEED_CLIENT_ID` | Service account client ID from console.redhat.com |
+| `LIGHTSPEED_CLIENT_SECRET` | Service account client secret |
+
+The MCP sidecar uses these credentials to obtain an OAuth2 access token from sso.redhat.com, then calls console.redhat.com APIs (Advisor, Inventory, Vulnerability, etc.) with the Bearer token. See [MCP Integration](mcp-integration.md) for full details.
 
 ## OAuth 2.0 Authorization Code Flow
 

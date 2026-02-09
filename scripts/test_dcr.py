@@ -15,17 +15,19 @@ Prerequisites
 ------------------------------------------------------------------------
 
 1. A Google Cloud project with the IAM Credentials API enabled:
-       gcloud services enable iamcredentials.googleapis.com
+       gcloud services enable iamcredentials.googleapis.com --project=<PROJECT>
 
 2. A GCP service account to sign JWTs.  You can create one:
        gcloud iam service-accounts create dcr-test \
-           --display-name "DCR test signer"
+           --display-name "DCR test signer" \
+           --project=<PROJECT>
 
    Grant yourself permission to sign JWTs on its behalf:
        gcloud iam service-accounts add-iam-policy-binding \
            dcr-test@<PROJECT>.iam.gserviceaccount.com \
            --member="user:<YOUR_EMAIL>" \
-           --role="roles/iam.serviceAccountTokenCreator"
+           --role="roles/iam.serviceAccountTokenCreator" \
+           --project=<PROJECT>
 
 3. Python dependencies (install in a venv or with pip):
        pip install google-cloud-iam requests

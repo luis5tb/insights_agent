@@ -15,8 +15,7 @@ The Insights Agent is an A2A-ready (Agent-to-Agent) service that provides AI-pow
 
 ### Architecture
 
-- [Architecture Overview](architecture.md) - System design and components
-- [DCR Architecture](architecture-dcr.md) - Dynamic Client Registration and provisioning flows
+- [Architecture Overview](architecture.md) - System design, components, database schema, and ADRs
 
 ### API Reference
 

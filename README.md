@@ -233,12 +233,12 @@ insights_agent/
 ├── scripts/                # Testing and utility scripts
 │   └── test_dcr.py         # DCR endpoint test client
 ├── docs/                   # Documentation
-│   ├── architecture.md     # System architecture (two-service)
-│   ├── architecture-dcr.md # DCR and provisioning flows
-│   ├── authentication.md   # OAuth 2.0 guide
+│   ├── architecture.md     # System architecture, DB schema, ADRs
+│   ├── authentication.md   # OAuth 2.0, DCR, JWT, MCP auth
 │   ├── api.md              # API reference
 │   ├── configuration.md    # Config reference
 │   ├── marketplace.md      # GCP Marketplace integration
+│   ├── mcp-integration.md  # MCP server and console.redhat.com APIs
 │   └── troubleshooting.md  # Troubleshooting guide
 ├── deploy/
 │   ├── cloudrun/           # Cloud Run deployment
@@ -275,7 +275,7 @@ insights_agent/
 Comprehensive documentation is available in the [docs/](docs/) directory:
 
 - [Architecture Overview](docs/architecture.md) - Two-service architecture and data flows
-- [DCR Architecture](docs/architecture-dcr.md) - Dynamic Client Registration and provisioning flows
+- [Authentication](docs/authentication.md) - OAuth 2.0, DCR, JWT validation, MCP authentication
 - [MCP Server Integration](docs/mcp-integration.md) - Red Hat Insights MCP server setup
 - [Authentication Guide](docs/authentication.md) - OAuth 2.0 and JWT validation
 - [API Reference](docs/api.md) - Endpoints and examples
@@ -511,15 +511,17 @@ Both modes require `SKIP_JWT_VALIDATION=true` on the marketplace handler so it a
 
 1. A GCP service account with the IAM Credentials API enabled:
    ```bash
-   gcloud services enable iamcredentials.googleapis.com
+   gcloud services enable iamcredentials.googleapis.com --project=<PROJECT>
 
    gcloud iam service-accounts create dcr-test \
-     --display-name "DCR test signer"
+     --display-name "DCR test signer" \
+     --project=<PROJECT>
 
    gcloud iam service-accounts add-iam-policy-binding \
      dcr-test@<PROJECT>.iam.gserviceaccount.com \
      --member="user:<YOUR_EMAIL>" \
-     --role="roles/iam.serviceAccountTokenCreator"
+     --role="roles/iam.serviceAccountTokenCreator" \
+     --project=<PROJECT>
    ```
 
 2. Python dependencies and authentication:
@@ -537,19 +539,36 @@ Both modes require `SKIP_JWT_VALIDATION=true` on the marketplace handler so it a
 
 This mode skips Keycloak entirely. The handler returns pre-configured credentials for every DCR request.
 
-1. Start the marketplace handler with:
+1. **Copy the secrets template and edit it:**
    ```bash
-   SKIP_JWT_VALIDATION=true \
-   DCR_ENABLED=false \
-   RED_HAT_SSO_CLIENT_ID=my-test-client \
-   RED_HAT_SSO_CLIENT_SECRET=my-test-secret \
-   DCR_ENCRYPTION_KEY=<your-fernet-key> \
-   DATABASE_URL=sqlite+aiosqlite:///./insights_agent.db \
-   AGENT_PROVIDER_URL=https://your-agent-domain.com \
-   python -m uvicorn insights_agent.marketplace.app:create_app --factory --host 0.0.0.0 --port 8001
+   cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
    ```
 
-2. Run the test script:
+   Edit `deploy/podman/my-secrets.yaml` and set at minimum:
+   ```yaml
+   stringData:
+     RED_HAT_SSO_CLIENT_ID: "my-test-client"
+     RED_HAT_SSO_CLIENT_SECRET: "my-test-secret"
+     DCR_ENCRYPTION_KEY: "<your-fernet-key>"
+     MARKETPLACE_DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
+     MARKETPLACE_DB_PASSWORD: "insights"
+   ```
+
+2. **Set `DCR_ENABLED` to `false`** in `deploy/podman/insights-agent-configmap.yaml`:
+   ```yaml
+   DCR_ENABLED: "false"
+   SKIP_JWT_VALIDATION: "true"
+   ```
+
+3. **Start the marketplace handler pod:**
+   ```bash
+   podman kube play deploy/podman/my-secrets.yaml
+   podman kube play \
+     --configmap deploy/podman/insights-agent-configmap.yaml \
+     deploy/podman/marketplace-handler-pod.yaml
+   ```
+
+4. **Run the test script:**
    ```bash
    export TEST_SERVICE_ACCOUNT=dcr-test@<PROJECT>.iam.gserviceaccount.com
    python scripts/test_dcr.py
@@ -557,9 +576,14 @@ This mode skips Keycloak entirely. The handler returns pre-configured credential
 
    The response will contain the static `my-test-client` / `my-test-secret` credentials.
 
+5. **Clean up:**
+   ```bash
+   podman kube down deploy/podman/marketplace-handler-pod.yaml
+   ```
+
 #### Option B: Real DCR with Local Keycloak
 
-This mode exercises the full DCR flow — real OAuth client creation in a locally-controlled Keycloak instance.
+This mode exercises the full DCR flow -- real OAuth client creation in a locally-controlled Keycloak instance.
 
 1. **Start Keycloak in Podman:**
    ```bash
@@ -603,19 +627,40 @@ This mode exercises the full DCR flow — real OAuth client creation in a locall
    echo "Initial Access Token: $IAT"
    ```
 
-5. **Start the marketplace handler:**
+5. **Copy the secrets template and configure for local Keycloak:**
    ```bash
-   SKIP_JWT_VALIDATION=true \
-   DCR_ENABLED=true \
-   RED_HAT_SSO_ISSUER=http://localhost:8180/realms/test-realm \
-   DCR_INITIAL_ACCESS_TOKEN=$IAT \
-   DCR_ENCRYPTION_KEY=<your-fernet-key> \
-   DATABASE_URL=sqlite+aiosqlite:///./insights_agent.db \
-   AGENT_PROVIDER_URL=https://your-agent-domain.com \
-   python -m uvicorn insights_agent.marketplace.app:create_app --factory --host 0.0.0.0 --port 8001
+   cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
    ```
 
-6. **Run the test script:**
+   Edit `deploy/podman/my-secrets.yaml`:
+   ```yaml
+   stringData:
+     RED_HAT_SSO_CLIENT_ID: "insights-agent"
+     RED_HAT_SSO_CLIENT_SECRET: "dummy"
+     DCR_INITIAL_ACCESS_TOKEN: "<the IAT from step 4>"
+     DCR_ENCRYPTION_KEY: "<your-fernet-key>"
+     MARKETPLACE_DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
+     MARKETPLACE_DB_PASSWORD: "insights"
+   ```
+
+6. **Update the configmap** in `deploy/podman/insights-agent-configmap.yaml`:
+   ```yaml
+   DCR_ENABLED: "true"
+   SKIP_JWT_VALIDATION: "true"
+   RED_HAT_SSO_ISSUER: "http://host.containers.internal:8180/realms/test-realm"
+   ```
+
+   Note: Use `host.containers.internal` so the handler container can reach Keycloak running on the host.
+
+7. **Start the marketplace handler pod:**
+   ```bash
+   podman kube play deploy/podman/my-secrets.yaml
+   podman kube play \
+     --configmap deploy/podman/insights-agent-configmap.yaml \
+     deploy/podman/marketplace-handler-pod.yaml
+   ```
+
+8. **Run the test script:**
    ```bash
    export TEST_SERVICE_ACCOUNT=dcr-test@<PROJECT>.iam.gserviceaccount.com
    python scripts/test_dcr.py
@@ -623,7 +668,7 @@ This mode exercises the full DCR flow — real OAuth client creation in a locall
 
    The handler will create a real OAuth client in your local Keycloak. You can verify it at http://localhost:8180/admin -> test-realm -> Clients.
 
-7. **You can also test Keycloak DCR directly** (bypassing the handler entirely):
+9. **You can also test Keycloak DCR directly** (bypassing the handler entirely):
    ```bash
    curl -s -X POST \
      "http://localhost:8180/realms/test-realm/clients-registrations/openid-connect" \
@@ -638,10 +683,11 @@ This mode exercises the full DCR flow — real OAuth client creation in a locall
      }'
    ```
 
-8. **Clean up:**
-   ```bash
-   podman stop keycloak-test && podman rm keycloak-test
-   ```
+10. **Clean up:**
+    ```bash
+    podman kube down deploy/podman/marketplace-handler-pod.yaml
+    podman stop keycloak-test && podman rm keycloak-test
+    ```
 
 #### Test Script Reference
 
