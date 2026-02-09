@@ -5,7 +5,6 @@ import logging
 from datetime import datetime, timedelta
 from typing import Callable
 
-from insights_agent.config import get_settings
 from insights_agent.service_control.reporter import UsageReporter, get_usage_reporter
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,6 @@ class ReportingScheduler:
         self._reporter = reporter or get_usage_reporter()
         self._hourly_interval = hourly_interval_seconds
         self._retry_interval = retry_interval_seconds
-        self._settings = get_settings()
 
         # Task handles
         self._hourly_task: asyncio.Task | None = None

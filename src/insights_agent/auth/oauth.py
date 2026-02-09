@@ -58,11 +58,6 @@ class OAuthClient:
         """Get the userinfo endpoint URL."""
         return f"{self.issuer}/protocol/openid-connect/userinfo"
 
-    @property
-    def end_session_endpoint(self) -> str:
-        """Get the end session (logout) endpoint URL."""
-        return f"{self.issuer}/protocol/openid-connect/logout"
-
     def generate_state(self) -> str:
         """Generate a cryptographically secure state parameter.
 

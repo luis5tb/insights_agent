@@ -10,9 +10,6 @@ from insights_agent.service_control.models import (
     CheckError,
     CheckErrorCode,
     CheckResponse,
-    MetricValue,
-    MetricValueSet,
-    Operation,
     ReportResponse,
     UsageReport,
 )
@@ -72,43 +69,6 @@ class TestModels:
 
         assert response.is_valid is False
         assert response.should_block_service is False
-
-    def test_metric_value(self):
-        """Test MetricValue model."""
-        value = MetricValue(int64_value=100)
-
-        assert value.int64_value == 100
-        assert value.double_value is None
-
-    def test_metric_value_set(self):
-        """Test MetricValueSet model."""
-        value_set = MetricValueSet(
-            metric_name="my_service/api_calls",
-            metric_values=[MetricValue(int64_value=50)],
-        )
-
-        assert value_set.metric_name == "my_service/api_calls"
-        assert len(value_set.metric_values) == 1
-
-    def test_operation(self):
-        """Test Operation model."""
-        now = datetime.utcnow()
-        operation = Operation(
-            operation_id="op-123",
-            consumer_id="project:test-project",
-            start_time=now - timedelta(hours=1),
-            end_time=now,
-            metric_value_sets=[
-                MetricValueSet(
-                    metric_name="my_service/api_calls",
-                    metric_values=[MetricValue(int64_value=100)],
-                )
-            ],
-        )
-
-        assert operation.operation_id == "op-123"
-        assert operation.consumer_id == "project:test-project"
-        assert len(operation.metric_value_sets) == 1
 
     def test_report_response_success(self):
         """Test successful ReportResponse."""

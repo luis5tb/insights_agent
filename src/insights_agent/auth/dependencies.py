@@ -60,38 +60,6 @@ async def get_current_user(
         ) from None
 
 
-async def get_optional_user(
-    request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    jwt_validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
-) -> AuthenticatedUser | None:
-    """Extract and validate user if credentials are provided.
-
-    Unlike get_current_user, this dependency does not raise an error if
-    no credentials are provided. It returns None instead.
-
-    Args:
-        request: FastAPI request object
-        credentials: HTTP Authorization credentials
-        jwt_validator: JWT validator instance
-
-    Returns:
-        AuthenticatedUser if valid credentials provided, None otherwise
-    """
-    if not credentials:
-        return None
-
-    try:
-        user = await jwt_validator.validate_token(credentials.credentials)
-        # Store the raw access token for forwarding to downstream services
-        user.access_token = credentials.credentials
-        request.state.user = user
-        return user
-    except JWTValidationError as e:
-        logger.debug("Optional JWT validation failed: %s", e)
-        return None
-
-
 def require_scope(
     required_scope: str,
 ) -> Callable[..., Coroutine[Any, Any, AuthenticatedUser]]:
@@ -128,6 +96,5 @@ def require_scope(
     return scope_checker
 
 
-# Type aliases for common dependency patterns
+# Type alias for common dependency pattern
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]
-OptionalUser = Annotated[AuthenticatedUser | None, Depends(get_optional_user)]

@@ -16,7 +16,6 @@ from insights_agent.db.models import (
     DCRClientModel,
     MarketplaceAccountModel,
     MarketplaceEntitlementModel,
-    UsageRecordModel,
 )
 
 __all__ = [
@@ -31,5 +30,4 @@ __all__ = [
     "MarketplaceAccountModel",
     "MarketplaceEntitlementModel",
     "DCRClientModel",
-    "UsageRecordModel",
 ]

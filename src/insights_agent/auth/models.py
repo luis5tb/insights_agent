@@ -22,34 +22,6 @@ class TokenResponse(BaseModel):
     scope: str | None = Field(default=None, description="Token scope")
 
 
-class TokenRequest(BaseModel):
-    """OAuth 2.0 token request."""
-
-    grant_type: str = Field(..., description="Grant type")
-    code: str | None = Field(default=None, description="Authorization code")
-    redirect_uri: str | None = Field(default=None, description="Redirect URI")
-    refresh_token: str | None = Field(default=None, description="Refresh token")
-    client_id: str | None = Field(default=None, description="Client ID")
-    client_secret: str | None = Field(default=None, description="Client secret")
-
-
-class AuthorizationRequest(BaseModel):
-    """OAuth 2.0 authorization request parameters."""
-
-    response_type: str = Field(default="code", description="Response type")
-    client_id: str = Field(..., description="Client ID")
-    redirect_uri: str = Field(..., description="Redirect URI")
-    scope: str = Field(default="openid", description="Requested scope")
-    state: str | None = Field(default=None, description="State parameter for CSRF protection")
-
-
-class AuthorizationCallback(BaseModel):
-    """OAuth 2.0 authorization callback parameters."""
-
-    code: str = Field(..., description="Authorization code")
-    state: str | None = Field(default=None, description="State parameter")
-
-
 class JWTClaims(BaseModel):
     """JWT token claims."""
 
@@ -99,7 +71,3 @@ class OAuthError(BaseModel):
     error_uri: str | None = Field(default=None, description="Error URI")
 
 
-class JWKS(BaseModel):
-    """JSON Web Key Set."""
-
-    keys: list[dict[str, str]] = Field(..., description="List of JWK keys")

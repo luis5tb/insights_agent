@@ -113,61 +113,6 @@ class JWTValidator:
 
         return self._claims_to_user(claims)
 
-    def validate_token_sync(self, token: str) -> AuthenticatedUser:
-        """Synchronous version of validate_token.
-
-        Args:
-            token: JWT access token string
-
-        Returns:
-            AuthenticatedUser with validated claims
-
-        Raises:
-            JWTValidationError: If token validation fails
-        """
-        # Check if validation should be skipped (development only)
-        if self._settings.skip_jwt_validation:
-            logger.warning("JWT validation skipped - development mode only")
-            return self._create_dev_user(token)
-
-        try:
-            signing_key = self._jwks_client.get_signing_key_from_jwt(token)
-
-            claims = jwt.decode(
-                token,
-                signing_key.key,
-                algorithms=["RS256"],
-                audience=self.client_id,
-                issuer=self.issuer,
-                options={
-                    "verify_aud": True,
-                    "verify_iss": True,
-                    "verify_exp": True,
-                    "verify_iat": True,
-                    "require": ["exp", "iat", "iss", "sub"],
-                },
-            )
-        except ExpiredSignatureError as e:
-            logger.warning("Token has expired")
-            raise JWTValidationError("Token has expired") from e
-        except InvalidAudienceError as e:
-            logger.warning("Invalid token audience: %s", e)
-            raise JWTValidationError(f"Invalid token audience: {e}") from e
-        except InvalidIssuerError as e:
-            logger.warning("Invalid token issuer: %s", e)
-            raise JWTValidationError(f"Invalid token issuer: {e}") from e
-        except PyJWKClientError as e:
-            logger.error("Failed to fetch signing key: %s", e)
-            raise JWTValidationError(f"Failed to fetch signing key: {e}") from e
-        except DecodeError as e:
-            logger.error("Failed to decode token: %s", e)
-            raise JWTValidationError(f"Failed to decode token: {e}") from e
-        except InvalidTokenError as e:
-            logger.error("Token validation failed: %s", e)
-            raise JWTValidationError(f"Token validation failed: {e}") from e
-
-        return self._claims_to_user(claims)
-
     def _claims_to_user(self, claims: dict[str, Any]) -> AuthenticatedUser:
         """Convert JWT claims to AuthenticatedUser.
 
@@ -255,22 +200,6 @@ class JWTValidator:
         except DecodeError as e:
             raise JWTValidationError(f"Failed to decode JWT header: {e}") from e
 
-    def get_unverified_claims(self, token: str) -> dict[str, Any]:
-        """Get the unverified claims from a JWT token.
-
-        Args:
-            token: JWT token string
-
-        Returns:
-            Dictionary containing the JWT claims
-
-        Raises:
-            JWTValidationError: If the token cannot be decoded
-        """
-        try:
-            return jwt.decode(token, options={"verify_signature": False})
-        except DecodeError as e:
-            raise JWTValidationError(f"Failed to decode JWT: {e}") from e
 
 
 # Global validator instance (lazily initialized)

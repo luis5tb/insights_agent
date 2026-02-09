@@ -1,17 +1,8 @@
 """Tools module for MCP integration with Red Hat Insights."""
 
 from insights_agent.tools.insights_tools import (
-    ADVISOR_TOOLS,
     ALL_INSIGHTS_TOOLS,
-    CONTENT_SOURCES_TOOLS,
-    IMAGE_BUILDER_TOOLS,
-    INVENTORY_TOOLS,
-    PLANNING_TOOLS,
-    RBAC_TOOLS,
     READ_ONLY_TOOLS,
-    REMEDIATION_TOOLS,
-    RHSM_TOOLS,
-    VULNERABILITY_TOOLS,
     create_insights_toolset,
     get_insights_tools_for_cloud_run,
 )
@@ -34,15 +25,6 @@ __all__ = [
     "create_insights_toolset",
     "get_insights_tools_for_cloud_run",
     # Tool lists
-    "ADVISOR_TOOLS",
-    "INVENTORY_TOOLS",
-    "VULNERABILITY_TOOLS",
-    "REMEDIATION_TOOLS",
-    "PLANNING_TOOLS",
-    "IMAGE_BUILDER_TOOLS",
-    "RHSM_TOOLS",
-    "RBAC_TOOLS",
-    "CONTENT_SOURCES_TOOLS",
     "ALL_INSIGHTS_TOOLS",
     "READ_ONLY_TOOLS",
     # Skills

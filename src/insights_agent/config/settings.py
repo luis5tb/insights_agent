@@ -121,14 +121,6 @@ class Settings(BaseSettings):
         default=True,
         description="Enable usage reporting to Google Cloud Service Control",
     )
-    service_control_retry_max_attempts: int = Field(
-        default=3,
-        description="Maximum retry attempts for failed usage reports",
-    )
-    service_control_retry_delay_seconds: int = Field(
-        default=300,
-        description="Delay between retry attempts for failed reports",
-    )
 
     # Rate Limiting (in-memory, no Redis required)
     rate_limit_requests_per_minute: int = Field(
@@ -138,12 +130,6 @@ class Settings(BaseSettings):
     rate_limit_requests_per_hour: int = Field(
         default=1000,
         description="Global requests per hour limit",
-    )
-
-    # Usage Reporting
-    usage_report_interval_seconds: int = Field(
-        default=3600,
-        description="Usage report interval in seconds",
     )
 
     # Logging

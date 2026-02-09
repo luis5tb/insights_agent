@@ -40,12 +40,6 @@ def get_aggregate_usage() -> AggregateUsage:
     return _aggregate_usage
 
 
-def reset_aggregate_usage() -> None:
-    """Reset aggregate usage statistics (useful for testing)."""
-    global _aggregate_usage
-    _aggregate_usage = AggregateUsage()
-
-
 class UsageTrackingPlugin(BasePlugin):
     """ADK Plugin for tracking aggregate token and tool usage.
 
