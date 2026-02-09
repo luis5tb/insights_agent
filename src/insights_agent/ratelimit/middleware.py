@@ -1,6 +1,5 @@
 """Simplified rate limiting middleware with global limits."""
 
-import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -11,7 +10,6 @@ from starlette.responses import JSONResponse
 
 from insights_agent.config import get_settings
 
-logger = logging.getLogger(__name__)
 
 
 class SimpleRateLimiter:

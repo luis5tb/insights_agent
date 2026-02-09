@@ -45,61 +45,6 @@ class CheckError(BaseModel):
     detail: str = Field(default="", description="Error detail message")
 
 
-class MetricValue(BaseModel):
-    """A metric value for reporting."""
-
-    int64_value: int | None = Field(None, alias="int64Value", description="Integer value")
-    double_value: float | None = Field(None, alias="doubleValue", description="Double value")
-    string_value: str | None = Field(None, alias="stringValue", description="String value")
-    bool_value: bool | None = Field(None, alias="boolValue", description="Boolean value")
-
-    class Config:
-        populate_by_name = True
-
-
-class MetricValueSet(BaseModel):
-    """A set of metric values for a single metric."""
-
-    metric_name: str = Field(..., alias="metricName", description="Metric name")
-    metric_values: list[MetricValue] = Field(
-        ..., alias="metricValues", description="Metric values"
-    )
-
-    class Config:
-        populate_by_name = True
-
-
-class Operation(BaseModel):
-    """An operation for Service Control check/report.
-
-    Represents a single usage event or aggregated usage for reporting.
-    """
-
-    operation_id: str = Field(..., alias="operationId", description="Unique operation ID")
-    operation_name: str | None = Field(
-        None, alias="operationName", description="Operation name (e.g., API method)"
-    )
-    consumer_id: str = Field(..., alias="consumerId", description="Consumer ID (usageReportingId)")
-    start_time: datetime = Field(..., alias="startTime", description="Start of reporting period")
-    end_time: datetime | None = Field(None, alias="endTime", description="End of reporting period")
-    labels: dict[str, str] = Field(default_factory=dict, description="Operation labels")
-    metric_value_sets: list[MetricValueSet] = Field(
-        default_factory=list, alias="metricValueSets", description="Metric values"
-    )
-    user_labels: dict[str, str] = Field(
-        default_factory=dict, alias="userLabels", description="User-defined labels"
-    )
-
-    class Config:
-        populate_by_name = True
-
-
-class CheckRequest(BaseModel):
-    """Request for services.check API."""
-
-    operation: Operation = Field(..., description="Operation to check")
-
-
 class CheckResponse(BaseModel):
     """Response from services.check API."""
 
@@ -125,12 +70,6 @@ class CheckResponse(BaseModel):
             CheckErrorCode.PROJECT_DELETED,
         }
         return any(e.code in blocking_codes for e in self.check_errors)
-
-
-class ReportRequest(BaseModel):
-    """Request for services.report API."""
-
-    operations: list[Operation] = Field(..., description="Operations to report")
 
 
 class ReportResponse(BaseModel):
@@ -169,16 +108,3 @@ class UsageReport(BaseModel):
     retry_count: int = Field(default=0, description="Number of retry attempts")
 
 
-class ReportingPeriod(BaseModel):
-    """A reporting period for usage aggregation."""
-
-    start_time: datetime = Field(..., description="Period start")
-    end_time: datetime = Field(..., description="Period end")
-
-
-class ServiceConfig(BaseModel):
-    """Configuration for the service being controlled."""
-
-    service_name: str = Field(..., description="Service name (e.g., myservice.gcpmarketplace.example.com)")
-    metric_prefix: str = Field(..., description="Metric prefix for the service")
-    enabled: bool = Field(default=True, description="Whether reporting is enabled")

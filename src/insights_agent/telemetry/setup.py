@@ -192,14 +192,3 @@ def shutdown_telemetry() -> None:
         _tracer_provider = None
 
 
-def get_tracer(name: str) -> trace.Tracer:
-    """Get a tracer for the given module name.
-
-    Args:
-        name: The name of the module requesting the tracer,
-              typically __name__.
-
-    Returns:
-        A tracer instance for creating spans.
-    """
-    return trace.get_tracer(name)

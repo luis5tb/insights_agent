@@ -15,9 +15,6 @@ from insights_agent.service_control.models import (
     CheckError,
     CheckErrorCode,
     CheckResponse,
-    MetricValue,
-    MetricValueSet,
-    Operation,
     ReportResponse,
     UsageReport,
 )
@@ -42,9 +39,6 @@ __all__ = [
     "CheckError",
     "CheckErrorCode",
     "CheckResponse",
-    "MetricValue",
-    "MetricValueSet",
-    "Operation",
     "ReportResponse",
     "UsageReport",
     # Reporter
