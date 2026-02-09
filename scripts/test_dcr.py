@@ -5,19 +5,51 @@ Sends a signed software_statement JWT to the marketplace handler's /dcr
 endpoint, simulating what Google Cloud Marketplace does when registering
 a new OAuth client for a marketplace order.
 
-The script uses the Google Cloud IAM Credentials API to sign the JWT with
-a GCP service account you control.  This means the JWT is NOT signed by
-Google's production cloud-agentspace service account, so the marketplace
-handler must be running with SKIP_JWT_VALIDATION=true to accept it.
+The JWT is NOT signed by Google's production cloud-agentspace service
+account, so the marketplace handler must be running with
+SKIP_JWT_VALIDATION=true to accept it.
+
+------------------------------------------------------------------------
+Signing methods
+------------------------------------------------------------------------
+
+The script supports two ways to sign the JWT:
+
+Method A: Local key file (recommended -- no IAM permissions needed)
+    Download a service account key and sign locally with PyJWT.
+    Only requires permission to create keys (iam.serviceAccountKeys.create).
+
+Method B: IAM Credentials API (remote signing)
+    Uses the IAM Credentials API to sign without downloading a key.
+    Requires roles/iam.serviceAccountTokenCreator on the service account.
 
 ------------------------------------------------------------------------
 Prerequisites
 ------------------------------------------------------------------------
 
+Method A (local key file):
+
+1. A Google Cloud project and service account:
+       gcloud services enable iam.googleapis.com --project=<PROJECT>
+
+       gcloud iam service-accounts create dcr-test \
+           --display-name "DCR test signer" \
+           --project=<PROJECT>
+
+2. Download a key file:
+       gcloud iam service-accounts keys create dcr-test-key.json \
+           --iam-account=dcr-test@<PROJECT>.iam.gserviceaccount.com \
+           --project=<PROJECT>
+
+3. Python dependencies:
+       pip install PyJWT cryptography requests
+
+Method B (IAM Credentials API):
+
 1. A Google Cloud project with the IAM Credentials API enabled:
        gcloud services enable iamcredentials.googleapis.com --project=<PROJECT>
 
-2. A GCP service account to sign JWTs.  You can create one:
+2. A GCP service account to sign JWTs:
        gcloud iam service-accounts create dcr-test \
            --display-name "DCR test signer" \
            --project=<PROJECT>
@@ -29,7 +61,7 @@ Prerequisites
            --role="roles/iam.serviceAccountTokenCreator" \
            --project=<PROJECT>
 
-3. Python dependencies (install in a venv or with pip):
+3. Python dependencies:
        pip install google-cloud-iam requests
 
 4. Authenticate with Google Cloud:
@@ -117,7 +149,7 @@ mode (DCR_ENABLED=false) works without Keycloak.
 
 6. Run this script.  The handler will create a real OAuth client in
    your local Keycloak.  Verify at:
-       http://localhost:8180/admin → test-realm → Clients
+       http://localhost:8180/admin -> test-realm -> Clients
 
 7. You can also test Keycloak DCR directly (without the handler):
 
@@ -141,7 +173,11 @@ mode (DCR_ENABLED=false) works without Keycloak.
 Usage
 ------------------------------------------------------------------------
 
-    # Minimal (uses defaults for everything except the service account)
+    # Method A: Sign with a local key file (no IAM permissions needed)
+    export TEST_SA_KEY_FILE=dcr-test-key.json
+    python scripts/test_dcr.py
+
+    # Method B: Sign via IAM Credentials API (needs serviceAccountTokenCreator)
     export TEST_SERVICE_ACCOUNT=dcr-test@my-project.iam.gserviceaccount.com
     python scripts/test_dcr.py
 
@@ -158,8 +194,14 @@ Usage
 Environment variables
 ------------------------------------------------------------------------
 
-    TEST_SERVICE_ACCOUNT  (required)
-        Email of the GCP service account used to sign the JWT.
+    TEST_SA_KEY_FILE  (Method A -- recommended)
+        Path to a service account key JSON file.  When set, the script
+        signs JWTs locally with PyJWT.  The service account email is
+        read from the key file.
+
+    TEST_SERVICE_ACCOUNT  (Method B)
+        Email of the GCP service account used to sign the JWT via the
+        IAM Credentials API.  Ignored if TEST_SA_KEY_FILE is set.
 
     MARKETPLACE_HANDLER_URL  (default: http://localhost:8001)
         Base URL of the marketplace handler.
@@ -187,7 +229,6 @@ import time
 import uuid
 
 import requests
-from google.cloud import iam_credentials_v1
 
 # ---------------------------------------------------------------------------
 # Configuration from environment
@@ -196,23 +237,63 @@ from google.cloud import iam_credentials_v1
 HANDLER_URL = os.environ.get("MARKETPLACE_HANDLER_URL", "http://localhost:8001")
 PROVIDER_URL = os.environ.get("PROVIDER_URL", "https://your-agent-domain.com")
 TEST_SERVICE_ACCOUNT = os.environ.get("TEST_SERVICE_ACCOUNT")
+TEST_SA_KEY_FILE = os.environ.get("TEST_SA_KEY_FILE")
 
 CERT_BASE_URL = (
     "https://www.googleapis.com/service_accounts/v1/metadata/x509/"
 )
 
 
-def _require_service_account() -> str:
-    if not TEST_SERVICE_ACCOUNT:
+def _resolve_signing_method() -> tuple[str, str]:
+    """Determine which signing method to use and return (method, sa_email).
+
+    Returns:
+        Tuple of ("key_file" | "iam_api", service_account_email).
+    """
+    if TEST_SA_KEY_FILE:
+        key_data = _load_key_file(TEST_SA_KEY_FILE)
+        return "key_file", key_data["client_email"]
+
+    if TEST_SERVICE_ACCOUNT:
+        return "iam_api", TEST_SERVICE_ACCOUNT
+
+    print(
+        "ERROR: No signing method configured.\n"
+        "\n"
+        "Set one of the following environment variables:\n"
+        "\n"
+        "  Method A (local key file -- recommended, no IAM permissions needed):\n"
+        "    export TEST_SA_KEY_FILE=dcr-test-key.json\n"
+        "\n"
+        "  Method B (IAM Credentials API -- needs serviceAccountTokenCreator):\n"
+        "    export TEST_SERVICE_ACCOUNT=dcr-test@my-project.iam.gserviceaccount.com",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _load_key_file(path: str) -> dict:
+    """Load and validate a service account key JSON file."""
+    try:
+        with open(path) as f:
+            key_data = json.load(f)
+    except FileNotFoundError:
+        print(f"ERROR: Key file not found: {path}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"ERROR: Invalid JSON in key file {path}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    required = ("client_email", "private_key", "private_key_id")
+    missing = [k for k in required if k not in key_data]
+    if missing:
         print(
-            "ERROR: TEST_SERVICE_ACCOUNT environment variable is required.\n"
-            "Set it to the email of the GCP service account used to sign JWTs.\n"
-            "Example:\n"
-            "  export TEST_SERVICE_ACCOUNT=dcr-test@my-project.iam.gserviceaccount.com",
+            f"ERROR: Key file {path} missing required fields: {', '.join(missing)}",
             file=sys.stderr,
         )
         sys.exit(1)
-    return TEST_SERVICE_ACCOUNT
+
+    return key_data
 
 
 # ---------------------------------------------------------------------------
@@ -220,26 +301,56 @@ def _require_service_account() -> str:
 # ---------------------------------------------------------------------------
 
 
-def sign_jwt(service_account_email: str, payload: dict) -> str:
-    """Sign a JWT using the GCP IAM Credentials API.
+def sign_jwt_with_key_file(payload: dict, key_file_path: str) -> str:
+    """Sign a JWT locally using a service account key file.
 
     Args:
-        service_account_email: The service account to sign with.
         payload: JWT claims dict.
+        key_file_path: Path to the service account key JSON file.
 
     Returns:
         The signed JWT string.
     """
+    import jwt  # PyJWT
+
+    key_data = _load_key_file(key_file_path)
+    private_key = key_data["private_key"]
+    key_id = key_data["private_key_id"]
+
+    print(f"  Signing JWT locally with key file: {key_file_path}")
+    print(f"  Service account: {key_data['client_email']}")
+
+    return jwt.encode(
+        payload,
+        private_key,
+        algorithm="RS256",
+        headers={"kid": key_id},
+    )
+
+
+def sign_jwt_with_iam_api(payload: dict, service_account_email: str) -> str:
+    """Sign a JWT using the GCP IAM Credentials API.
+
+    Args:
+        payload: JWT claims dict.
+        service_account_email: The service account to sign with.
+
+    Returns:
+        The signed JWT string.
+    """
+    from google.cloud import iam_credentials_v1
+
     client = iam_credentials_v1.IAMCredentialsClient()
     name = f"projects/-/serviceAccounts/{service_account_email}"
 
-    print(f"  Signing JWT with service account: {service_account_email}")
+    print(f"  Signing JWT via IAM Credentials API: {service_account_email}")
     response = client.sign_jwt(name=name, payload=json.dumps(payload))
     return response.signed_jwt
 
 
 def build_software_statement(
     service_account_email: str,
+    signing_method: str,
     order_id: str,
     account_id: str,
     redirect_uris: list[str],
@@ -255,6 +366,7 @@ def build_software_statement(
 
     Args:
         service_account_email: GCP SA email for signing.
+        signing_method: "key_file" or "iam_api".
         order_id: Marketplace order ID.
         account_id: Procurement account ID.
         redirect_uris: OAuth redirect URIs.
@@ -277,7 +389,11 @@ def build_software_statement(
     }
 
     print(f"  JWT claims:\n{json.dumps(payload, indent=4)}")
-    return sign_jwt(service_account_email, payload)
+
+    if signing_method == "key_file":
+        return sign_jwt_with_key_file(payload, TEST_SA_KEY_FILE)
+    else:
+        return sign_jwt_with_iam_api(payload, service_account_email)
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +436,7 @@ def send_dcr_request(software_statement: str) -> None:
 
 
 def main() -> None:
-    sa_email = _require_service_account()
+    signing_method, sa_email = _resolve_signing_method()
 
     order_id = os.environ.get("TEST_ORDER_ID") or f"order-{uuid.uuid4()}"
     account_id = os.environ.get("TEST_ACCOUNT_ID", "test-procurement-account-001")
@@ -331,16 +447,18 @@ def main() -> None:
     print("=" * 60)
     print("DCR Test Client")
     print("=" * 60)
-    print(f"  Handler URL : {HANDLER_URL}")
-    print(f"  Provider URL: {PROVIDER_URL}")
-    print(f"  Order ID    : {order_id}")
-    print(f"  Account ID  : {account_id}")
-    print(f"  Redirect URIs: {redirect_uris}")
+    print(f"  Handler URL    : {HANDLER_URL}")
+    print(f"  Provider URL   : {PROVIDER_URL}")
+    print(f"  Signing method : {signing_method}")
+    print(f"  Service account: {sa_email}")
+    print(f"  Order ID       : {order_id}")
+    print(f"  Account ID     : {account_id}")
+    print(f"  Redirect URIs  : {redirect_uris}")
     print()
 
     print("--- Building software_statement JWT ---")
     software_statement = build_software_statement(
-        sa_email, order_id, account_id, redirect_uris
+        sa_email, signing_method, order_id, account_id, redirect_uris
     )
     print(f"\n  JWT (first 80 chars): {software_statement[:80]}...")
 

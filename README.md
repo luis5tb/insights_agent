@@ -509,23 +509,36 @@ Both modes require `SKIP_JWT_VALIDATION=true` on the marketplace handler so it a
 
 #### Prerequisites
 
-1. A GCP service account with the IAM Credentials API enabled:
+1. A GCP service account:
    ```bash
-   gcloud services enable iamcredentials.googleapis.com --project=<PROJECT>
+   gcloud services enable iam.googleapis.com --project=<PROJECT>
 
    gcloud iam service-accounts create dcr-test \
      --display-name "DCR test signer" \
      --project=<PROJECT>
+   ```
+
+2. **Choose a signing method** for the test script:
+
+   **Method A -- Local key file (recommended, no extra IAM permissions):**
+   ```bash
+   gcloud iam service-accounts keys create dcr-test-key.json \
+     --iam-account=dcr-test@<PROJECT>.iam.gserviceaccount.com \
+     --project=<PROJECT>
+
+   pip install PyJWT cryptography requests
+   ```
+
+   **Method B -- IAM Credentials API (needs `serviceAccountTokenCreator` role):**
+   ```bash
+   gcloud services enable iamcredentials.googleapis.com --project=<PROJECT>
 
    gcloud iam service-accounts add-iam-policy-binding \
      dcr-test@<PROJECT>.iam.gserviceaccount.com \
      --member="user:<YOUR_EMAIL>" \
      --role="roles/iam.serviceAccountTokenCreator" \
      --project=<PROJECT>
-   ```
 
-2. Python dependencies and authentication:
-   ```bash
    pip install google-cloud-iam requests
    gcloud auth application-default login
    ```
@@ -570,6 +583,11 @@ This mode skips Keycloak entirely. The handler returns pre-configured credential
 
 4. **Run the test script:**
    ```bash
+   # Method A (key file):
+   export TEST_SA_KEY_FILE=dcr-test-key.json
+   python scripts/test_dcr.py
+
+   # Method B (IAM API):
    export TEST_SERVICE_ACCOUNT=dcr-test@<PROJECT>.iam.gserviceaccount.com
    python scripts/test_dcr.py
    ```
@@ -662,6 +680,11 @@ This mode exercises the full DCR flow -- real OAuth client creation in a locally
 
 8. **Run the test script:**
    ```bash
+   # Method A (key file):
+   export TEST_SA_KEY_FILE=dcr-test-key.json
+   python scripts/test_dcr.py
+
+   # Method B (IAM API):
    export TEST_SERVICE_ACCOUNT=dcr-test@<PROJECT>.iam.gserviceaccount.com
    python scripts/test_dcr.py
    ```
@@ -695,7 +718,8 @@ The test script at `scripts/test_dcr.py` is configurable via environment variabl
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TEST_SERVICE_ACCOUNT` | (required) | GCP service account email for signing JWTs |
+| `TEST_SA_KEY_FILE` | | Path to SA key JSON file (Method A, recommended) |
+| `TEST_SERVICE_ACCOUNT` | | SA email for IAM Credentials API (Method B) |
 | `MARKETPLACE_HANDLER_URL` | `http://localhost:8001` | Marketplace handler base URL |
 | `PROVIDER_URL` | `https://your-agent-domain.com` | JWT audience (must match handler's `AGENT_PROVIDER_URL`) |
 | `TEST_ORDER_ID` | random UUID | Marketplace order ID |
