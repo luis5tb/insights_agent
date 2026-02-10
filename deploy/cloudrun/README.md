@@ -18,12 +18,12 @@ The deployment consists of **two separate Cloud Run services**:
                  │                                               │
                  ▼                                               ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    Marketplace Handler Service (Port 8001)                       │
-│                    ───────────────────────────────────────                       │
+│                    Marketplace Handler Service (Port 8001)                      │
+│                    ───────────────────────────────────────                      │
 │  - Always running (minScale=1) to receive Pub/Sub events                        │
 │  - Handles account/entitlement approvals via Procurement API                    │
 │  - Handles DCR requests (creates OAuth clients in Red Hat SSO)                  │
-│  - Stores data in PostgreSQL                                                     │
+│  - Stores data in PostgreSQL                                                    │
 └──────────┬──────────────────────────────────────────────────────────────────────┘
            │                                                │
            │ Shared PostgreSQL Database                     │ DCR (create OAuth clients)
@@ -31,22 +31,22 @@ The deployment consists of **two separate Cloud Run services**:
 ┌────────────────────────────────────────────┐    ┌──────────────────────┐
 │   Insights Agent Service (Port 8000)       │    │  Red Hat SSO         │
 │   ─────────────────────────────────────    │    │  (Keycloak)          │
-│  ┌──────────────────┐ ┌──────────────────┐│    │                      │
-│  │  Insights Agent  │ │ Insights MCP     ││    │  Production:         │
-│  │                  │ │ Server (8081)    ││    │   sso.redhat.com     │
-│  │  - Gemini 2.5   │ │                  ││    │                      │
-│  │  - A2A protocol │◄►│ - Advisor tools  ││    │  Testing:            │
-│  │  - OAuth 2.0    │ │ - Inventory tools││    │   Keycloak on        │
-│  │                 │ │ - Vuln. tools    ││    │   Cloud Run          │
-│  └──────────────────┘ └────────┬─────────┘│    └──────────────────────┘
-│                                │          │
-└────────────────────────────────┼──────────┘
+│  ┌──────────────────┐ ┌──────────────────┐ │    │                      │
+│  │  Insights Agent  │ │ Insights MCP     │ │    │  Production:         │
+│  │                  │ │ Server (8081)    │ │    │   sso.redhat.com     │
+│  │  - Gemini 2.5   │ │                   │ │    │                      │
+│  │  - A2A protocol │◄►│ - Advisor tools  │ │    │  Testing:            │
+│  │  - OAuth 2.0    │ │ - Inventory tools │ │    │   Keycloak on        │
+│  │                 │ │ - Vuln. tools     │ │    │   Cloud Run          │
+│  └──────────────────┘ └────────┬─────────┘ │    └──────────────────────┘
+│                                │           │
+└────────────────────────────────┼───────────┘
                                  │
                                  ▼
-                        ┌─────────────────┐
+                        ┌──────────────────┐
                         │console.redhat.com│
-                        │ (Insights APIs) │
-                        └─────────────────┘
+                        │ (Insights APIs)  │
+                        └──────────────────┘
 ```
 
 ### Service Responsibilities
@@ -425,14 +425,14 @@ The agent uses **Red Hat SSO** for authentication. Requests to the A2A endpoint
      │                 │                    │                   │                     │
      │  ── OAuth Login Flow ──              │                   │                     │
      │                 │                    │                   │                     │
-     │ 1. GET /oauth/authorize             │                   │                     │
+     │ 1. GET /oauth/authorize              │                   │                     │
      ├────────────────►│                    │                   │                     │
      │ 2. Redirect     │                    │                   │                     │
      │◄────────────────┤                    │                   │                     │
      │ 3. Login ───────────────────────────►│                   │                     │
-     │ 4. Redirect with code               │                   │                     │
+     │ 4. Redirect with code                │                   │                     │
      │◄────────────────────────────────────-┤                   │                     │
-     │ 5. POST /oauth/token (code)         │                   │                     │
+     │ 5. POST /oauth/token (code)          │                   │                     │
      ├────────────────►│ 6. Exchange code   │                   │                     │
      │                 ├───────────────────►│                   │                     │
      │                 │ 7. Access token    │                   │                     │
