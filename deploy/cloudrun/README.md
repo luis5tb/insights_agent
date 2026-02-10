@@ -577,11 +577,11 @@ curl $AGENT_URL/health
 curl $AGENT_URL/.well-known/agent.json
 
 # View logs for each service
-gcloud run logs read marketplace-handler \
+gcloud run services logs read marketplace-handler \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
 
-gcloud run logs read insights-agent \
+gcloud run services logs read insights-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
 ```
@@ -1003,6 +1003,337 @@ You're not using the correct A2A JSON-RPC format. Make sure your request include
   # Should show: True;True;True
   ```
 
+## Testing DCR on Cloud Run
+
+This section explains how to test the DCR (Dynamic Client Registration) flow
+against a deployed marketplace handler. Two options are available:
+
+- **Option A: Static Credentials** — no Keycloak needed, handler returns
+  pre-configured credentials for every DCR request
+- **Option B: Real DCR with Keycloak on Cloud Run** — exercises the full flow
+  with a temporary Keycloak instance creating real OAuth clients
+
+Both options require `SKIP_JWT_VALIDATION=true` on the handler to accept test
+JWTs not signed by Google's production `cloud-agentspace` service account.
+
+Both options also require a signing service account. Create one if you don't
+have one already:
+
+```bash
+gcloud iam service-accounts create dcr-test \
+  --display-name "DCR test signer" \
+  --project=$GOOGLE_CLOUD_PROJECT
+
+gcloud iam service-accounts keys create dcr-test-key.json \
+  --iam-account=dcr-test@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com \
+  --project=$GOOGLE_CLOUD_PROJECT
+```
+
+### Option A: Static Credentials (No Keycloak)
+
+This mode skips Keycloak entirely. The handler returns the pre-configured
+`RED_HAT_SSO_CLIENT_ID` and `RED_HAT_SSO_CLIENT_SECRET` for every DCR request.
+
+**1. Configure the handler:**
+
+```bash
+# Generate and store Fernet encryption key (if not already set)
+FERNET_KEY=$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+echo -n "$FERNET_KEY" | \
+  gcloud secrets versions add dcr-encryption-key \
+    --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+# Update handler env vars (deploys a new revision)
+gcloud run services update marketplace-handler \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="\
+DCR_ENABLED=false,\
+SKIP_JWT_VALIDATION=true"
+```
+
+**2. Run the test script:**
+
+```bash
+HANDLER_URL=$(gcloud run services describe marketplace-handler \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
+
+export MARKETPLACE_HANDLER_URL=$HANDLER_URL
+export TEST_SA_KEY_FILE=dcr-test-key.json
+# Don't set SKIP_CLOUD_RUN_AUTH -- script fetches an ID token automatically
+
+python scripts/test_deployed_dcr.py
+```
+
+> **Note:** If the handler was deployed with `--allow-unauthenticated`, you can
+> set `export SKIP_CLOUD_RUN_AUTH=true` to skip ID token authentication.
+
+The response will contain the static `RED_HAT_SSO_CLIENT_ID` / `RED_HAT_SSO_CLIENT_SECRET`
+credentials configured in Secret Manager.
+
+**3. Restore production configuration:**
+
+```bash
+gcloud run services update marketplace-handler \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="\
+DCR_ENABLED=true,\
+SKIP_JWT_VALIDATION=false"
+```
+
+### Option B: Real DCR with Keycloak on Cloud Run
+
+This mode exercises the full DCR flow — real OAuth client creation in a
+temporary Keycloak instance on Cloud Run.
+
+#### 1. Copy the Keycloak Image to GCR
+
+Cloud Run doesn't support pulling images from Quay.io directly. Copy the
+Keycloak image to Google Container Registry (GCR):
+
+```bash
+# Pull from Quay.io
+docker pull quay.io/keycloak/keycloak:26.0
+
+# Tag for GCR
+docker tag quay.io/keycloak/keycloak:26.0 \
+  gcr.io/$GOOGLE_CLOUD_PROJECT/keycloak:26.0
+
+# Push to GCR
+docker push gcr.io/$GOOGLE_CLOUD_PROJECT/keycloak:26.0
+```
+
+#### 2. Deploy Keycloak on Cloud Run
+
+The service **must** allow unauthenticated access. The marketplace handler sends
+`Authorization: Bearer <IAT>` (the Keycloak Initial Access Token) when calling
+the DCR endpoint. If Cloud Run IAM authentication is enabled, it intercepts this
+header expecting a Google ID token and rejects the request with a 401 before it
+ever reaches Keycloak.
+
+Since the service will be publicly accessible, generate a strong admin password:
+
+```bash
+# Generate a random admin password
+KC_ADMIN_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+echo "Keycloak admin password: $KC_ADMIN_PASSWORD"
+# Save this — you'll need it for the admin API calls below
+```
+
+Deploy the service:
+
+```bash
+gcloud run deploy keycloak-test \
+  --image=gcr.io/$GOOGLE_CLOUD_PROJECT/keycloak:26.0 \
+  --args="start-dev" \
+  --port=8080 \
+  --set-env-vars="KC_BOOTSTRAP_ADMIN_USERNAME=admin,KC_BOOTSTRAP_ADMIN_PASSWORD=$KC_ADMIN_PASSWORD,KC_PROXY_HEADERS=xforwarded,KC_HTTP_ENABLED=true" \
+  --min-instances=1 \
+  --max-instances=1 \
+  --memory=1Gi \
+  --cpu=1 \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --allow-unauthenticated
+```
+
+> **Note:** `--allow-unauthenticated` requires `run.services.setIamPolicy`
+> permission. If you get a `PERMISSION_DENIED` error, ask a project admin to
+> run the deploy command above or grant you `roles/run.admin` on the project.
+>
+> **Security:** Delete this service after testing (see step 7). Do not leave a
+> publicly accessible Keycloak instance running.
+>
+> **Why `KC_PROXY_HEADERS=xforwarded`?** Cloud Run terminates HTTPS and forwards
+> HTTP to the container. This setting tells Keycloak to trust the `X-Forwarded-*`
+> headers so it generates `https://` URLs in tokens and discovery endpoints.
+>
+> **Why `--min-instances=1`?** Keycloak's `start-dev` mode uses an in-memory H2
+> database. Data is lost on cold starts, so keep at least one instance alive.
+
+#### 3. Get the Keycloak URL
+
+```bash
+KEYCLOAK_URL=$(gcloud run services describe keycloak-test \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
+echo "Keycloak URL: $KEYCLOAK_URL"
+```
+
+Verify it's accessible:
+
+```bash
+curl -s "$KEYCLOAK_URL/realms/master" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['realm'])"
+# Should print: master
+```
+
+#### 4. Create a Test Realm and Generate an IAT
+
+```bash
+# Get admin token
+ADMIN_TOKEN=$(curl -s -X POST \
+  "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+  -d "client_id=admin-cli" \
+  -d "username=admin" \
+  -d "password=$KC_ADMIN_PASSWORD" \
+  -d "grant_type=password" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# Create test realm
+curl -s -X POST "$KEYCLOAK_URL/admin/realms" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"realm": "test-realm", "enabled": true}'
+
+# Generate Initial Access Token (IAT) for DCR
+IAT=$(curl -s -X POST \
+  "$KEYCLOAK_URL/admin/realms/test-realm/clients-initial-access" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"count": 100, "expiration": 86400}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+echo "Initial Access Token: $IAT"
+```
+
+#### 5. Configure the Marketplace Handler
+
+Update the secrets in Secret Manager first, then update the handler's env vars.
+The `gcloud run services update` command deploys a new revision that picks up
+both the env var changes and the updated secrets — no separate restart is needed.
+
+**Important:** Update secrets **before** the env vars, because the env var
+update triggers the new revision deployment.
+
+```bash
+# 1. Store IAT in Secret Manager
+echo -n "$IAT" | \
+  gcloud secrets versions add dcr-initial-access-token \
+    --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+# 2. Generate and store Fernet encryption key (if not already set)
+FERNET_KEY=$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+echo -n "$FERNET_KEY" | \
+  gcloud secrets versions add dcr-encryption-key \
+    --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+# 3. Update handler env vars (this deploys a new revision, picking up the
+#    updated secrets above and pointing the handler to the test Keycloak)
+gcloud run services update marketplace-handler \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="\
+RED_HAT_SSO_ISSUER=$KEYCLOAK_URL/realms/test-realm,\
+SKIP_JWT_VALIDATION=true,\
+DCR_ENABLED=true"
+```
+
+#### 6. Run the Test Script
+
+The marketplace handler requires Cloud Run IAM authentication by default
+(setting `--allow-unauthenticated` requires `run.services.setIamPolicy`
+permission which may not be available). The test script automatically fetches
+an ID token using your `gcloud` credentials:
+
+```bash
+# Get the handler URL
+HANDLER_URL=$(gcloud run services describe marketplace-handler \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
+
+# Run with key file signing
+export MARKETPLACE_HANDLER_URL=$HANDLER_URL
+export TEST_SA_KEY_FILE=dcr-test-key.json
+# Don't set SKIP_CLOUD_RUN_AUTH -- script fetches an ID token automatically
+
+python scripts/test_deployed_dcr.py
+```
+
+> **Note:** If the handler was deployed with `--allow-unauthenticated`, you can
+> set `export SKIP_CLOUD_RUN_AUTH=true` to skip ID token authentication.
+
+Expected output:
+
+```
+<<< 201
+{
+  "client_id": "e2a91c94-...",
+  "client_secret": "UGH3iMkY...",
+  "client_secret_expires_at": 0
+}
+
+DCR succeeded.
+```
+
+#### 7. Verify in Keycloak
+
+Check that the OAuth client was created:
+
+```bash
+# Get fresh admin token
+ADMIN_TOKEN=$(curl -s -X POST \
+  "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+  -d "client_id=admin-cli" \
+  -d "username=admin" \
+  -d "password=$KC_ADMIN_PASSWORD" \
+  -d "grant_type=password" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# List DCR-created clients in test-realm
+curl -s "$KEYCLOAK_URL/admin/realms/test-realm/clients" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -c "
+import sys, json
+clients = json.load(sys.stdin)
+for c in clients:
+    if c.get('clientId', '').startswith('gemini-order-'):
+        print(f\"  {c['clientId']}\")
+"
+```
+
+#### 8. Clean Up
+
+```bash
+# Delete the test Keycloak service
+gcloud run services delete keycloak-test \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --quiet
+
+# Restore handler to production configuration
+gcloud run services update marketplace-handler \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="\
+RED_HAT_SSO_ISSUER=https://sso.redhat.com/auth/realms/redhat-external,\
+SKIP_JWT_VALIDATION=false"
+
+# Restore the production IAT in Secret Manager
+echo -n 'your-production-iat' | \
+  gcloud secrets versions add dcr-initial-access-token \
+    --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+```
+
+### Test Script Reference
+
+The test script at `scripts/test_deployed_dcr.py` is configurable via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MARKETPLACE_HANDLER_URL` | (required) | Cloud Run handler URL |
+| `TEST_SA_KEY_FILE` | - | Path to SA key file (Method A) |
+| `TEST_SERVICE_ACCOUNT` | - | SA email for IAM API signing (Method B) |
+| `PROVIDER_URL` | `https://your-agent-domain.com` | JWT audience claim |
+| `SKIP_CLOUD_RUN_AUTH` | `false` | Skip Cloud Run ID token auth |
+| `TEST_ORDER_ID` | random UUID | Fixed order ID |
+| `TEST_ACCOUNT_ID` | `test-procurement-account-001` | Procurement account ID |
+| `TEST_REDIRECT_URIS` | `https://gemini.google.com/callback` | Comma-separated redirect URIs |
+
 ## Monitoring
 
 View metrics in Google Cloud Console:
@@ -1022,7 +1353,7 @@ gcloud monitoring policies create \
 ### View Logs
 
 ```bash
-gcloud run logs read insights-agent \
+gcloud run services logs read insights-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --limit=100
