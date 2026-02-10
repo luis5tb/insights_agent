@@ -7,23 +7,23 @@
 # 1. marketplace-handler - Handles DCR and Pub/Sub events (always running)
 # 2. insights-agent - A2A agent with MCP sidecar (runs after provisioning)
 #
+# Uses the YAML service configs (service.yaml and marketplace-handler.yaml)
+# with variable substitution to deploy each service.
+#
 # Usage:
 #   ./deploy/cloudrun/deploy.sh [OPTIONS]
 #
 # Options:
-#   --service <service>   Which service to deploy: all, handler, agent
-#                         (default: all)
-#   --method <method>     Deployment method: yaml, adk, cloudbuild
-#                         (default: yaml)
-#   --image <image>       Container image for the agent
-#                         (default: gcr.io/$PROJECT_ID/insights-agent:latest)
-#   --handler-image <image> Container image for the marketplace handler
-#                         (default: gcr.io/$PROJECT_ID/marketplace-handler:latest)
-#   --mcp-image <image>   Container image for the MCP server
-#                         (default: gcr.io/$PROJECT_ID/insights-mcp:latest)
-#   --with-ui             Include ADK web UI (only for adk method)
-#   --allow-unauthenticated  Allow public access
-#   --build               Build images before deploying
+#   --service <service>       Which service to deploy: all, handler, agent
+#                             (default: all)
+#   --image <image>           Container image for the agent
+#                             (default: gcr.io/$PROJECT_ID/insights-agent:latest)
+#   --handler-image <image>   Container image for the marketplace handler
+#                             (default: gcr.io/$PROJECT_ID/marketplace-handler:latest)
+#   --mcp-image <image>       Container image for the MCP server
+#                             (default: gcr.io/$PROJECT_ID/insights-mcp:latest)
+#   --allow-unauthenticated   Allow public access
+#   --build                   Build images before deploying
 #
 # Architecture:
 #   ┌─────────────────────────┐     ┌─────────────────────────┐
@@ -71,9 +71,7 @@ HANDLER_IMAGE="${HANDLER_IMAGE:-}"
 MCP_IMAGE="${MCP_IMAGE:-gcr.io/${PROJECT_ID}/insights-mcp:latest}"
 
 # Parse arguments
-DEPLOY_METHOD="yaml"
 DEPLOY_SERVICE="all"  # all, handler, agent
-WITH_UI=false
 ALLOW_UNAUTH=false
 BUILD_IMAGE=false
 
@@ -81,10 +79,6 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --service)
             DEPLOY_SERVICE="$2"
-            shift 2
-            ;;
-        --method)
-            DEPLOY_METHOD="$2"
             shift 2
             ;;
         --image)
@@ -99,10 +93,6 @@ while [[ $# -gt 0 ]]; do
             MCP_IMAGE="$2"
             shift 2
             ;;
-        --with-ui)
-            WITH_UI=true
-            shift
-            ;;
         --allow-unauthenticated)
             ALLOW_UNAUTH=true
             shift
@@ -113,7 +103,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             log_error "Unknown option: $1"
-            echo "Usage: $0 [--service all|handler|agent] [--method yaml|adk|cloudbuild] [--image IMAGE] [--handler-image IMAGE] [--mcp-image IMAGE] [--with-ui] [--allow-unauthenticated] [--build]"
+            echo "Usage: $0 [--service all|handler|agent] [--image IMAGE] [--handler-image IMAGE] [--mcp-image IMAGE] [--allow-unauthenticated] [--build]"
             exit 1
             ;;
     esac
@@ -137,7 +127,6 @@ log_info "Deploying to Cloud Run"
 log_info "  Project: $PROJECT_ID"
 log_info "  Region: $REGION"
 log_info "  Service(s): $DEPLOY_SERVICE"
-log_info "  Method: $DEPLOY_METHOD"
 log_info "  Agent Image: $AGENT_IMAGE"
 log_info "  Handler Image: $HANDLER_IMAGE"
 log_info "  MCP Image: $MCP_IMAGE"
@@ -170,9 +159,9 @@ build_handler_image() {
 }
 
 # =============================================================================
-# Option 1: Deploy using service.yaml (recommended - includes MCP sidecar)
+# Deploy using service YAML configs
 # =============================================================================
-deploy_agent_with_yaml() {
+deploy_agent() {
     log_info "Deploying agent with service.yaml..."
 
     # Create temporary file with substituted values
@@ -206,7 +195,7 @@ deploy_agent_with_yaml() {
     rm -f "$tmp_yaml"
 }
 
-deploy_handler_with_yaml() {
+deploy_handler() {
     log_info "Deploying marketplace handler with marketplace-handler.yaml..."
 
     # Create temporary file with substituted values
@@ -240,42 +229,6 @@ deploy_handler_with_yaml() {
 }
 
 # =============================================================================
-# Option 2: Deploy using ADK CLI
-# =============================================================================
-deploy_with_adk() {
-    log_info "Deploying with ADK CLI..."
-    log_warn "Note: ADK deploy does not support MCP sidecar. Use --method yaml or --method gcloud instead."
-
-    local cmd="adk deploy cloud_run \
-        --project=$PROJECT_ID \
-        --region=$REGION \
-        --service_name=$SERVICE_NAME \
-        --port=8000"
-
-    if [[ "$WITH_UI" == "true" ]]; then
-        cmd="$cmd --with_ui"
-    fi
-
-    # ADK expects the agent directory
-    $cmd .
-
-    log_warn "MCP sidecar was not deployed. The agent will not have access to Red Hat Insights tools."
-    log_warn "To add MCP sidecar, run: ./deploy/cloudrun/deploy.sh --method yaml"
-}
-
-# =============================================================================
-# Option 3: Deploy using Cloud Build
-# =============================================================================
-deploy_with_cloudbuild() {
-    log_info "Deploying with Cloud Build..."
-
-    gcloud builds submit \
-        --config=cloudbuild.yaml \
-        --project="$PROJECT_ID" \
-        --substitutions="_SERVICE_NAME=${SERVICE_NAME},_REGION=${REGION},_IMAGE_TAG=${IMAGE_TAG},_MCP_IMAGE=${MCP_IMAGE}"
-}
-
-# =============================================================================
 # Main deployment
 # =============================================================================
 
@@ -295,51 +248,24 @@ if [[ "$BUILD_IMAGE" == "true" ]]; then
     esac
 fi
 
-# Deploy based on service and method
-deploy_services() {
-    case "$DEPLOY_METHOD" in
-        yaml)
-            case "$DEPLOY_SERVICE" in
-                all)
-                    deploy_handler_with_yaml
-                    deploy_agent_with_yaml
-                    ;;
-                handler)
-                    deploy_handler_with_yaml
-                    ;;
-                agent)
-                    deploy_agent_with_yaml
-                    ;;
-            esac
-            ;;
-        adk)
-            if [[ "$DEPLOY_SERVICE" != "agent" ]]; then
-                log_error "ADK method only supports agent deployment. Use --method yaml for handler."
-                exit 1
-            fi
-            if command -v adk &>/dev/null; then
-                deploy_with_adk
-            else
-                log_error "ADK CLI not found. Install it or use --method yaml"
-                exit 1
-            fi
-            ;;
-        cloudbuild)
-            if [[ "$DEPLOY_SERVICE" != "agent" ]]; then
-                log_error "Cloud Build method only supports agent deployment. Use --method yaml for handler."
-                exit 1
-            fi
-            deploy_with_cloudbuild
-            ;;
-        *)
-            log_error "Unknown deployment method: $DEPLOY_METHOD"
-            echo "Valid methods: yaml, adk, cloudbuild"
-            exit 1
-            ;;
-    esac
-}
-
-deploy_services
+# Deploy based on service selection
+case "$DEPLOY_SERVICE" in
+    all)
+        deploy_handler
+        deploy_agent
+        ;;
+    handler)
+        deploy_handler
+        ;;
+    agent)
+        deploy_agent
+        ;;
+    *)
+        log_error "Unknown service: $DEPLOY_SERVICE"
+        echo "Valid services: all, handler, agent"
+        exit 1
+        ;;
+esac
 
 # =============================================================================
 # Post-deployment

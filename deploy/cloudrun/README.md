@@ -24,29 +24,29 @@ The deployment consists of **two separate Cloud Run services**:
 │  - Handles account/entitlement approvals via Procurement API                    │
 │  - Handles DCR requests (creates OAuth clients in Red Hat SSO)                  │
 │  - Stores data in PostgreSQL                                                     │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                 │
-                 │ Shared PostgreSQL Database
-                 ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                     Insights Agent Service (Port 8000)                           │
-│                     ─────────────────────────────────────                        │
-│  ┌─────────────────────┐      ┌─────────────────────────┐                       │
-│  │   Insights Agent    │ HTTP │   Insights MCP Server   │                       │
-│  │                     │◄────►│   (Sidecar, Port 8081)  │                       │
-│  │   - Gemini 2.5      │      │                         │                       │
-│  │   - A2A protocol    │      │   - Advisor tools       │                       │
-│  │   - OAuth 2.0       │      │   - Inventory tools     │                       │
-│  │                     │      │   - Vulnerability tools │                       │
-│  └─────────────────────┘      └───────────┬─────────────┘                       │
-│                                           │                                      │
-└───────────────────────────────────────────┼──────────────────────────────────────┘
-                                            │
-                                            ▼
-                                   ┌─────────────────┐
-                                   │console.redhat.com│
-                                   │ (Insights APIs) │
-                                   └─────────────────┘
+└──────────┬──────────────────────────────────────────────────────────────────────┘
+           │                                                │
+           │ Shared PostgreSQL Database                     │ DCR (create OAuth clients)
+           ▼                                                ▼
+┌────────────────────────────────────────────┐    ┌──────────────────────┐
+│   Insights Agent Service (Port 8000)       │    │  Red Hat SSO         │
+│   ─────────────────────────────────────    │    │  (Keycloak)          │
+│  ┌──────────────────┐ ┌──────────────────┐│    │                      │
+│  │  Insights Agent  │ │ Insights MCP     ││    │  Production:         │
+│  │                  │ │ Server (8081)    ││    │   sso.redhat.com     │
+│  │  - Gemini 2.5   │ │                  ││    │                      │
+│  │  - A2A protocol │◄►│ - Advisor tools  ││    │  Testing:            │
+│  │  - OAuth 2.0    │ │ - Inventory tools││    │   Keycloak on        │
+│  │                 │ │ - Vuln. tools    ││    │   Cloud Run          │
+│  └──────────────────┘ └────────┬─────────┘│    └──────────────────────┘
+│                                │          │
+└────────────────────────────────┼──────────┘
+                                 │
+                                 ▼
+                        ┌─────────────────┐
+                        │console.redhat.com│
+                        │ (Insights APIs) │
+                        └─────────────────┘
 ```
 
 ### Service Responsibilities
@@ -203,8 +203,8 @@ docker push gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp:latest
 
 ### 6. Deploy
 
-The deploy script supports deploying both services. The default (`yaml`) method is recommended
-as it includes the MCP sidecar container for the agent.
+The deploy script uses the YAML service configs (`service.yaml` and
+`marketplace-handler.yaml`) with variable substitution to deploy both services.
 
 ```bash
 # Build and deploy both services (recommended for first deployment)
@@ -213,8 +213,11 @@ as it includes the MCP sidecar container for the agent.
 # Deploy only the marketplace handler
 ./deploy/cloudrun/deploy.sh --service handler --allow-unauthenticated
 
-# Deploy only the agent with existing image
+# Deploy only the agent with a custom image
 ./deploy/cloudrun/deploy.sh --service agent --image gcr.io/my-project/insights-agent:v1.0
+
+# Deploy the handler with a custom image
+./deploy/cloudrun/deploy.sh --service handler --handler-image gcr.io/my-project/marketplace-handler:v1.0
 ```
 
 **Deploy script options:**
@@ -222,12 +225,10 @@ as it includes the MCP sidecar container for the agent.
 | Flag | Description |
 |------|-------------|
 | `--service <service>` | Which service to deploy: `all` (default), `handler`, `agent` |
-| `--method <method>` | Deployment method: `yaml` (default), `adk`, `cloudbuild` |
 | `--image <image>` | Container image for the agent (default: `gcr.io/$PROJECT_ID/insights-agent:latest`) |
 | `--handler-image <image>` | Container image for the marketplace handler (default: `gcr.io/$PROJECT_ID/marketplace-handler:latest`) |
 | `--mcp-image <image>` | Container image for the MCP server (default: `gcr.io/$PROJECT_ID/insights-mcp:latest`) |
 | `--build` | Build the image(s) before deploying |
-| `--with-ui` | Include the ADK web UI (only for `adk` method, agent only) |
 | `--allow-unauthenticated` | Allow public access (required for A2A and Pub/Sub) |
 
 **Service deployment:**
@@ -238,84 +239,16 @@ as it includes the MCP sidecar container for the agent.
 | `agent` | `service.yaml` | A2A queries with MCP sidecar |
 | `all` | Both | Deploy both services |
 
-**Deployment methods:**
-
-| Method | MCP Sidecar | Services | Description |
-|--------|-------------|----------|-------------|
-| `yaml` | ✅ Yes | All | Uses YAML configs with variable substitution (recommended) |
-| `adk` | ❌ No | Agent only | Uses ADK CLI (does not support sidecars) |
-| `cloudbuild` | ✅ Yes | Agent only | Uses Cloud Build with `cloudbuild.yaml` |
-
-**Examples:**
+The deploy script performs variable substitution on the YAML configs
+(`${PROJECT_ID}`, `${REGION}`, image references) and deploys using
+`gcloud run services replace`. To deploy manually without the script:
 
 ```bash
-# Deploy both services (production setup)
-./deploy/cloudrun/deploy.sh --build --service all --allow-unauthenticated
-
-# Deploy only marketplace handler (for receiving procurement events)
-./deploy/cloudrun/deploy.sh --service handler --allow-unauthenticated
-
-# Deploy only agent with custom image
-./deploy/cloudrun/deploy.sh --service agent --image quay.io/myorg/insights-agent:latest
-
-# Deploy with ADK CLI (agent only, no MCP sidecar - not recommended for production)
-./deploy/cloudrun/deploy.sh --service agent --method adk --with-ui
-
-# Deploy using Cloud Build (agent only)
-./deploy/cloudrun/deploy.sh --service agent --method cloudbuild
-```
-
-## Deployment Options
-
-### Using service.yaml (Recommended)
-
-The `service.yaml` file defines both the agent and MCP sidecar containers:
-
-```bash
-# Build image first
-gcloud builds submit --tag gcr.io/$GOOGLE_CLOUD_PROJECT/insights-agent:latest .
-
-# Deploy using service.yaml
-./deploy/cloudrun/deploy.sh --method yaml
-```
-
-Or manually:
-```bash
-# Substitute variables and deploy
+# Substitute variables and deploy the agent
 sed -e "s|\${PROJECT_ID}|$GOOGLE_CLOUD_PROJECT|g" \
     -e "s|\${REGION}|$GOOGLE_CLOUD_LOCATION|g" \
     deploy/cloudrun/service.yaml | \
     gcloud run services replace - --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
-```
-
-### Using ADK CLI (No MCP Sidecar)
-
-> **Warning**: ADK CLI does not support sidecar containers. The agent will not
-> have access to Red Hat Insights tools. Use only for testing the agent framework.
-
-```bash
-./deploy/cloudrun/deploy.sh --method adk --with-ui
-```
-
-**ADK CLI options:**
-
-| Option | Description |
-|--------|-------------|
-| `--with_ui` | Deploy with the ADK web UI for interactive testing |
-| `--port` | Container port (default: 8080, we use 8000) |
-
-### Using Cloud Build
-
-```bash
-./deploy/cloudrun/deploy.sh --method cloudbuild
-```
-
-Or manually:
-```bash
-gcloud builds submit \
-  --config=cloudbuild.yaml \
-  --project=$GOOGLE_CLOUD_PROJECT \
-  --substitutions=_SERVICE_NAME=insights-agent,_REGION=us-central1,_MCP_IMAGE=quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
 ```
 
 ## Service Configuration
@@ -485,37 +418,56 @@ The agent uses **Red Hat SSO** for authentication. Requests to the A2A endpoint
 ### Authentication Flow
 
 ```
-┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Client    │     │  Insights Agent │     │  Red Hat SSO    │
-└──────┬──────┘     └────────┬────────┘     └────────┬────────┘
-       │                     │                       │
-       │  1. GET /oauth/authorize                    │
-       ├────────────────────►│                       │
-       │                     │                       │
-       │  2. Redirect to SSO                         │
-       │◄────────────────────┤                       │
-       │                     │                       │
-       │  3. Login at SSO ──────────────────────────►│
-       │                     │                       │
-       │  4. Redirect with code                      │
-       │◄───────────────────────────────────────────-┤
-       │                     │                       │
-       │  5. POST /oauth/token (code)                │
-       ├────────────────────►│                       │
-       │                     │  6. Exchange code     │
-       │                     ├──────────────────────►│
-       │                     │  7. Access token      │
-       │                     │◄──────────────────────┤
-       │  8. Token response  │                       │
-       │◄────────────────────┤                       │
-       │                     │                       │
-       │  9. POST / (A2A) with Bearer token          │
-       ├────────────────────►│                       │
-       │                     │  10. Validate JWT     │
-       │                     ├──────────────────────►│
-       │  11. A2A Response   │                       │
-       │◄────────────────────┤                       │
+┌──────────┐    ┌───────────────┐    ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
+│  Client  │    │Insights Agent │    │ Red Hat SSO  │    │  MCP Server  │    │console.redhat.com│
+│(Gemini)  │    │  (port 8000)  │    │  (Keycloak)  │    │  (port 8080) │    │ (Insights APIs) │
+└────┬─────┘    └──────┬────────┘    └──────┬───────┘    └──────┬───────┘    └────────┬────────┘
+     │                 │                    │                   │                     │
+     │  ── OAuth Login Flow ──              │                   │                     │
+     │                 │                    │                   │                     │
+     │ 1. GET /oauth/authorize             │                   │                     │
+     ├────────────────►│                    │                   │                     │
+     │ 2. Redirect     │                    │                   │                     │
+     │◄────────────────┤                    │                   │                     │
+     │ 3. Login ───────────────────────────►│                   │                     │
+     │ 4. Redirect with code               │                   │                     │
+     │◄────────────────────────────────────-┤                   │                     │
+     │ 5. POST /oauth/token (code)         │                   │                     │
+     ├────────────────►│ 6. Exchange code   │                   │                     │
+     │                 ├───────────────────►│                   │                     │
+     │                 │ 7. Access token    │                   │                     │
+     │                 │◄──────────────────-┤                   │                     │
+     │ 8. Token        │                    │                   │                     │
+     │◄────────────────┤                    │                   │                     │
+     │                 │                    │                   │                     │
+     │  ── A2A Request with Tool Call ──    │                   │                     │
+     │                 │                    │                   │                     │
+     │ 9. POST / (A2A) │                    │                   │                     │
+     │    Bearer token │                    │                   │                     │
+     ├────────────────►│ 10. Validate JWT   │                   │                     │
+     │                 ├───────────────────►│                   │                     │
+     │                 │                    │                   │                     │
+     │                 │ 11. MCP tool call  │                   │                     │
+     │                 │  + Lightspeed creds (HTTP headers)     │                     │
+     │                 ├───────────────────────────────────────►│                     │
+     │                 │                    │                   │ 12. OAuth2 token    │
+     │                 │                    │                   │     (client_credentials)
+     │                 │                    │                   ├────────────────────►│
+     │                 │                    │                   │ 13. Access token    │
+     │                 │                    │                   │◄────────────────────┤
+     │                 │                    │                   │ 14. Insights API    │
+     │                 │                    │                   ├────────────────────►│
+     │                 │                    │                   │ 15. API response    │
+     │                 │                    │                   │◄────────────────────┤
+     │                 │ 16. Tool result    │                   │                     │
+     │                 │◄──────────────────────────────────────-┤                     │
+     │ 17. A2A Response│                    │                   │                     │
+     │◄────────────────┤                    │                   │                     │
 ```
+
+**Two separate credential sets:**
+- **Red Hat SSO credentials** (`RED_HAT_SSO_CLIENT_ID/SECRET`): Used by the agent for the OAuth login flow (steps 1-8) and JWT validation (step 10)
+- **Lightspeed credentials** (`LIGHTSPEED_CLIENT_ID/SECRET`): Passed by the agent to the MCP server via HTTP headers (step 11), used by the MCP server to authenticate with console.redhat.com APIs (step 12)
 
 ### Configuration
 
@@ -629,24 +581,6 @@ gcloud run services update insights-agent \
 - If `SESSION_DATABASE_URL` is not set: Uses in-memory storage (sessions lost on restart)
 
 For production, always configure `SESSION_DATABASE_URL` to ensure session persistence across container restarts and scaling events.
-
-## CI/CD with Cloud Build
-
-The `cloudbuild.yaml` file provides automated builds:
-
-1. **On push to main**: Trigger automatic deployments
-2. **On pull request**: Build and test only
-
-Set up a Cloud Build trigger:
-
-```bash
-gcloud builds triggers create github \
-  --repo-name=insights-agent \
-  --repo-owner=your-org \
-  --branch-pattern='^main$' \
-  --build-config=cloudbuild.yaml \
-  --project=$GOOGLE_CLOUD_PROJECT
-```
 
 ## Custom Domain
 
@@ -1012,6 +946,38 @@ against a deployed marketplace handler. Two options are available:
   pre-configured credentials for every DCR request
 - **Option B: Real DCR with Keycloak on Cloud Run** — exercises the full flow
   with a temporary Keycloak instance creating real OAuth clients
+
+```
+Option A: Static Credentials             Option B: Real DCR with Keycloak
+
+┌──────────────┐                         ┌──────────────┐
+│  Test Script │                         │  Test Script │
+│  (local)     │                         │  (local)     │
+└──────┬───────┘                         └──────┬───────┘
+       │ POST /dcr                              │ POST /dcr
+       │ (software_statement JWT)               │ (software_statement JWT)
+       │ + Cloud Run ID token                   │ + Cloud Run ID token
+       ▼                                        ▼
+┌──────────────────────┐                 ┌──────────────────────┐
+│  Marketplace Handler │                 │  Marketplace Handler │
+│  (Cloud Run)         │                 │  (Cloud Run)         │
+│                      │                 │                      │
+│  DCR_ENABLED=false   │                 │  DCR_ENABLED=true    │
+│  Returns static      │                 │                      │
+│  client_id/secret    │                 └──────────┬───────────┘
+└──────────────────────┘                            │ POST /clients-registrations
+                                                    │ (Bearer IAT)
+                                                    ▼
+                                         ┌──────────────────────┐
+                                         │  Keycloak            │
+                                         │  (Cloud Run)         │
+                                         │                      │
+                                         │  --allow-unauth      │
+                                         │  (required: handler  │
+                                         │   sends IAT in       │
+                                         │   Authorization hdr) │
+                                         └──────────────────────┘
+```
 
 Both options require `SKIP_JWT_VALIDATION=true` on the handler to accept test
 JWTs not signed by Google's production `cloud-agentspace` service account.
