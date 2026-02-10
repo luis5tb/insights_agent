@@ -31,14 +31,14 @@ The deployment consists of **two separate Cloud Run services**:
 ┌────────────────────────────────────────────┐    ┌──────────────────────┐
 │   Insights Agent Service (Port 8000)       │    │  Red Hat SSO         │
 │   ─────────────────────────────────────    │    │  (Keycloak)          │
-│  ┌──────────────────┐ ┌──────────────────┐ │    │                      │
-│  │  Insights Agent  │ │ Insights MCP     │ │    │  Production:         │
-│  │                  │ │ Server (8081)    │ │    │   sso.redhat.com     │
-│  │  - Gemini 2.5   │ │                   │ │    │                      │
-│  │  - A2A protocol │◄►│ - Advisor tools  │ │    │  Testing:            │
-│  │  - OAuth 2.0    │ │ - Inventory tools │ │    │   Keycloak on        │
-│  │                 │ │ - Vuln. tools     │ │    │   Cloud Run          │
-│  └──────────────────┘ └────────┬─────────┘ │    └──────────────────────┘
+│  ┌──────────────────┐  ┌──────────────────┐│    │                      │
+│  │  Insights Agent  │  │ Insights MCP     ││    │  Production:         │
+│  │                  │  │ Server (8081)    ││    │   sso.redhat.com     │
+│  │  - Gemini 2.5    │  │                  ││    │                      │
+│  │  - A2A protocol  │◄►│ - Advisor tools  ││    │  Testing:            │
+│  │  - OAuth 2.0     │  │ - Inventory tools││    │   Keycloak on        │
+│  │                  │  │ - Vuln. tools    ││    │   Cloud Run          │
+│  └──────────────────┘  └────────┬─────────┘│    └──────────────────────┘
 │                                │           │
 └────────────────────────────────┼───────────┘
                                  │
