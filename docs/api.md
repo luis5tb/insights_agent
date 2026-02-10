@@ -15,16 +15,16 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
 │                                   (app.py)                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Middleware Stack (applied in reverse order)                                │
-│  ┌─────────────┐  ┌──────────────────┐  ┌─────────────────┐                │
-│  │    CORS     │→ │ Authentication   │→ │  RateLimiting   │                │
-│  └─────────────┘  └──────────────────┘  └─────────────────┘                │
+│  ┌─────────────┐  ┌──────────────────┐  ┌─────────────────┐                 │
+│  │    CORS     │→ │ Authentication   │→ │  RateLimiting   │                 │
+│  └─────────────┘  └──────────────────┘  └─────────────────┘                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Routers                                                                    │
-│  ┌──────────────────┐ ┌────────────┐ ┌─────────────┐ ┌────────────────┐    │
-│  │  A2A Protocol    │ │   OAuth    │ │     DCR     │ │  Marketplace   │    │
-│  │  (a2a_setup.py)  │ │  (auth/)   │ │   (dcr/)    │ │ (marketplace/) │    │
-│  │  POST /          │ │            │ │             │ │                │    │
-│  └────────┬─────────┘ └────────────┘ └─────────────┘ └────────────────┘    │
+│  ┌──────────────────┐ ┌────────────┐ ┌─────────────┐ ┌────────────────┐     │
+│  │  A2A Protocol    │ │   OAuth    │ │     DCR     │ │  Marketplace   │     │
+│  │  (a2a_setup.py)  │ │  (auth/)   │ │   (dcr/)    │ │ (marketplace/) │     │
+│  │  POST /          │ │            │ │             │ │                │     │
+│  └────────┬─────────┘ └────────────┘ └─────────────┘ └────────────────┘     │
 └───────────│─────────────────────────────────────────────────────────────────┘
             │
             ▼
@@ -32,25 +32,25 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
 │                           A2A Protocol Layer                                │
 │                           (from a2a-sdk)                                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                     A2AFastAPIApplication                            │   │
-│  │  Routes:                                                             │   │
-│  │  • GET  /.well-known/agent.json  → AgentCard (no auth)              │   │
-│  │  • POST /                        → JSON-RPC 2.0 endpoint            │   │
-│  └───────────────────────────────┬─────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                     A2AFastAPIApplication                           │    │
+│  │  Routes:                                                            │    │
+│  │  • GET  /.well-known/agent.json  → AgentCard (no auth)              │    │
+│  │  • POST /                        → JSON-RPC 2.0 endpoint            │    │
+│  └───────────────────────────────┬─────────────────────────────────────┘    │
 │                                  │                                          │
-│  ┌───────────────────────────────▼─────────────────────────────────────┐   │
-│  │                    DefaultRequestHandler                             │   │
-│  │  • Parses JSON-RPC requests (message/send, message/stream, etc.)    │   │
-│  │  • Manages SSE streaming for message/stream                         │   │
-│  │  • Routes to agent executor                                          │   │
-│  └───────────────────────────────┬─────────────────────────────────────┘   │
+│  ┌───────────────────────────────▼─────────────────────────────────────┐    │
+│  │                    DefaultRequestHandler                            │    │
+│  │  • Parses JSON-RPC requests (message/send, message/stream, etc.)    │    │
+│  │  • Manages SSE streaming for message/stream                         │    │
+│  │  • Routes to agent executor                                         │    │
+│  └───────────────────────────────┬─────────────────────────────────────┘    │
 │                                  │                                          │
-│  ┌───────────────────────────────▼─────────────────────────────────────┐   │
-│  │                     InMemoryTaskStore                                │   │
-│  │  • Stores task state (submitted, working, completed, failed)        │   │
-│  │  • Enables task retrieval via tasks/get, tasks/cancel               │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
+│  ┌───────────────────────────────▼─────────────────────────────────────┐    │
+│  │                     InMemoryTaskStore                               │    │
+│  │  • Stores task state (submitted, working, completed, failed)        │    │
+│  │  • Enables task retrieval via tasks/get, tasks/cancel               │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -58,35 +58,35 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
 │                           ADK Agent Layer                                   │
 │                           (from google-adk)                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      A2aAgentExecutor                                │   │
-│  │  Bridges A2A ←→ ADK with converters:                                │   │
-│  │  • convert_a2a_request_to_adk_run_args (inbound)                    │   │
-│  │  • convert_event_to_a2a_events (outbound)                           │   │
-│  │  • convert_a2a_part_to_genai_part / convert_genai_part_to_a2a_part  │   │
-│  └───────────────────────────────┬─────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      A2aAgentExecutor                               │    │
+│  │  Bridges A2A ←→ ADK with converters:                                │    │
+│  │  • convert_a2a_request_to_adk_run_args (inbound)                    │    │
+│  │  • convert_event_to_a2a_events (outbound)                           │    │
+│  │  • convert_a2a_part_to_genai_part / convert_genai_part_to_a2a_part  │    │
+│  └───────────────────────────────┬─────────────────────────────────────┘    │
 │                                  │                                          │
-│  ┌───────────────────────────────▼─────────────────────────────────────┐   │
-│  │                           Runner                                     │   │
-│  │  ┌─────────────────┐  ┌──────────────────┐  ┌───────────────────┐   │   │
-│  │  │  SessionService │  │ ArtifactService  │  │   MemoryService   │   │   │
-│  │  │ (Database/Mem)  │  │    (InMemory)    │  │    (InMemory)     │   │   │
-│  │  └─────────────────┘  └──────────────────┘  └───────────────────┘   │   │
-│  └───────────────────────────────┬─────────────────────────────────────┘   │
+│  ┌───────────────────────────────▼─────────────────────────────────────┐    │
+│  │                           Runner                                    │    │
+│  │  ┌─────────────────┐  ┌──────────────────┐  ┌───────────────────┐   │    │
+│  │  │  SessionService │  │ ArtifactService  │  │   MemoryService   │   │    │
+│  │  │ (Database/Mem)  │  │    (InMemory)    │  │    (InMemory)     │   │    │
+│  │  └─────────────────┘  └──────────────────┘  └───────────────────┘   │    │
+│  └───────────────────────────────┬─────────────────────────────────────┘    │
 │                                  │                                          │
-│  ┌───────────────────────────────▼─────────────────────────────────────┐   │
-│  │                              App                                     │   │
-│  │  Plugins:                                                            │   │
-│  │  • UsageTrackingPlugin - tracks tokens, requests, tool calls        │   │
-│  └───────────────────────────────┬─────────────────────────────────────┘   │
+│  ┌───────────────────────────────▼─────────────────────────────────────┐    │
+│  │                              App                                    │    │
+│  │  Plugins:                                                           │    │
+│  │  • UsageTrackingPlugin - tracks tokens, requests, tool calls        │    │
+│  └───────────────────────────────┬─────────────────────────────────────┘    │
 │                                  │                                          │
-│  ┌───────────────────────────────▼─────────────────────────────────────┐   │
-│  │                          LlmAgent                                    │   │
-│  │                        (core/agent.py)                               │   │
-│  │  • Model: Gemini 2.5 Flash (configurable)                           │   │
-│  │  • Instructions: Red Hat Insights domain knowledge                  │   │
-│  │  • Tools: MCP Toolset (Red Hat Insights API)                        │   │
-│  └───────────────────────────────┬─────────────────────────────────────┘   │
+│  ┌───────────────────────────────▼─────────────────────────────────────┐    │
+│  │                          LlmAgent                                   │    │
+│  │                        (core/agent.py)                              │    │
+│  │  • Model: Gemini 2.5 Flash (configurable)                           │    │
+│  │  • Instructions: Red Hat Insights domain knowledge                  │    │
+│  │  • Tools: MCP Toolset (Red Hat Insights API)                        │    │
+│  └───────────────────────────────┬─────────────────────────────────────┘    │
 └──────────────────────────────────│──────────────────────────────────────────┘
                                    │
                                    ▼
@@ -180,136 +180,136 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
 │                              a2a-sdk                                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  ┌─────────────────────┐    ┌─────────────────────┐                        │
+│  ┌──────────────────────┐    ┌──────────────────────┐                       │
 │  │ A2AFastAPIApplication│    │ DefaultRequestHandler│                       │
-│  │ (server/apps.py)    │───→│ (server/request_     │                        │
-│  │                     │    │  handlers.py)        │                        │
-│  │ + add_routes_to_app()│    │                     │                        │
-│  └─────────────────────┘    │ + handle_send()     │                        │
-│                              │ + handle_stream()   │                        │
-│                              └──────────┬──────────┘                        │
+│  │ (server/apps.py)     │───→│ (server/request_     │                       │
+│  │                      │    │  handlers.py)        │                       │
+│  │ + add_routes_to_app()│    │                      │                       │
+│  └──────────────────────┘    │ + handle_send()      │                       │
+│                              │ + handle_stream()    │                       │
+│                              └──────────┬───────────┘                       │
 │                                         │                                   │
-│  ┌──────────────────────────────────────┼──────────────────────────────┐   │
-│  │ Types (a2a.types)                    │                              │   │
-│  │ ┌──────────┐ ┌──────────┐ ┌─────────▼──┐ ┌────────────┐            │   │
-│  │ │AgentCard │ │ Message  │ │AgentExecutor│ │InMemoryTask│            │   │
-│  │ │          │ │          │ │ (Protocol) │ │Store       │            │   │
-│  │ │+name     │ │+role     │ │            │ │            │            │   │
-│  │ │+skills[] │ │+parts[]  │ │+execute()  │ │+get_task() │            │   │
-│  │ │+caps     │ │+message_ │ │+cancel()   │ │+save_task()│            │   │
-│  │ └──────────┘ │ id       │ └─────▲──────┘ └────────────┘            │   │
-│  │              └──────────┘       │                                   │   │
-│  └─────────────────────────────────│───────────────────────────────────┘   │
+│  ┌──────────────────────────────────────┼──────────────────────────────┐    │
+│  │ Types (a2a.types)                    │                              │    │
+│  │ ┌──────────┐ ┌──────────┐ ┌──────────▼──┐ ┌────────────┐            │    │
+│  │ │AgentCard │ │ Message  │ │AgentExecutor│ │InMemoryTask│            │    │
+│  │ │          │ │          │ │ (Protocol)  │ │Store       │            │    │
+│  │ │+name     │ │+role     │ │             │ │            │            │    │
+│  │ │+skills[] │ │+parts[]  │ │+execute()   │ │+get_task() │            │    │
+│  │ │+caps     │ │+message_ │ │+cancel()    │ │+save_task()│            │    │
+│  │ └──────────┘ │ id       │ └─────▲───────┘ └────────────┘            │    │
+│  │              └──────────┘       │                                   │    │
+│  └─────────────────────────────────│───────────────────────────────────┘    │
 └────────────────────────────────────│────────────────────────────────────────┘
                                      │ implements
 ┌────────────────────────────────────│────────────────────────────────────────┐
 │                              google-adk                                     │
 ├────────────────────────────────────│────────────────────────────────────────┤
 │                                    │                                        │
-│  ┌─────────────────────────────────┴────────────────────────────────────┐  │
-│  │                      A2aAgentExecutor                                 │  │
-│  │                  (a2a/executor/a2a_agent_executor.py)                │  │
-│  │                                                                       │  │
-│  │  + runner: Runner                                                     │  │
-│  │  + execute(context, event_queue)                                      │  │
-│  │  - _handle_request()                                                  │  │
-│  │  - _prepare_session()                                                 │  │
-│  └───────────────────────────────────┬──────────────────────────────────┘  │
+│  ┌─────────────────────────────────┴────────────────────────────────────┐   │
+│  │                      A2aAgentExecutor                                │   │
+│  │                  (a2a/executor/a2a_agent_executor.py)                │   │
+│  │                                                                      │   │
+│  │  + runner: Runner                                                    │   │
+│  │  + execute(context, event_queue)                                     │   │
+│  │  - _handle_request()                                                 │   │
+│  │  - _prepare_session()                                                │   │
+│  └───────────────────────────────────┬──────────────────────────────────┘   │
 │                                      │ uses                                 │
-│  ┌───────────────────────────────────▼──────────────────────────────────┐  │
-│  │                           Runner                                      │  │
-│  │                       (runners.py)                                    │  │
-│  │                                                                       │  │
-│  │  + app: App                                                           │  │
-│  │  + session_service: SessionService                                    │  │
-│  │  + artifact_service: ArtifactService                                  │  │
-│  │  + memory_service: MemoryService                                      │  │
-│  │  + run_async(**args) → AsyncGenerator[Event]                          │  │
-│  └───────────────────────────────────┬──────────────────────────────────┘  │
+│  ┌───────────────────────────────────▼──────────────────────────────────┐   │
+│  │                           Runner                                     │   │
+│  │                       (runners.py)                                   │   │
+│  │                                                                      │   │
+│  │  + app: App                                                          │   │
+│  │  + session_service: SessionService                                   │   │
+│  │  + artifact_service: ArtifactService                                 │   │
+│  │  + memory_service: MemoryService                                     │   │
+│  │  + run_async(**args) → AsyncGenerator[Event]                         │   │
+│  └───────────────────────────────────┬──────────────────────────────────┘   │
 │                                      │ contains                             │
-│  ┌───────────────────────────────────▼──────────────────────────────────┐  │
-│  │                              App                                      │  │
-│  │                          (apps.py)                                    │  │
-│  │                                                                       │  │
-│  │  + name: str                                                          │  │
-│  │  + root_agent: LlmAgent                                               │  │
-│  │  + plugins: list[BasePlugin]                                          │  │
-│  └───────────────────────────────────┬──────────────────────────────────┘  │
+│  ┌───────────────────────────────────▼──────────────────────────────────┐   │
+│  │                              App                                     │   │
+│  │                          (apps.py)                                   │   │
+│  │                                                                      │   │
+│  │  + name: str                                                         │   │
+│  │  + root_agent: LlmAgent                                              │   │
+│  │  + plugins: list[BasePlugin]                                         │   │
+│  └───────────────────────────────────┬──────────────────────────────────┘   │
 │                                      │ contains                             │
-│  ┌───────────────────────────────────▼──────────────────────────────────┐  │
-│  │                          LlmAgent                                     │  │
-│  │                      (agents/llm_agent.py)                            │  │
-│  │                                                                       │  │
-│  │  + name: str                                                          │  │
-│  │  + model: str (e.g., "gemini-2.5-flash")                              │  │
-│  │  + instruction: str                                                   │  │
-│  │  + tools: list[BaseTool | McpToolset]                                 │  │
-│  └───────────────────────────────────┬──────────────────────────────────┘  │
+│  ┌───────────────────────────────────▼──────────────────────────────────┐   │
+│  │                          LlmAgent                                    │   │
+│  │                      (agents/llm_agent.py)                           │   │
+│  │                                                                      │   │
+│  │  + name: str                                                         │   │
+│  │  + model: str (e.g., "gemini-2.5-flash")                             │   │
+│  │  + instruction: str                                                  │   │
+│  │  + tools: list[BaseTool | McpToolset]                                │   │
+│  └───────────────────────────────────┬──────────────────────────────────┘   │
 │                                      │ uses                                 │
-│  ┌───────────────────────────────────▼──────────────────────────────────┐  │
-│  │                         McpToolset                                    │  │
-│  │                    (tools/mcp_tool/mcp_toolset.py)                    │  │
-│  │                                                                       │  │
-│  │  + connection_params: StdioServerParameters | SseServerParameters     │  │
-│  │  + tool_filter: list[str] | None                                      │  │
-│  │  + header_provider: callable | None                                   │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────▼──────────────────────────────────┐   │
+│  │                         McpToolset                                   │   │
+│  │                    (tools/mcp_tool/mcp_toolset.py)                   │   │
+│  │                                                                      │   │
+│  │  + connection_params: StdioServerParameters | SseServerParameters    │   │
+│  │  + tool_filter: list[str] | None                                     │   │
+│  │  + header_provider: callable | None                                  │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                     Converters (a2a/converters/)                      │  │
-│  │  ┌────────────────────┐  ┌────────────────────┐                      │  │
-│  │  │ request_converter  │  │ event_converter    │                      │  │
-│  │  │                    │  │                    │                      │  │
-│  │  │convert_a2a_request_│  │convert_event_to_   │                      │  │
-│  │  │to_adk_run_args()   │  │a2a_events()        │                      │  │
-│  │  └────────────────────┘  └────────────────────┘                      │  │
-│  │  ┌────────────────────────────────────────────┐                      │  │
-│  │  │ part_converter                             │                      │  │
-│  │  │ convert_a2a_part_to_genai_part()           │                      │  │
-│  │  │ convert_genai_part_to_a2a_part()           │                      │  │
-│  │  └────────────────────────────────────────────┘                      │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                     Converters (a2a/converters/)                     │   │
+│  │  ┌────────────────────┐  ┌────────────────────┐                      │   │
+│  │  │ request_converter  │  │ event_converter    │                      │   │
+│  │  │                    │  │                    │                      │   │
+│  │  │convert_a2a_request_│  │convert_event_to_   │                      │   │
+│  │  │to_adk_run_args()   │  │a2a_events()        │                      │   │
+│  │  └────────────────────┘  └────────────────────┘                      │   │
+│  │  ┌────────────────────────────────────────────┐                      │   │
+│  │  │ part_converter                             │                      │   │
+│  │  │ convert_a2a_part_to_genai_part()           │                      │   │
+│  │  │ convert_genai_part_to_a2a_part()           │                      │   │
+│  │  └────────────────────────────────────────────┘                      │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       │ connects to
                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                       insights_agent (this project)                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
+┌────────────────────────────────────────────────────────────────────────────┐
+│                       insights_agent (this project)                        │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         core/agent.py                                │   │
-│  │  create_agent() → LlmAgent                                           │   │
-│  │  • Configures Gemini model                                           │   │
-│  │  • Sets up MCP toolset with dynamic headers                          │   │
-│  │  • Defines agent instructions                                        │   │
+│  │                         core/agent.py                               │   │
+│  │  create_agent() → LlmAgent                                          │   │
+│  │  • Configures Gemini model                                          │   │
+│  │  • Sets up MCP toolset with dynamic headers                         │   │
+│  │  • Defines agent instructions                                       │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
+│                                                                            │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      api/a2a/a2a_setup.py                            │   │
-│  │  setup_a2a_routes(app: FastAPI)                                      │   │
-│  │  • Creates Runner with UsageTrackingPlugin                           │   │
-│  │  • Wires A2aAgentExecutor → DefaultRequestHandler                    │   │
-│  │  • Mounts A2AFastAPIApplication to FastAPI                           │   │
+│  │                      api/a2a/a2a_setup.py                           │   │
+│  │  setup_a2a_routes(app: FastAPI)                                     │   │
+│  │  • Creates Runner with UsageTrackingPlugin                          │   │
+│  │  • Wires A2aAgentExecutor → DefaultRequestHandler                   │   │
+│  │  • Mounts A2AFastAPIApplication to FastAPI                          │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
+│                                                                            │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      api/a2a/agent_card.py                           │   │
-│  │  build_agent_card() → AgentCard                                      │   │
-│  │  • Defines skills from MCP tools                                     │   │
-│  │  • Configures OAuth security scheme                                  │   │
-│  │  • Adds DCR extension for marketplace                                │   │
+│  │                      api/a2a/agent_card.py                          │   │
+│  │  build_agent_card() → AgentCard                                     │   │
+│  │  • Defines skills from MCP tools                                    │   │
+│  │  • Configures OAuth security scheme                                 │   │
+│  │  • Adds DCR extension for marketplace                               │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
+│                                                                            │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      api/a2a/usage_plugin.py                         │   │
-│  │  UsageTrackingPlugin (extends BasePlugin)                            │   │
-│  │  • Tracks input/output tokens via after_model_callback               │   │
-│  │  • Counts requests via before_run_callback                           │   │
-│  │  • Counts tool calls via after_tool_callback                         │   │
+│  │                      api/a2a/usage_plugin.py                        │   │
+│  │  UsageTrackingPlugin (extends BasePlugin)                           │   │
+│  │  • Tracks input/output tokens via after_model_callback              │   │
+│  │  • Counts requests via before_run_callback                          │   │
+│  │  • Counts tool calls via after_tool_callback                        │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Base URL

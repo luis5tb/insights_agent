@@ -22,30 +22,30 @@ All usage tracking is handled by the `UsageTrackingPlugin` in `src/insights_agen
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           A2A Request                                    │
+│                           A2A Request                                   │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           ADK Runner                                     │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                    UsageTrackingPlugin                           │   │
-│  │                                                                   │   │
-│  │  before_run_callback ────► Increment request counter             │   │
-│  │                                                                   │   │
-│  │  after_model_callback ───► Extract token counts from response    │   │
-│  │                                                                   │   │
-│  │  after_tool_callback ────► Increment tool call counter           │   │
-│  │                                                                   │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                    │                                     │
-│                                    ▼                                     │
-│                          AggregateUsage (in-memory)                      │
+│                           ADK Runner                                    │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                    UsageTrackingPlugin                          │    │
+│  │                                                                 │    │
+│  │  before_run_callback ────► Increment request counter            │    │
+│  │                                                                 │    │
+│  │  after_model_callback ───► Extract token counts from response   │    │
+│  │                                                                 │    │
+│  │  after_tool_callback ────► Increment tool call counter          │    │
+│  │                                                                 │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                    │                                    │
+│                                    ▼                                    │
+│                          AggregateUsage (in-memory)                     │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         GET /usage endpoint                              │
+│                         GET /usage endpoint                             │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 

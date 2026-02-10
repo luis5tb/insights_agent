@@ -18,24 +18,24 @@ The system uses a **two-service architecture** to handle marketplace integration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          Google Cloud Marketplace                            │
+│                          Google Cloud Marketplace                           │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
 │  │   Catalog &     │  │   Billing &     │  │   Pub/Sub Procurement       │  │
 │  │   Discovery     │  │   Subscription  │  │   Notifications             │  │
 │  └────────┬────────┘  └────────┬────────┘  └──────────────┬──────────────┘  │
-└───────────┼────────────────────┼───────────────────────────┼────────────────┘
-            │                    │                           │
-            ▼                    ▼                           ▼
+└───────────┼────────────────────┼──────────────────────────┼─────────────────┘
+            │                    │                          │
+            ▼                    ▼                          ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Marketplace Handler (Port 8001)                           │
-│                    ─────────────────────────────────                         │
+│                    Marketplace Handler (Port 8001)                          │
+│                    ─────────────────────────────────                        │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    Hybrid /dcr Endpoint                              │    │
+│  │                    Hybrid /dcr Endpoint                             │    │
 │  │  - Pub/Sub Events → Approve accounts/entitlements                   │    │
 │  │  - DCR Requests → Validate order, create OAuth clients via Keycloak │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
-│                              │                                               │
-│                              ▼                                               │
+│                              │                                              │
+│                              ▼                                              │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
 │  │   PostgreSQL    │  │   Red Hat SSO   │  │   Google Procurement API    │  │
 │  │   (Orders, DCR) │  │   (Keycloak)    │  │   (Account Approval)        │  │
@@ -45,18 +45,18 @@ The system uses a **two-service architecture** to handle marketplace integration
                                 │ Shared PostgreSQL
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                      Insights Agent (Port 8000)                              │
-│                      ──────────────────────────                              │
+│                      Insights Agent (Port 8000)                             │
+│                      ──────────────────────────                             │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
 │  │   A2A Protocol  │  │  Usage Metering │  │   OAuth Callback            │  │
 │  │   (JSON-RPC)    │  │   & Reporting   │  │   /oauth/callback           │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
-│                              │                                               │
-│                              ▼                                               │
-│                    ┌─────────────────┐                                       │
-│                    │  Service Control│                                       │
-│                    │  API Reporter   │                                       │
-│                    └─────────────────┘                                       │
+│                              │                                              │
+│                              ▼                                              │
+│                    ┌─────────────────┐                                      │
+│                    │  Service Control│                                      │
+│                    │  API Reporter   │                                      │
+│                    └─────────────────┘                                      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 

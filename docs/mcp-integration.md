@@ -17,8 +17,8 @@ The agent uses the [Red Hat Insights MCP Server](https://github.com/RedHatInsigh
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Deployment Pod                           │
-│                                                                   │
+│                         Deployment Pod                          │
+│                                                                 │
 │  ┌─────────────────────┐      ┌─────────────────────────────┐   │
 │  │   Insights Agent    │      │   Red Hat Insights MCP      │   │
 │  │                     │      │   Server                    │   │
@@ -38,8 +38,8 @@ The agent uses the [Red Hat Insights MCP Server](https://github.com/RedHatInsigh
 │                               │   └──────────┬──────────┘   │   │
 │                               │              │              │   │
 │                               └──────────────┼──────────────┘   │
-│                                              │                   │
-└──────────────────────────────────────────────┼───────────────────┘
+│                                              │                  │
+└──────────────────────────────────────────────┼──────────────────┘
                                                │
                                                ▼
                                     ┌─────────────────────┐

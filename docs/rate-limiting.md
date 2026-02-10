@@ -13,10 +13,10 @@ No Redis or external dependencies are required.
 ## Architecture
 
 ```
-┌─────────────────┐     ┌───────────────────┐     ┌─────────────────┐
-│  API Request    │────▶│RateLimitMiddleware│────▶│SimpleRateLimiter│
-│                 │     │                   │     │   (in-memory)   │
-└─────────────────┘     └───────────────────┘     └─────────────────┘
+┌─────────────────┐      ┌────────────────────┐      ┌─────────────────┐
+│  API Request    │────▶│RateLimitMiddleware │────▶│SimpleRateLimiter│
+│                 │      │                    │      │   (in-memory)   │
+└─────────────────┘      └────────────────────┘      └─────────────────┘
 ```
 
 ### Components

@@ -36,8 +36,8 @@ The system consists of **two separate services**:
            │ Pub/Sub Events                            │ DCR Requests
            ▼                                           ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                  Marketplace Handler (Port 8001)                         │
-│                  ────────────────────────────────                        │
+│                  Marketplace Handler (Port 8001)                        │
+│                  ────────────────────────────────                       │
 │  - Always running to receive Pub/Sub provisioning events                │
 │  - Hybrid /dcr endpoint (Pub/Sub + DCR)                                 │
 │  - Creates OAuth clients in Red Hat SSO via DCR                         │
@@ -46,20 +46,20 @@ The system consists of **two separate services**:
                                  │
                                  │ Shared PostgreSQL
                                  ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     Insights Agent (Port 8000)                           │
-│                     ──────────────────────────                           │
-│  ┌─────────────────────┐      ┌─────────────────────────────┐           │
-│  │   Insights Agent    │ HTTP │   Red Hat Insights MCP      │           │
-│  │   (Gemini + ADK)    │◄────►│   Server (Sidecar)          │           │
-│  │                     │      │                             │           │
-│  │   - A2A protocol    │      │   - Advisor, Inventory      │           │
-│  │   - OAuth 2.0       │      │   - Vulnerability, Patch    │           │
-│  │   - Session mgmt    │      │   - Remediations            │           │
-│  └─────────────────────┘      └──────────────┬──────────────┘           │
-└───────────────────────────────────────────────┼─────────────────────────┘
-                                                │
-                                                ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                     Insights Agent (Port 8000)                         │
+│                     ──────────────────────────                         │
+│  ┌─────────────────────┐      ┌─────────────────────────────┐          │
+│  │   Insights Agent    │ HTTP │   Red Hat Insights MCP      │          │
+│  │   (Gemini + ADK)    │◄────►│   Server (Sidecar)          │          │
+│  │                     │      │                             │          │
+│  │   - A2A protocol    │      │   - Advisor, Inventory      │          │
+│  │   - OAuth 2.0       │      │   - Vulnerability, Patch    │          │
+│  │   - Session mgmt    │      │   - Remediations            │          │
+│  └─────────────────────┘      └──────────────┬──────────────┘          │
+└──────────────────────────────────────────────┼─────────────────────────┘
+                                               │
+                                               ▼
                                        ┌───────────────────┐
                                        │ console.redhat.com│
                                        │ (Insights APIs)   │

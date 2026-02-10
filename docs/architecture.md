@@ -15,20 +15,20 @@ The system consists of **two separate services**:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              Google Cloud Marketplace                             │
-│                    (Gemini Enterprise / Procurement Events)                       │
+│                              Google Cloud Marketplace                           │
+│                    (Gemini Enterprise / Procurement Events)                     │
 └─────────────────────────────────────────────────────────────────────────────────┘
          │                                                    │
          │ Pub/Sub Events                                     │ DCR Request
          │ (Account/Entitlement)                              │ (software_statement)
          ▼                                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          Marketplace Handler Service                              │
-│                         (Cloud Run - Always Running)                              │
+│                          Marketplace Handler Service                            │
+│                         (Cloud Run - Always Running)                            │
 │  ┌───────────────────────────────────────────────────────────────────────────┐  │
-│  │                           FastAPI Application                              │  │
+│  │                           FastAPI Application                             │  │
 │  │  ┌──────────────────────────────────────────────────────────────────────┐ │  │
-│  │  │                    Hybrid /dcr Endpoint                               │ │  │
+│  │  │                    Hybrid /dcr Endpoint                              │ │  │
 │  │  │  - Pub/Sub Events → Approve accounts/entitlements                    │ │  │
 │  │  │  - DCR Requests → Create OAuth clients via Keycloak                  │ │  │
 │  │  └──────────────────────────────────────────────────────────────────────┘ │  │
@@ -39,7 +39,7 @@ The system consists of **two separate services**:
          ▼                                                    ▼
 ┌─────────────────┐                                  ┌─────────────────────────┐
 │   PostgreSQL    │                                  │    Red Hat SSO          │
-│   Database      │◀────────────────────────────────▶│    (Keycloak)           │
+│   Database      │◀──────────────────────────────▶│    (Keycloak)           │
 │  - Accounts     │                                  │  - DCR Endpoint         │
 │  - Entitlements │                                  │  - OIDC/OAuth           │
 │  - DCR Clients  │                                  └─────────────────────────┘
@@ -48,10 +48,10 @@ The system consists of **two separate services**:
          │ Read/Write
          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            Insights Agent Service                                 │
-│                  (Cloud Run - Deployed After Provisioning)                        │
+│                            Insights Agent Service                               │
+│                  (Cloud Run - Deployed After Provisioning)                      │
 │  ┌───────────────────────────────────────────────────────────────────────────┐  │
-│  │                           FastAPI Application                              │  │
+│  │                           FastAPI Application                             │  │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │  │
 │  │  │   A2A API   │  │  OAuth API  │  │ Agent Card  │  │  Health/Ready   │   │  │
 │  │  │     /       │  │  /oauth/*   │  │ /.well-     │  │  /health        │   │  │
@@ -59,33 +59,33 @@ The system consists of **two separate services**:
 │  │  └──────┬──────┘  └──────┬──────┘  │  agent.json │  └─────────────────┘   │  │
 │  │         │                │         └─────────────┘                        │  │
 │  │         ▼                ▼                                                │  │
-│  │  ┌─────────────────────────────────────────────────────────────────┐     │  │
-│  │  │                     Authentication Layer                         │     │  │
-│  │  │              (JWT Validation via Red Hat SSO)                   │     │  │
-│  │  └─────────────────────────────────────────────────────────────────┘     │  │
+│  │  ┌─────────────────────────────────────────────────────────────────┐      │  │
+│  │  │                     Authentication Layer                        │      │  │
+│  │  │              (JWT Validation via Red Hat SSO)                   │      │  │
+│  │  └─────────────────────────────────────────────────────────────────┘      │  │
 │  │                              │                                            │  │
 │  │                              ▼                                            │  │
-│  │  ┌─────────────────────────────────────────────────────────────────┐     │  │
-│  │  │                        Agent Core                                │     │  │
-│  │  │                  (Google ADK + Gemini)                          │     │  │
-│  │  └─────────────────────────────────────────────────────────────────┘     │  │
+│  │  ┌─────────────────────────────────────────────────────────────────┐      │  │
+│  │  │                        Agent Core                               │      │  │
+│  │  │                  (Google ADK + Gemini)                          │      │  │
+│  │  └─────────────────────────────────────────────────────────────────┘      │  │
 │  │                              │                                            │  │
 │  │                              ▼                                            │  │
-│  │  ┌─────────────────────────────────────────────────────────────────┐     │  │
-│  │  │                      MCP Sidecar                                  │     │  │
-│  │  │              (Red Hat Insights MCP Server)                       │     │  │
-│  │  └─────────────────────────────────────────────────────────────────┘     │  │
+│  │  ┌─────────────────────────────────────────────────────────────────┐      │  │
+│  │  │                      MCP Sidecar                                │      │  │
+│  │  │              (Red Hat Insights MCP Server)                      │      │  │
+│  │  └─────────────────────────────────────────────────────────────────┘      │  │
 │  └───────────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────────┘
          │                    │
          ▼                    ▼
 ┌─────────────┐      ┌─────────────────────────┐
-│   Gemini    │      │  Red Hat Insights APIs   │
-│     API     │      │  (via MCP Server)        │
-│  (Vertex)   │      │  - Advisor               │
-└─────────────┘      │  - Vulnerability         │
-                     │  - Patch                 │
-                     │  - Content               │
+│   Gemini    │      │  Red Hat Insights APIs  │
+│     API     │      │  (via MCP Server)       │
+│  (Vertex)   │      │  - Advisor              │
+└─────────────┘      │  - Vulnerability        │
+                     │  - Patch                │
+                     │  - Content              │
                      └─────────────────────────┘
 ```
 
@@ -168,16 +168,16 @@ This flow happens when a customer purchases from Google Cloud Marketplace:
 ```
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────────┐     ┌────────────┐
-│  Customer   │────▶│   Marketplace │────▶│    Pub/Sub      │────▶│  Handler   │
-│  Purchases  │     │   (Purchase)  │     │  (Event Push)   │     │  /dcr      │
-└─────────────┘     └──────────────┘     └─────────────────┘     └─────┬──────┘
-                                                                       │
-                                         ┌─────────────────┐           │
-                                         │   PostgreSQL    │◀──────────┤
-                                         │   (Store)       │           │
-                                         └─────────────────┘           │
-                                                                       ▼
+┌─────────────┐      ┌───────────────┐      ┌────────────────┐      ┌────────────┐
+│  Customer   │────▶│   Marketplace │────▶│    Pub/Sub     │────▶│  Handler   │
+│  Purchases  │      │   (Purchase)  │      │  (Event Push)  │      │  /dcr      │
+└─────────────┘      └───────────────┘      └────────────────┘      └─────┬──────┘
+                                                                          │
+                                         ┌─────────────────┐              │
+                                         │   PostgreSQL    │◀────────────┤
+                                         │   (Store)       │              │
+                                         └─────────────────┘              │
+                                                                          ▼
                                          ┌─────────────────────────────────────┐
                                          │   Google Procurement API            │
                                          │   (Approve Account/Entitlement)     │
@@ -200,19 +200,19 @@ This flow happens when an admin configures the agent in Gemini Enterprise:
 ```
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────────┐     ┌────────────┐
+┌─────────────┐      ┌──────────────┐      ┌─────────────────┐      ┌────────────┐
 │   Admin     │────▶│    Gemini    │────▶│   POST /dcr     │────▶│  Handler   │
-│  Configures │     │  Enterprise  │     │ software_stmt   │     │  /dcr      │
-└─────────────┘     └──────────────┘     └─────────────────┘     └─────┬──────┘
-                                                                       │
-                           ┌───────────────────────────────────────────┤
-                           │                                           │
-                           ▼                                           ▼
-                    ┌─────────────────┐                    ┌─────────────────┐
-                    │   PostgreSQL    │                    │  Red Hat SSO    │
-                    │   (Check Order) │                    │  (Create OAuth  │
-                    │   (Store Client)│                    │   Client)       │
-                    └─────────────────┘                    └─────────────────┘
+│  Configures │      │  Enterprise  │      │ software_stmt   │      │  /dcr      │
+└─────────────┘      └──────────────┘      └─────────────────┘      └─────┬──────┘
+                                                                          │
+                           ┌──────────────────────────────────────────────┤
+                           │                                              │
+                           ▼                                              ▼
+                    ┌─────────────────┐                       ┌─────────────────┐
+                    │   PostgreSQL    │                       │  Red Hat SSO    │
+                    │   (Check Order) │                       │  (Create OAuth  │
+                    │   (Store Client)│                       │   Client)       │
+                    └─────────────────┘                       └─────────────────┘
 ```
 
 ### Flow 3: User Authentication (OAuth)
@@ -383,36 +383,36 @@ The system uses PostgreSQL for persistence. For production deployments, the mark
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                     Marketplace Database (Shared)                            │
-│                                                                              │
-│  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐    │
-│  │ marketplace_       │  │ marketplace_       │  │ dcr_clients        │    │
-│  │ accounts           │  │ entitlements       │  │                    │    │
-│  │ - id               │  │ - id (order_id)    │  │ - client_id        │    │
-│  │ - state            │  │ - account_id       │  │ - client_secret    │    │
-│  │ - provider_id      │  │ - state            │  │ - order_id         │    │
-│  └────────────────────┘  └────────────────────┘  └────────────────────┘    │
-│                                                                              │
+│                     Marketplace Database (Shared)                           │
+│                                                                             │
+│  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐     │
+│  │ marketplace_       │  │ marketplace_       │  │ dcr_clients        │     │
+│  │ accounts           │  │ entitlements       │  │                    │     │
+│  │ - id               │  │ - id (order_id)    │  │ - client_id        │     │
+│  │ - state            │  │ - account_id       │  │ - client_secret    │     │
+│  │ - provider_id      │  │ - state            │  │ - order_id         │     │
+│  └────────────────────┘  └────────────────────┘  └────────────────────┘     │
+│                                                                             │
 │  ┌────────────────────┐                                                     │
 │  │ usage_records      │                                                     │
 │  │ - order_id         │                                                     │
 │  │ - tokens           │                                                     │
 │  │ - reported         │                                                     │
 │  └────────────────────┘                                                     │
-│                                                                              │
+│                                                                             │
 │  Access: Marketplace Handler (read/write), Agent (read-only for validation) │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                     Session Database (Agent Only)                            │
-│                                                                              │
-│  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐    │
-│  │ sessions           │  │ events             │  │ artifacts          │    │
-│  │ - session_id       │  │ - event_id         │  │ - artifact_id      │    │
-│  │ - user_id          │  │ - session_id       │  │ - session_id       │    │
-│  │ - state            │  │ - content          │  │ - content          │    │
-│  └────────────────────┘  └────────────────────┘  └────────────────────┘    │
-│                                                                              │
+│                     Session Database (Agent Only)                           │
+│                                                                             │
+│  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐     │
+│  │ sessions           │  │ events             │  │ artifacts          │     │
+│  │ - session_id       │  │ - event_id         │  │ - artifact_id      │     │
+│  │ - user_id          │  │ - session_id       │  │ - session_id       │     │
+│  │ - state            │  │ - content          │  │ - content          │     │
+│  └────────────────────┘  └────────────────────┘  └────────────────────┘     │
+│                                                                             │
 │  Access: Agent only (read/write)                                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

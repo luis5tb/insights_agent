@@ -18,41 +18,41 @@ The system uses four distinct authentication flows:
  (Gemini Enterprise)                       (Client App)
    |                  |                          |
    | 1. Pub/Sub       | 2. DCR Request           | 5. GET /oauth/authorize
-   |    event          |    (software_statement)  |
+   |    event         |    (software_statement)  |
    v                  v                          v
-+------------------------------------------------------+    +---------------------------+
-|            Marketplace Handler (8001)                 |    |   Insights Agent (8000)   |
-|                                                       |    |                           |
-|  +--------------------------------------------------+ |    | +-------+  +-----------+  |
++--------------------------------------------------------+    +---------------------------+
+|            Marketplace Handler (8001)                  |    |   Insights Agent (8000)   |
+|                                                        |    |                           |
+|  +---------------------------------------------------+ |    | +-------+  +-----------+  |
 |  |             Hybrid /dcr Endpoint                  | |    | | Agent |  | OAuth     |  |
 |  |                                                   | |    | | Card  |  | Endpoints |  |
 |  |  Pub/Sub path:         DCR path:                  | |    | +-------+  +-----+-----+  |
-|  |  - Decode msg          - Validate Google JWT  [3] | |    |                  |         |
-|  |  - Approve via         - Verify order in DB       | |    |  6. Redirect     |         |
-|  |    Procurement API     - Create OAuth client  [4] | |    |     to SSO       |         |
-|  |  - Store account/      - Return client_id +       | |    |                  v         |
-|  |    entitlement           client_secret            | |    |        +---------+------+  |
-|  +---+--------------------+----------+---------------+ |    |        | 7. Exchange    |  |
-|      |                    |          |                  |    |        |    code for    |  |
-|      v                    |          v                  |    |        |    tokens      |  |
-|  +----------+             |   +-------------+           |    |        +--------+------+  |
-|  |PostgreSQL|             |   | Red Hat SSO |           |    |                 |         |
-|  |(accounts,|             |   | (Keycloak)  |           |    | 8. Validate JWT |         |
-|  | orders,  |             |   | DCR endpoint|           |    |    on every     |         |
-|  | dcr      |             |   +-------------+           |    |    A2A request  |         |
-|  | clients) |             |          ^                  |    |    (JWKS cache) |         |
-|  +----------+             |          |                  |    |                 v         |
-+------------------------------------------------------+    |        +---------+------+  |
-                            |          |                      |        | A2A Endpoint   |  |
-                            v          |                      |        | POST /         |  |
-                   +----------------+  |                      |        | (authenticated)|  |
-                   | 3. Fetch       |  |                      |        +--------+-------+  |
-                   |    Google      |  |                      |                 |          |
-                   |    X.509       |  |                      |                 v          |
+|  |  - Decode msg          - Validate Google JWT  [3] | |    |                  |        |
+|  |  - Approve via         - Verify order in DB       | |    |  6. Redirect     |        |
+|  |    Procurement API     - Create OAuth client  [4] | |    |     to SSO       |        |
+|  |  - Store account/      - Return client_id +       | |    |                  v        |
+|  |    entitlement           client_secret            | |    |        +---------+------+ |
+|  +---+--------------------+----------+---------------+ |    |        | 7. Exchange    | |
+|      |                    |          |                 |    |        |    code for    | |
+|      v                    |          v                 |    |        |    tokens      | |
+|  +----------+             |   +-------------+          |    |        +--------+-------+ |
+|  |PostgreSQL|             |   | Red Hat SSO |          |    |                 |         |
+|  |(accounts,|             |   | (Keycloak)  |          |    | 8. Validate JWT |         |
+|  | orders,  |             |   | DCR endpoint|          |    |    on every     |         |
+|  | dcr      |             |   +-------------+          |    |    A2A request  |         |
+|  | clients) |             |          ^                 |    |    (JWKS cache) |         |
+|  +----------+             |          |                 |    |                 v         |
++--------------------------------------------------------+    |        +---------+------+ |
+                            |          |                      |        | A2A Endpoint   | |
+                            v          |                      |        | POST /         | |
+                   +----------------+  |                      |        | (authenticated)| |
+                   | 3. Fetch       |  |                      |        +--------+-------+ |
+                   |    Google      |  |                      |                 |         |
+                   |    X.509       |  |                      |                 v         |
                    |    certs       |  |                      |  +-----------------------------+
                    +----------------+  |                      |  |  9. MCP Tool Calls          |
-                                       |                      |  |     lightspeed-client-id     |
-                          +------------+                      |  |     lightspeed-client-secret |
+                                       |                      |  |     lightspeed-client-id    |
+                          +------------+                      |  |     lightspeed-client-secret|
                           |                                   |  +-------------+---------------+
                           |  Red Hat SSO (sso.redhat.com)     |                |               |
                           |  +-----------------------------+  |                v               |

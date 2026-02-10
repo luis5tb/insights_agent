@@ -25,28 +25,28 @@ The deployment consists of **two separate Cloud Run services**:
 │  - Handles DCR requests (creates OAuth clients in Red Hat SSO)                  │
 │  - Stores data in PostgreSQL                                                    │
 └──────────┬──────────────────────────────────────────────────────────────────────┘
-           │                                                │
-           │ Shared PostgreSQL Database                     │ DCR (create OAuth clients)
-           ▼                                                ▼
-┌────────────────────────────────────────────┐    ┌──────────────────────┐
-│   Insights Agent Service (Port 8000)       │    │  Red Hat SSO         │
-│   ─────────────────────────────────────    │    │  (Keycloak)          │
-│  ┌──────────────────┐  ┌──────────────────┐│    │                      │
-│  │  Insights Agent  │  │ Insights MCP     ││    │  Production:         │
-│  │                  │  │ Server (8081)    ││    │   sso.redhat.com     │
-│  │  - Gemini 2.5    │  │                  ││    │                      │
-│  │  - A2A protocol  │◄►│ - Advisor tools  ││    │  Testing:            │
-│  │  - OAuth 2.0     │  │ - Inventory tools││    │   Keycloak on        │
-│  │                  │  │ - Vuln. tools    ││    │   Cloud Run          │
-│  └──────────────────┘  └────────┬─────────┘│    └──────────────────────┘
-│                                │           │
-└────────────────────────────────┼───────────┘
-                                 │
-                                 ▼
-                        ┌──────────────────┐
-                        │console.redhat.com│
-                        │ (Insights APIs)  │
-                        └──────────────────┘
+           │                                                 │
+           │ Shared PostgreSQL Database                      │ DCR (create OAuth clients)
+           ▼                                                 ▼
+┌──────────────────────────────────────────────┐    ┌──────────────────────┐
+│   Insights Agent Service (Port 8000)         │    │  Red Hat SSO         │
+│   ─────────────────────────────────────      │    │  (Keycloak)          │
+│  ┌──────────────────┐   ┌──────────────────┐ │    │                      │
+│  │  Insights Agent  │   │ Insights MCP     │ │    │  Production:         │
+│  │                  │   │ Server (8081)    │ │    │   sso.redhat.com     │
+│  │  - Gemini 2.5    │   │                  │ │    │                      │
+│  │  - A2A protocol  │◄-►│ - Advisor tools  │ │    │  Testing:            │
+│  │  - OAuth 2.0     │   │ - Inventory tools│ │    │   Keycloak on        │
+│  │                  │   │ - Vuln. tools    │ │    │   Cloud Run          │
+│  └──────────────────┘   └────────┬─────────┘ │    └──────────────────────┘
+│                                  │           │
+└──────────────────────────────────┼───────────┘
+                                   │
+                                   ▼
+                          ┌──────────────────┐
+                          │console.redhat.com│
+                          │ (Insights APIs)  │
+                          └──────────────────┘
 ```
 
 ### Service Responsibilities
@@ -418,10 +418,10 @@ The agent uses **Red Hat SSO** for authentication. Requests to the A2A endpoint
 ### Authentication Flow
 
 ```
-┌──────────┐    ┌───────────────┐    ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
+┌──────────┐    ┌───────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐
 │  Client  │    │Insights Agent │    │ Red Hat SSO  │    │  MCP Server  │    │console.redhat.com│
-│(Gemini)  │    │  (port 8000)  │    │  (Keycloak)  │    │  (port 8080) │    │ (Insights APIs) │
-└────┬─────┘    └──────┬────────┘    └──────┬───────┘    └──────┬───────┘    └────────┬────────┘
+│(Gemini)  │    │  (port 8000)  │    │  (Keycloak)  │    │  (port 8080) │    │ (Insights APIs)  │
+└────┬─────┘    └──────┬────────┘    └──────┬───────┘    └──────┬───────┘    └────────┬─────────┘
      │                 │                    │                   │                     │
      │  ── OAuth Login Flow ──              │                   │                     │
      │                 │                    │                   │                     │
