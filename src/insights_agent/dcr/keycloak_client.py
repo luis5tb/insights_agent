@@ -127,13 +127,20 @@ class KeycloakDCRClient:
 
             if response.status_code == 201:
                 data = response.json()
+                oauth_client_id = data["client_id"]
                 logger.info(
                     "Successfully created OAuth client: %s (client_id=%s)",
                     client_name,
-                    data.get("client_id"),
+                    oauth_client_id,
                 )
+
+                # Keycloak's OIDC DCR endpoint does not set
+                # serviceAccountsEnabled even when client_credentials is
+                # in grant_types.  Enable it via the Admin API.
+                await self._enable_service_accounts(oauth_client_id, settings)
+
                 return KeycloakClientResponse(
-                    client_id=data["client_id"],
+                    client_id=oauth_client_id,
                     client_secret=data["client_secret"],
                     client_name=data.get("client_name", client_name),
                     registration_access_token=data.get("registration_access_token"),
@@ -166,6 +173,88 @@ class KeycloakDCRClient:
                 f"HTTP error calling Keycloak DCR: {e}",
                 status_code=500,
             ) from e
+
+    async def _enable_service_accounts(self, oauth_client_id: str, settings) -> None:
+        """Enable service accounts on a DCR-created client via Admin API.
+
+        Keycloak's OIDC DCR endpoint does not set ``serviceAccountsEnabled``
+        even when ``client_credentials`` is in ``grant_types``.  This method
+        fixes that via the Admin API using the agent's own credentials.
+
+        Requires the agent's client to have the ``manage-clients`` realm role.
+        Failures are logged but do not block the DCR response.
+        """
+        admin_base = settings.keycloak_admin_api_base
+        token_url = settings.keycloak_token_endpoint
+
+        try:
+            async with httpx.AsyncClient() as http:
+                # 1. Get a token using the agent's own credentials
+                token_resp = await http.post(
+                    token_url,
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": settings.red_hat_sso_client_id,
+                        "client_secret": settings.red_hat_sso_client_secret,
+                    },
+                    timeout=30.0,
+                )
+                if token_resp.status_code != 200:
+                    logger.warning(
+                        "Cannot enable service accounts on %s: "
+                        "failed to get admin token (status %d)",
+                        oauth_client_id,
+                        token_resp.status_code,
+                    )
+                    return
+
+                admin_token = token_resp.json()["access_token"]
+                admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+                # 2. Look up the client by OAuth client_id
+                lookup_resp = await http.get(
+                    f"{admin_base}/clients",
+                    params={"clientId": oauth_client_id},
+                    headers=admin_headers,
+                    timeout=30.0,
+                )
+                clients = lookup_resp.json() if lookup_resp.status_code == 200 else []
+                if not clients:
+                    logger.warning(
+                        "Cannot enable service accounts: "
+                        "client %s not found in Admin API",
+                        oauth_client_id,
+                    )
+                    return
+
+                kc_client = clients[0]
+                kc_uuid = kc_client["id"]
+
+                # 3. Enable service accounts (PUT requires full representation)
+                kc_client["serviceAccountsEnabled"] = True
+                update_resp = await http.put(
+                    f"{admin_base}/clients/{kc_uuid}",
+                    json=kc_client,
+                    headers={**admin_headers, "Content-Type": "application/json"},
+                    timeout=30.0,
+                )
+                if update_resp.status_code == 204:
+                    logger.info(
+                        "Enabled service accounts on client %s",
+                        oauth_client_id,
+                    )
+                else:
+                    logger.warning(
+                        "Failed to enable service accounts on %s: %d %s",
+                        oauth_client_id,
+                        update_resp.status_code,
+                        update_resp.text,
+                    )
+        except Exception:
+            logger.exception(
+                "Error enabling service accounts on client %s",
+                oauth_client_id,
+            )
 
 # Global client instance
 _keycloak_client: KeycloakDCRClient | None = None

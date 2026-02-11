@@ -224,7 +224,7 @@ class DCRService:
             response = await keycloak_client.create_client(
                 order_id=claims.order_id,
                 redirect_uris=claims.auth_app_redirect_uris,
-                grant_types=["authorization_code", "refresh_token"],
+                grant_types=["authorization_code", "refresh_token", "client_credentials"],
             )
 
             # Encrypt secrets for storage
@@ -240,7 +240,7 @@ class DCRService:
                 order_id=claims.order_id,
                 account_id=claims.account_id,
                 redirect_uris=response.redirect_uris,
-                grant_types=["authorization_code", "refresh_token"],
+                grant_types=["authorization_code", "refresh_token", "client_credentials"],
                 registration_access_token_encrypted=encrypted_rat,
                 keycloak_client_uuid=None,  # Could extract from registration_client_uri
                 metadata={

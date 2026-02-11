@@ -1265,6 +1265,38 @@ curl -s -X PUT \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
+**Grant `manage-clients` role to the Resource Server service account:**
+
+Keycloak's OIDC DCR endpoint does not enable `serviceAccountsEnabled` on
+newly created clients.  After DCR, the agent uses the Admin API to fix
+this, which requires the `manage-clients` role.
+
+```bash
+# Get the service account user for insights-agent
+SA_USER_ID=$(curl -s \
+  "$KEYCLOAK_URL/admin/realms/test-realm/clients/$CLIENT_UUID/service-account-user" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+# Get the realm-management client UUID
+RM_UUID=$(curl -s \
+  "$KEYCLOAK_URL/admin/realms/test-realm/clients?clientId=realm-management" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+
+# Get the manage-clients role definition
+MANAGE_CLIENTS_ROLE=$(curl -s \
+  "$KEYCLOAK_URL/admin/realms/test-realm/clients/$RM_UUID/roles/manage-clients" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+
+# Assign the role to the service account
+curl -s -X POST \
+  "$KEYCLOAK_URL/admin/realms/test-realm/users/$SA_USER_ID/role-mappings/clients/$RM_UUID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "[$MANAGE_CLIENTS_ROLE]"
+```
+
 Store the client credentials in Secret Manager:
 
 ```bash
@@ -1280,7 +1312,10 @@ echo -n "$CLIENT_SECRET" | \
 > **Note:** Keycloak assigns the `agent:insights` scope to DCR-created
 > clients because the DCR request includes `"scope": "agent:insights"` and
 > the scope is in the Allowed Client Scopes registration policy (configured
-> above).  The scope must exist in the realm for this to work.
+> above).  However, Keycloak does **not** enable `serviceAccountsEnabled`
+> from the DCR `grant_types` field.  After DCR, the agent automatically
+> enables it via the Admin API (using the `manage-clients` role granted
+> above).
 
 #### 6. Configure the Marketplace Handler and Agent
 
