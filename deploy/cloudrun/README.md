@@ -1179,7 +1179,16 @@ reference it.
 **Create the `agent:insights` client scope:**
 
 ```bash
-# Create the scope (uses the same ADMIN_TOKEN from step 4)
+# Get a fresh admin token (the one from step 4 expires after 60s)
+ADMIN_TOKEN=$(curl -s -X POST \
+  "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+  -d "client_id=admin-cli" \
+  -d "username=admin" \
+  -d "password=$KC_ADMIN_PASSWORD" \
+  -d "grant_type=password" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# Create the scope
 curl -s -X POST "$KEYCLOAK_URL/admin/realms/test-realm/client-scopes" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
