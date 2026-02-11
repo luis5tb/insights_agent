@@ -190,20 +190,6 @@ class Settings(BaseSettings):
         return f"{self.red_hat_sso_issuer}/protocol/openid-connect/token/introspect"
 
     @property
-    def keycloak_token_endpoint(self) -> str:
-        """Get the Keycloak token endpoint URL."""
-        return f"{self.red_hat_sso_issuer}/protocol/openid-connect/token"
-
-    @property
-    def keycloak_admin_api_base(self) -> str:
-        """Get the Keycloak Admin REST API base URL.
-
-        Derived from the issuer by inserting /admin before /realms/.
-        E.g. https://host/auth/realms/myrealm -> https://host/auth/admin/realms/myrealm
-        """
-        return self.red_hat_sso_issuer.replace("/realms/", "/admin/realms/", 1)
-
-    @property
     def keycloak_dcr_endpoint(self) -> str:
         """Get the Keycloak DCR endpoint URL."""
         # Red Hat SSO issuer format: https://sso.redhat.com/auth/realms/redhat-external

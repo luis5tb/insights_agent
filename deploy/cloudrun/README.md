@@ -1197,6 +1197,29 @@ curl -s -X POST "$KEYCLOAK_URL/admin/realms/test-realm/client-scopes" \
     "protocol": "openid-connect",
     "attributes": {"include.in.token.scope": "true"}
   }'
+
+# Allow agent:insights in the DCR client registration policy.
+# Keycloak restricts which scopes can be requested during DCR.
+# Get the "authenticated" Allowed Client Scopes policy and add
+# agent:insights to it.
+POLICY=$(curl -s \
+  "$KEYCLOAK_URL/admin/realms/test-realm/components?type=org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -c "
+import sys, json
+for p in json.load(sys.stdin):
+    if p.get('providerId') == 'allowed-client-templates' and p.get('subType') == 'authenticated':
+        p['config']['allowed-client-scopes'] = ['agent:insights']
+        print(json.dumps(p))
+        break
+")
+POLICY_ID=$(echo "$POLICY" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+curl -s -X PUT \
+  "$KEYCLOAK_URL/admin/realms/test-realm/components/$POLICY_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$POLICY"
 ```
 
 **Create the Resource Server client** (provides `RED_HAT_SSO_CLIENT_ID` / `SECRET`):
@@ -1242,38 +1265,6 @@ curl -s -X PUT \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-**Grant `manage-clients` role to the Resource Server service account:**
-
-Keycloak's OIDC DCR endpoint does not enable `serviceAccountsEnabled` on
-newly created clients.  The agent uses the Admin API to fix this after DCR,
-which requires the `manage-clients` role.
-
-```bash
-# Get the service account user for insights-agent
-SA_USER_ID=$(curl -s \
-  "$KEYCLOAK_URL/admin/realms/test-realm/clients/$CLIENT_UUID/service-account-user" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-
-# Get the realm-management client UUID
-RM_UUID=$(curl -s \
-  "$KEYCLOAK_URL/admin/realms/test-realm/clients?clientId=realm-management" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
-
-# Get the manage-clients role definition
-MANAGE_CLIENTS_ROLE=$(curl -s \
-  "$KEYCLOAK_URL/admin/realms/test-realm/clients/$RM_UUID/roles/manage-clients" \
-  -H "Authorization: Bearer $ADMIN_TOKEN")
-
-# Assign the role to the service account
-curl -s -X POST \
-  "$KEYCLOAK_URL/admin/realms/test-realm/users/$SA_USER_ID/role-mappings/clients/$RM_UUID" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "[$MANAGE_CLIENTS_ROLE]"
-```
-
 Store the client credentials in Secret Manager:
 
 ```bash
@@ -1286,12 +1277,10 @@ echo -n "$CLIENT_SECRET" | \
     --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 ```
 
-> **Note:** Keycloak's OIDC DCR endpoint ignores the `scope` and
-> `grant_types` fields — it does not assign client scopes or enable service
-> accounts.  After DCR creates a client, the agent automatically fixes both
-> via the Admin API (using the `manage-clients` role granted above):
-> it enables `serviceAccountsEnabled` and assigns `agent:insights` as an
-> optional client scope.
+> **Note:** Keycloak assigns the `agent:insights` scope to DCR-created
+> clients because the DCR request includes `"scope": "agent:insights"` and
+> the scope is in the Allowed Client Scopes registration policy (configured
+> above).  The scope must exist in the realm for this to work.
 
 #### 6. Configure the Marketplace Handler and Agent
 
@@ -1318,6 +1307,9 @@ echo -n "$FERNET_KEY" | \
 
 # 3. Update handler env vars (this deploys a new revision, picking up the
 #    updated secrets above and pointing the handler to the test Keycloak)
+#    RED_HAT_SSO_CLIENT_ID/SECRET are read from Secret Manager (updated in
+#    step 5) — do NOT pass them as --update-env-vars or Cloud Run will
+#    reject the conflicting type.
 gcloud run services update marketplace-handler \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
