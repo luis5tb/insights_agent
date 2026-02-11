@@ -88,12 +88,15 @@ class KeycloakDCRClient:
 
         client_name = f"{self._client_name_prefix}{order_id}"
 
+        settings = get_settings()
+
         request_body = {
             "client_name": client_name,
             "redirect_uris": redirect_uris or [],
-            "grant_types": grant_types or ["authorization_code", "refresh_token"],
+            "grant_types": grant_types or ["authorization_code", "refresh_token", "client_credentials"],
             "token_endpoint_auth_method": "client_secret_basic",
             "application_type": "web",
+            "default_client_scopes": [settings.agent_required_scope],
         }
 
         headers = {

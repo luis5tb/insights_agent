@@ -7,6 +7,7 @@ from a2a.types import (
     AgentProvider,
     AgentSkill,
     AuthorizationCodeOAuthFlow,
+    ClientCredentialsOAuthFlow,
     OAuth2SecurityScheme,
     OAuthFlows,
 )
@@ -38,20 +39,33 @@ def _build_oauth_security_scheme() -> OAuth2SecurityScheme:
     """Build OAuth 2.0 security scheme for Red Hat SSO."""
     settings = get_settings()
 
+    token_url = f"{settings.red_hat_sso_issuer}/protocol/openid-connect/token"
+
+    scopes = {
+        "openid": "OpenID Connect scope",
+        "profile": "User profile information",
+        "email": "User email address",
+        "agent:insights": "Access to Red Hat Insights agent",
+    }
+
     auth_code_flow = AuthorizationCodeOAuthFlow(
         authorization_url=f"{settings.red_hat_sso_issuer}/protocol/openid-connect/auth",
-        token_url=f"{settings.red_hat_sso_issuer}/protocol/openid-connect/token",
-        scopes={
-            "openid": "OpenID Connect scope",
-            "profile": "User profile information",
-            "email": "User email address",
-        },
+        token_url=token_url,
+        scopes=scopes,
+    )
+
+    client_credentials_flow = ClientCredentialsOAuthFlow(
+        token_url=token_url,
+        scopes=scopes,
     )
 
     return OAuth2SecurityScheme(
         type="oauth2",
         description="Red Hat SSO OAuth 2.0 Authentication",
-        flows=OAuthFlows(authorization_code=auth_code_flow),
+        flows=OAuthFlows(
+            authorization_code=auth_code_flow,
+            client_credentials=client_credentials_flow,
+        ),
     )
 
 
@@ -128,7 +142,7 @@ def build_agent_card() -> AgentCard:
             "redhat_sso": oauth_scheme,
         },
         security=[
-            {"redhat_sso": ["openid", "profile"]},
+            {"redhat_sso": ["openid", "agent:insights"]},
         ],
         default_input_modes=["text"],
         default_output_modes=["text"],

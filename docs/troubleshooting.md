@@ -102,30 +102,34 @@ echo $TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq .
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| Token expired | `exp` in past | Get new token via OAuth |
-| Wrong audience | Token for different client | Use correct client_id |
-| Wrong issuer | Token from different IdP | Use Red Hat SSO |
-| Invalid signature | Key rotation | Clear JWKS cache |
+| Token not active | Token expired or revoked | Get new token via OAuth or `client_credentials` |
+| Introspection failed | Agent can't reach Keycloak | Check `RED_HAT_SSO_ISSUER` and network |
+| Wrong credentials | Agent client_id/secret invalid | Check `RED_HAT_SSO_CLIENT_ID/SECRET` |
 
-**Force JWKS Refresh**:
+**Test Introspection Endpoint**:
 
 ```bash
-# Restart the agent to clear JWKS cache
-# Or wait for cache TTL (1 hour)
+# Verify the introspection endpoint is reachable
+curl -s -X POST \
+  "$RED_HAT_SSO_ISSUER/protocol/openid-connect/token/introspect" \
+  -u "$RED_HAT_SSO_CLIENT_ID:$RED_HAT_SSO_CLIENT_SECRET" \
+  -d "token=$TOKEN"
 ```
 
 ### 403 Forbidden
 
-**Symptom**: Authenticated but access denied
+**Symptom**: Authenticated but access denied — token is valid but missing required scope
 
 **Check Scopes**:
 
 ```bash
 # Decode token and check scope claim
-echo $TOKEN | cut -d. -f2 | base64 -d | jq .scope
+echo $TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq .scope
 ```
 
-**Required Scopes**: `openid profile email`
+**Required Scope**: `agent:insights` (configurable via `AGENT_REQUIRED_SCOPE`)
+
+**Fix**: Ensure the `agent:insights` Client Scope exists in Keycloak and is assigned to the client that issued the token.
 
 ### OAuth Callback Errors
 
@@ -137,19 +141,24 @@ echo $TOKEN | cut -d. -f2 | base64 -d | jq .scope
 | `redirect_uri_mismatch` | URI doesn't match registered | Update redirect URI |
 | `invalid_client` | Wrong client credentials | Check client_id/secret |
 
-### JWKS Fetch Failures
+### Introspection Endpoint Failures
 
-**Symptom**: `Failed to fetch JWKS`
+**Symptom**: `Introspection request failed`
 
 ```bash
-# Test JWKS endpoint
-curl https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs
+# Test introspection endpoint connectivity
+curl -s -o /dev/null -w "%{http_code}" \
+  "$RED_HAT_SSO_ISSUER/protocol/openid-connect/token/introspect" \
+  -u "$RED_HAT_SSO_CLIENT_ID:$RED_HAT_SSO_CLIENT_SECRET" \
+  -d "token=test"
+# Should return 200 (with {"active": false})
 ```
 
 **Causes**:
 - Network connectivity issues
 - Firewall blocking outbound HTTPS
 - SSO service unavailable
+- Invalid `RED_HAT_SSO_CLIENT_ID` / `RED_HAT_SSO_CLIENT_SECRET`
 
 ## Agent/AI Issues
 
@@ -391,8 +400,8 @@ open http://localhost:8000/docs
 
 | Message | Meaning | Action |
 |---------|---------|--------|
-| `JWT validation failed` | Invalid token | Check token |
-| `JWKS fetch failed` | Can't get keys | Check network |
+| `Token validation failed` | Invalid/inactive token | Check token and introspection endpoint |
+| `Insufficient scope` | Missing `agent:insights` | Add scope to client in Keycloak |
 | `Tool execution failed` | MCP error | Check MCP server |
 | `Rate limit exceeded` | Too many requests | Wait or upgrade |
 | `Database connection failed` | DB unreachable | Check database |

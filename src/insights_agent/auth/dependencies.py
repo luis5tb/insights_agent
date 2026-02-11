@@ -7,7 +7,12 @@ from typing import Annotated, Any
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from insights_agent.auth.jwt import JWTValidationError, JWTValidator, get_jwt_validator
+from insights_agent.auth.introspection import (
+    InsufficientScopeError,
+    TokenIntrospector,
+    TokenValidationError,
+    get_token_introspector,
+)
 from insights_agent.auth.models import AuthenticatedUser
 
 logger = logging.getLogger(__name__)
@@ -19,23 +24,23 @@ bearer_scheme = HTTPBearer(auto_error=False)
 async def get_current_user(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    jwt_validator: Annotated[JWTValidator, Depends(get_jwt_validator)],
+    introspector: Annotated[TokenIntrospector, Depends(get_token_introspector)],
 ) -> AuthenticatedUser:
     """Extract and validate the current user from the request.
 
     This dependency extracts the Bearer token from the Authorization header,
-    validates it using the JWT validator, and returns the authenticated user.
+    validates it via token introspection, and returns the authenticated user.
 
     Args:
         request: FastAPI request object
         credentials: HTTP Authorization credentials
-        jwt_validator: JWT validator instance
+        introspector: Token introspector instance
 
     Returns:
         AuthenticatedUser with validated claims
 
     Raises:
-        HTTPException: If authentication fails
+        HTTPException: If authentication or authorization fails
     """
     if not credentials:
         raise HTTPException(
@@ -45,14 +50,20 @@ async def get_current_user(
         )
 
     try:
-        user = await jwt_validator.validate_token(credentials.credentials)
+        user = await introspector.validate_token(credentials.credentials)
         # Store the raw access token for forwarding to downstream services
         user.access_token = credentials.credentials
         # Store user in request state for access in other parts of the app
         request.state.user = user
         return user
-    except JWTValidationError as e:
-        logger.warning("JWT validation failed: %s", e)
+    except InsufficientScopeError as e:
+        logger.warning("Insufficient scope: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from None
+    except TokenValidationError as e:
+        logger.warning("Token validation failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),

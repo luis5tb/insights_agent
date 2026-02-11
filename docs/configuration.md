@@ -36,10 +36,10 @@ GOOGLE_CLOUD_LOCATION=us-central1
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RED_HAT_SSO_ISSUER` | `https://sso.redhat.com/auth/realms/redhat-external` | SSO issuer URL |
-| `RED_HAT_SSO_CLIENT_ID` | - | OAuth client ID |
-| `RED_HAT_SSO_CLIENT_SECRET` | - | OAuth client secret |
+| `RED_HAT_SSO_CLIENT_ID` | - | Resource Server client ID (used for introspection + OAuth login) |
+| `RED_HAT_SSO_CLIENT_SECRET` | - | Resource Server client secret |
 | `RED_HAT_SSO_REDIRECT_URI` | `http://localhost:8000/oauth/callback` | OAuth redirect URI |
-| `RED_HAT_SSO_JWKS_URI` | Auto-derived from issuer | JWKS endpoint URL |
+| `AGENT_REQUIRED_SCOPE` | `agent:insights` | OAuth scope required in access tokens |
 
 **Example:**
 

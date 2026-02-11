@@ -56,11 +56,6 @@ class Settings(BaseSettings):
         default="http://localhost:8000/oauth/callback",
         description="OAuth redirect URI",
     )
-    red_hat_sso_jwks_uri: str = Field(
-        default="https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs",
-        description="JWKS endpoint for token validation",
-    )
-
     # Red Hat Insights MCP Configuration
     lightspeed_client_id: str = Field(
         default="",
@@ -182,6 +177,17 @@ class Settings(BaseSettings):
         default="",
         description="Session database URL for ADK sessions. If empty, uses DATABASE_URL. For security isolation, use a separate database.",
     )
+
+    # Agent required scope for token introspection
+    agent_required_scope: str = Field(
+        default="agent:insights",
+        description="OAuth scope required in access tokens. Checked via token introspection.",
+    )
+
+    @property
+    def keycloak_introspection_endpoint(self) -> str:
+        """Get the Keycloak token introspection endpoint URL."""
+        return f"{self.red_hat_sso_issuer}/protocol/openid-connect/token/introspect"
 
     @property
     def keycloak_dcr_endpoint(self) -> str:

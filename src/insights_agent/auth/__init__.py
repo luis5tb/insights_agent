@@ -1,7 +1,8 @@
 """Authentication and authorization module.
 
-This module implements OAuth 2.0 Authorization Code Grant Flow with Red Hat SSO
-as the identity provider, including JWT token validation.
+This module implements OAuth 2.0 with Red Hat SSO as the identity provider.
+Bearer tokens are validated via Keycloak token introspection (RFC 7662) and
+checked for the required ``agent:insights`` scope.
 """
 
 from insights_agent.auth.dependencies import (
@@ -9,7 +10,12 @@ from insights_agent.auth.dependencies import (
     get_current_user,
     require_scope,
 )
-from insights_agent.auth.jwt import JWTValidationError, JWTValidator, get_jwt_validator
+from insights_agent.auth.introspection import (
+    InsufficientScopeError,
+    TokenIntrospector,
+    TokenValidationError,
+    get_token_introspector,
+)
 from insights_agent.auth.middleware import AuthenticationMiddleware
 from insights_agent.auth.models import (
     AuthenticatedUser,
@@ -26,10 +32,11 @@ __all__ = [
     "CurrentUser",
     "get_current_user",
     "require_scope",
-    # JWT
-    "JWTValidationError",
-    "JWTValidator",
-    "get_jwt_validator",
+    # Introspection
+    "TokenIntrospector",
+    "TokenValidationError",
+    "InsufficientScopeError",
+    "get_token_introspector",
     # Middleware
     "AuthenticationMiddleware",
     # Models

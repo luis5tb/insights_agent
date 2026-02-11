@@ -7,7 +7,11 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from insights_agent.auth.jwt import JWTValidationError, get_jwt_validator
+from insights_agent.auth.introspection import (
+    InsufficientScopeError,
+    TokenValidationError,
+    get_token_introspector,
+)
 from insights_agent.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -79,16 +83,19 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         token = auth_header[7:]  # Remove "Bearer " prefix
 
-        # Validate token
+        # Validate token via introspection
         try:
-            jwt_validator = get_jwt_validator()
-            user = await jwt_validator.validate_token(token)
+            introspector = get_token_introspector()
+            user = await introspector.validate_token(token)
             # Store user in request state for access in handlers
             request.state.user = user
             request.state.access_token = token
             logger.debug("Authenticated user: %s", user.user_id)
-        except JWTValidationError as e:
-            logger.warning("JWT validation failed: %s", e)
+        except InsufficientScopeError as e:
+            logger.warning("Insufficient scope: %s", e)
+            return self._forbidden_response(str(e))
+        except TokenValidationError as e:
+            logger.warning("Token validation failed: %s", e)
             return self._unauthorized_response(str(e))
 
         return await call_next(request)
@@ -128,4 +135,19 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 "id": None,
             },
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    def _forbidden_response(self, detail: str) -> JSONResponse:
+        """Build 403 Forbidden response (valid token, insufficient scope)."""
+        return JSONResponse(
+            status_code=403,
+            content={
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32003,
+                    "message": "Forbidden",
+                    "data": {"detail": detail},
+                },
+                "id": None,
+            },
         )

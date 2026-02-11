@@ -130,9 +130,8 @@ The main AI agent FastAPI application, providing:
 
 Handles all authentication and authorization:
 
-- **JWT Validation**: Validates tokens from Red Hat SSO
-- **JWKS Cache**: Caches public keys with automatic refresh
-- **Scope Checking**: Validates required scopes for protected endpoints
+- **Token Introspection**: Validates tokens via Keycloak introspection endpoint (RFC 7662)
+- **Scope Checking**: Checks for required `agent:insights` scope
 - **Bypass for Discovery**: `/.well-known/agent.json` is public per A2A spec
 
 ### Agent Core
@@ -252,7 +251,7 @@ src/insights_agent/
 │       ├── router.py          # A2A JSON-RPC endpoints
 │       └── agent_card.py      # AgentCard builder
 ├── auth/                       # Authentication (shared)
-│   ├── jwt.py                 # JWT validation and JWKS
+│   ├── introspection.py       # Token introspection (RFC 7662)
 │   ├── oauth.py               # OAuth client
 │   ├── router.py              # OAuth endpoints (callback)
 │   ├── middleware.py           # Auth middleware
@@ -338,9 +337,9 @@ src/insights_agent/
 
 ### Authentication
 
-- A2A query endpoints require valid JWT from Red Hat SSO
-- Tokens validated against Red Hat SSO JWKS
-- Token claims verified (issuer, audience, expiration)
+- A2A query endpoints require valid Bearer token from Red Hat SSO
+- Tokens validated via Keycloak introspection endpoint (RFC 7662)
+- Required `agent:insights` scope checked; returns 403 if missing
 
 ### Public Endpoints
 

@@ -16,7 +16,7 @@ data:
   # Red Hat SSO Configuration
   RED_HAT_SSO_ISSUER: "https://sso.redhat.com/auth/realms/redhat-external"
   RED_HAT_SSO_REDIRECT_URI: "http://localhost:8000/auth/callback"
-  RED_HAT_SSO_JWKS_URI: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs"
+  AGENT_REQUIRED_SCOPE: "agent:insights"
 
   # MCP Server Configuration (for agent)
   MCP_TRANSPORT_MODE: "http"
