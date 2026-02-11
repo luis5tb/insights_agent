@@ -353,8 +353,8 @@ scope must be:
 
 1. Created as a Client Scope in the Keycloak realm
 2. Assigned to the agent's Resource Server client
-3. Included in DCR-created clients (via `default_client_scopes` in the DCR
-   request body)
+3. Included in DCR-created clients (via the `scope` field in the DCR request
+   body per RFC 7591)
 
 The required scope is configurable via `AGENT_REQUIRED_SCOPE` (default:
 `agent:insights`).

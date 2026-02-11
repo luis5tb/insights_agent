@@ -1170,7 +1170,87 @@ IAT=$(curl -s -X POST \
 echo "Initial Access Token: $IAT"
 ```
 
-#### 5. Configure the Marketplace Handler
+#### 5. Create the `agent:insights` Scope and Resource Server Client
+
+The agent validates tokens via introspection and checks for the `agent:insights`
+scope.  The scope must exist in the realm **before** DCR creates clients that
+reference it.
+
+**Create the `agent:insights` client scope:**
+
+```bash
+# Create the scope (uses the same ADMIN_TOKEN from step 4)
+curl -s -X POST "$KEYCLOAK_URL/admin/realms/test-realm/client-scopes" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "agent:insights",
+    "protocol": "openid-connect",
+    "attributes": {"include.in.token.scope": "true"}
+  }'
+```
+
+**Create the Resource Server client** (provides `RED_HAT_SSO_CLIENT_ID` / `SECRET`):
+
+```bash
+# Create the client
+curl -s -X POST "$KEYCLOAK_URL/admin/realms/test-realm/clients" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clientId": "insights-agent",
+    "enabled": true,
+    "clientAuthenticatorType": "client-secret",
+    "serviceAccountsEnabled": true,
+    "directAccessGrantsEnabled": false
+  }'
+
+# Get the client UUID
+CLIENT_UUID=$(curl -s "$KEYCLOAK_URL/admin/realms/test-realm/clients?clientId=insights-agent" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+
+# Get the client secret
+CLIENT_SECRET=$(curl -s "$KEYCLOAK_URL/admin/realms/test-realm/clients/$CLIENT_UUID/client-secret" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
+
+echo "RED_HAT_SSO_CLIENT_ID=insights-agent"
+echo "RED_HAT_SSO_CLIENT_SECRET=$CLIENT_SECRET"
+```
+
+**Assign `agent:insights` to the Resource Server client:**
+
+```bash
+# Get the scope UUID
+SCOPE_UUID=$(curl -s "$KEYCLOAK_URL/admin/realms/test-realm/client-scopes" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -c "import sys,json; print([s['id'] for s in json.load(sys.stdin) if s['name']=='agent:insights'][0])")
+
+# Add as optional scope to the client
+curl -s -X PUT \
+  "$KEYCLOAK_URL/admin/realms/test-realm/clients/$CLIENT_UUID/optional-client-scopes/$SCOPE_UUID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+Store the client credentials in Secret Manager:
+
+```bash
+echo -n "insights-agent" | \
+  gcloud secrets versions add redhat-sso-client-id \
+    --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+echo -n "$CLIENT_SECRET" | \
+  gcloud secrets versions add redhat-sso-client-secret \
+    --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+```
+
+> **Note:** DCR-created clients automatically get `agent:insights` as an optional
+> scope because the agent includes `"scope": "openid agent:insights"` in the DCR
+> request body (per RFC 7591).  The scope must exist in the realm (created above)
+> for Keycloak to honor it.
+
+#### 6. Configure the Marketplace Handler
 
 Update the secrets in Secret Manager first, then update the handler's env vars.
 The `gcloud run services update` command deploys a new revision that picks up
@@ -1202,7 +1282,7 @@ SKIP_JWT_VALIDATION=true,\
 DCR_ENABLED=true"
 ```
 
-#### 6. Run the Test Script
+#### 7. Run the Test Script
 
 The marketplace handler requires Cloud Run IAM authentication by default
 (setting `--allow-unauthenticated` requires `run.services.setIamPolicy`
@@ -1240,7 +1320,7 @@ Expected output:
 DCR succeeded.
 ```
 
-#### 7. Verify in Keycloak
+#### 8. Verify in Keycloak
 
 Check that the OAuth client was created:
 
@@ -1266,7 +1346,7 @@ for c in clients:
 "
 ```
 
-#### 8. Clean Up
+#### 9. Clean Up
 
 ```bash
 # Delete the test Keycloak service
@@ -1303,93 +1383,6 @@ The test script at `scripts/test_deployed_dcr.py` is configurable via environmen
 | `TEST_ORDER_ID` | random UUID | Fixed order ID |
 | `TEST_ACCOUNT_ID` | `test-procurement-account-001` | Procurement account ID |
 | `TEST_REDIRECT_URIS` | `https://gemini.google.com/callback` | Comma-separated redirect URIs |
-
-## Keycloak Setup for Token Introspection
-
-The agent validates Bearer tokens by POSTing them to the Keycloak introspection
-endpoint with its own Resource Server credentials (RFC 7662).  This section
-explains how to configure Keycloak — either production Red Hat SSO or a test
-Keycloak instance deployed via [Option B](#option-b-real-dcr-with-keycloak-on-cloud-run) above.
-
-### A. Create the Resource Server client (agent's own client)
-
-This client provides the `RED_HAT_SSO_CLIENT_ID` and `RED_HAT_SSO_CLIENT_SECRET`
-that the agent uses to authenticate to the introspection endpoint.
-
-**Via Keycloak Admin UI:**
-
-1. Go to Keycloak admin → Clients → Create client
-2. Client ID: e.g. `insights-agent`
-3. Client authentication: **ON** (confidential)
-4. Service accounts roles: **ON** (enables `client_credentials` grant)
-5. Save, then go to the **Credentials** tab and copy the client secret
-
-**Or via `kcadm.sh`:**
-
-```bash
-# Create the client
-podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
-  create clients -r <realm> \
-  -s clientId=insights-agent \
-  -s enabled=true \
-  -s clientAuthenticatorType=client-secret \
-  -s serviceAccountsEnabled=true \
-  -s directAccessGrantsEnabled=false
-
-# Get the client UUID
-CLIENT_UUID=$(podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
-  get clients -r <realm> -q clientId=insights-agent --fields id --format csv --noquotes)
-
-# Get the client secret
-podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
-  get clients/$CLIENT_UUID/client-secret -r <realm>
-```
-
-Store the client ID and secret in Secret Manager as `redhat-sso-client-id` and
-`redhat-sso-client-secret`.
-
-### B. Create the `agent:insights` client scope
-
-**Via Keycloak Admin UI:**
-
-1. Go to Client Scopes → Create client scope
-2. Name: `agent:insights`
-3. Type: Optional
-4. Protocol: openid-connect
-5. Save
-
-**Or via `kcadm.sh`:**
-
-```bash
-podman exec keycloak-test /opt/keycloak/bin/kcadm.sh \
-  create client-scopes -r <realm> \
-  -s name=agent:insights \
-  -s protocol=openid-connect \
-  -s 'attributes."include.in.token.scope"=true'
-```
-
-### C. Add `agent:insights` to the Resource Server client
-
-**Via Admin UI:** Clients → `insights-agent` → Client scopes → Add client scope
-→ `agent:insights` (Optional)
-
-This allows the agent's own tokens to carry the scope.
-
-### D. DCR-created clients get `agent:insights` automatically
-
-The agent's DCR code includes `"default_client_scopes": ["agent:insights"]` in
-the Keycloak DCR request body.  This means every OAuth client created for a
-marketplace order will automatically have the `agent:insights` scope.  The scope
-must exist in the realm (step B) for Keycloak to honor it.
-
-### E. Summary of env vars
-
-| Variable | Description |
-|----------|-------------|
-| `RED_HAT_SSO_ISSUER` | Keycloak realm URL (e.g., `https://sso.redhat.com/auth/realms/redhat-external`) |
-| `RED_HAT_SSO_CLIENT_ID` | Resource Server client ID (step A) |
-| `RED_HAT_SSO_CLIENT_SECRET` | Resource Server client secret (step A) |
-| `AGENT_REQUIRED_SCOPE` | Scope to check (default: `agent:insights`) |
 
 ## Monitoring
 

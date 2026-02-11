@@ -96,7 +96,7 @@ class KeycloakDCRClient:
             "grant_types": grant_types or ["authorization_code", "refresh_token", "client_credentials"],
             "token_endpoint_auth_method": "client_secret_basic",
             "application_type": "web",
-            "default_client_scopes": [settings.agent_required_scope],
+            "scope": f"openid {settings.agent_required_scope}",
         }
 
         headers = {
