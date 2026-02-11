@@ -1357,7 +1357,37 @@ for c in clients:
 "
 ```
 
-#### 9. Clean Up
+#### 9. Test the Agent with DCR Credentials
+
+Use the `client_id` and `client_secret` returned by the DCR response (step 7)
+to obtain an access token and send a message to the agent:
+
+```bash
+# Get a token and send a test message
+python scripts/test_a2a_auth.py \
+  --client-id <CLIENT_ID_FROM_DCR> \
+  --client-secret <CLIENT_SECRET_FROM_DCR> \
+  --issuer $KEYCLOAK_URL/realms/test-realm \
+  --agent-url $AGENT_URL \
+  --message "What systems have critical advisories?"
+```
+
+The script requests `scope=openid agent:insights` via `client_credentials`
+grant, then sends an A2A `message/send` request with the resulting Bearer token.
+
+To just get a token (e.g. for pasting into the A2A Inspector):
+
+```bash
+python scripts/test_a2a_auth.py \
+  --client-id <CLIENT_ID_FROM_DCR> \
+  --client-secret <CLIENT_SECRET_FROM_DCR> \
+  --issuer $KEYCLOAK_URL/realms/test-realm
+```
+
+Copy the printed token into the A2A Inspector's "Bearer Token" field and
+connect to `$AGENT_URL`.
+
+#### 10. Clean Up
 
 ```bash
 # Delete the test Keycloak service
