@@ -1242,6 +1242,38 @@ curl -s -X PUT \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
+**Grant `manage-clients` role to the Resource Server service account:**
+
+Keycloak's OIDC DCR endpoint does not enable `serviceAccountsEnabled` on
+newly created clients.  The agent uses the Admin API to fix this after DCR,
+which requires the `manage-clients` role.
+
+```bash
+# Get the service account user for insights-agent
+SA_USER_ID=$(curl -s \
+  "$KEYCLOAK_URL/admin/realms/test-realm/clients/$CLIENT_UUID/service-account-user" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+# Get the realm-management client UUID
+RM_UUID=$(curl -s \
+  "$KEYCLOAK_URL/admin/realms/test-realm/clients?clientId=realm-management" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+
+# Get the manage-clients role definition
+MANAGE_CLIENTS_ROLE=$(curl -s \
+  "$KEYCLOAK_URL/admin/realms/test-realm/clients/$RM_UUID/roles/manage-clients" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+
+# Assign the role to the service account
+curl -s -X POST \
+  "$KEYCLOAK_URL/admin/realms/test-realm/users/$SA_USER_ID/role-mappings/clients/$RM_UUID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "[$MANAGE_CLIENTS_ROLE]"
+```
+
 Store the client credentials in Secret Manager:
 
 ```bash
@@ -1254,19 +1286,23 @@ echo -n "$CLIENT_SECRET" | \
     --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 ```
 
-> **Note:** DCR-created clients automatically get `agent:insights` as an optional
-> scope because the agent includes `"scope": "openid agent:insights"` in the DCR
-> request body (per RFC 7591).  The scope must exist in the realm (created above)
-> for Keycloak to honor it.
+> **Note:** Keycloak's OIDC DCR endpoint ignores the `scope` and
+> `grant_types` fields — it does not assign client scopes or enable service
+> accounts.  After DCR creates a client, the agent automatically fixes both
+> via the Admin API (using the `manage-clients` role granted above):
+> it enables `serviceAccountsEnabled` and assigns `agent:insights` as an
+> optional client scope.
 
-#### 6. Configure the Marketplace Handler
+#### 6. Configure the Marketplace Handler and Agent
 
-Update the secrets in Secret Manager first, then update the handler's env vars.
+Update the secrets in Secret Manager first, then update the service env vars.
 The `gcloud run services update` command deploys a new revision that picks up
 both the env var changes and the updated secrets — no separate restart is needed.
 
 **Important:** Update secrets **before** the env vars, because the env var
 update triggers the new revision deployment.
+
+**Marketplace handler** (handles DCR requests):
 
 ```bash
 # 1. Store IAT in Secret Manager
@@ -1290,6 +1326,29 @@ RED_HAT_SSO_ISSUER=$KEYCLOAK_URL/realms/test-realm,\
 SKIP_JWT_VALIDATION=true,\
 DCR_ENABLED=true"
 ```
+
+**Agent** (introspects tokens against the test Keycloak):
+
+The agent needs the Resource Server credentials from step 5 to call the
+introspection endpoint.  The secrets were already updated above; now point
+the agent to the test Keycloak:
+
+```bash
+gcloud run services update insights-agent \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="\
+RED_HAT_SSO_ISSUER=$KEYCLOAK_URL/realms/test-realm,\
+SKIP_JWT_VALIDATION=false,\
+MCP_TRANSPORT_MODE=http"
+```
+
+> The agent reads `RED_HAT_SSO_CLIENT_ID` and `RED_HAT_SSO_CLIENT_SECRET` from
+> Secret Manager (set in step 5).  `SKIP_JWT_VALIDATION=false` ensures the
+> agent actually introspects tokens instead of bypassing validation.
+> `MCP_TRANSPORT_MODE=http` tells the agent to connect to the MCP server
+> sidecar via HTTP (the default `service.yaml` already sets this, but it
+> must be explicit if the agent was deployed separately).
 
 #### 7. Run the Test Script
 
@@ -1404,9 +1463,26 @@ gcloud run services update marketplace-handler \
 RED_HAT_SSO_ISSUER=https://sso.redhat.com/auth/realms/redhat-external,\
 SKIP_JWT_VALIDATION=false"
 
+# Restore agent to production configuration
+gcloud run services update insights-agent \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="\
+RED_HAT_SSO_ISSUER=https://sso.redhat.com/auth/realms/redhat-external,\
+SKIP_JWT_VALIDATION=false"
+
 # Restore the production IAT in Secret Manager
 echo -n 'your-production-iat' | \
   gcloud secrets versions add dcr-initial-access-token \
+    --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+# Restore the production SSO credentials in Secret Manager
+echo -n 'your-production-client-id' | \
+  gcloud secrets versions add redhat-sso-client-id \
+    --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+echo -n 'your-production-client-secret' | \
+  gcloud secrets versions add redhat-sso-client-secret \
     --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 ```
 

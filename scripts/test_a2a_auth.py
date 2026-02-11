@@ -40,6 +40,7 @@ import json
 import os
 import sys
 import uuid
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -47,10 +48,10 @@ from urllib.request import Request, urlopen
 def get_token(token_url: str, client_id: str, client_secret: str) -> str:
     """Get an access token via client_credentials grant."""
     data = urlencode({
-        "client_id": client_id,
-        "client_secret": client_secret,
         "grant_type": "client_credentials",
         "scope": "openid agent:insights",
+        "client_id": client_id,
+        "client_secret": client_secret,
     }).encode("ascii")
     request = Request(
         token_url,
@@ -58,8 +59,13 @@ def get_token(token_url: str, client_id: str, client_secret: str) -> str:
         method="POST",
         data=data,
     )
-    result = urlopen(request, timeout=30).read()
-    return json.loads(result)["access_token"]
+    try:
+        result = urlopen(request, timeout=30).read()
+        return json.loads(result)["access_token"]
+    except HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")
+        print(f"Token request failed ({e.code}): {error_body}", file=sys.stderr)
+        sys.exit(1)
 
 
 def send_a2a_message(agent_url: str, token: str, message: str) -> None:
