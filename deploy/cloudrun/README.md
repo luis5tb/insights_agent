@@ -1587,7 +1587,7 @@ Use `--force` to skip the confirmation prompt:
 ./deploy/cloudrun/cleanup.sh --force
 ```
 
-**Note**: The cleanup script does NOT delete container images in GCR, Cloud SQL instances, or VPC connectors. Delete these separately if needed:
+**Note**: The cleanup script does NOT delete container images in GCR or Cloud SQL instances. Delete these separately if needed:
 
 ```bash
 # Delete container images
@@ -1596,7 +1596,4 @@ gcloud container images delete gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp --force
 
 # Delete Cloud SQL instance (if created)
 gcloud sql instances delete INSTANCE_NAME --project=$GOOGLE_CLOUD_PROJECT
-
-# Delete VPC connector (if created)
-gcloud compute networks vpc-access connectors delete CONNECTOR_NAME --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
 ```
