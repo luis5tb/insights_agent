@@ -12,8 +12,10 @@
 #   1. Start marketplace-handler pod FIRST (contains PostgreSQL)
 #   2. Then start this pod (connects to PostgreSQL via network)
 #
-# The agent passes Lightspeed credentials to the MCP server via HTTP headers,
-# so the MCP server itself does not need the credentials configured.
+# MCP authentication (two modes, determined by whether Lightspeed credentials
+# are present in the secret):
+#   - Lightspeed credentials set: agent sends lightspeed-client-id/secret headers
+#   - Lightspeed credentials absent: agent forwards the caller's JWT token
 # The agent connects to the MCP server over HTTP to access Insights tools
 # (Advisor, Inventory, Vulnerability, etc.).
 #
@@ -101,16 +103,18 @@ spec:
             secretKeyRef:
               name: insights-agent-secrets
               key: RED_HAT_SSO_CLIENT_SECRET
-        - name: LIGHTSPEED_CLIENT_ID
-          valueFrom:
-            secretKeyRef:
-              name: insights-agent-secrets
-              key: LIGHTSPEED_CLIENT_ID
-        - name: LIGHTSPEED_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: insights-agent-secrets
-              key: LIGHTSPEED_CLIENT_SECRET
+        #- name: LIGHTSPEED_CLIENT_ID
+        #  valueFrom:
+        #    secretKeyRef:
+        #      name: insights-agent-secrets
+        #      key: LIGHTSPEED_CLIENT_ID
+        #      optional: true
+        #- name: LIGHTSPEED_CLIENT_SECRET
+        #  valueFrom:
+        #    secretKeyRef:
+        #      name: insights-agent-secrets
+        #      key: LIGHTSPEED_CLIENT_SECRET
+        #      optional: true
         - name: DCR_INITIAL_ACCESS_TOKEN
           valueFrom:
             secretKeyRef:
@@ -154,12 +158,14 @@ spec:
     # Credentials are passed by the agent via HTTP headers, not environment variables.
     - name: insights-mcp
       image: quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
+      #image: localhost/insights-mcp
       envFrom:
         # Load MCP server configuration from ConfigMap
         # Uses: MCP_SERVER_MODE, MCP_SERVER_PORT, MCP_SERVER_HOST
         - configMapRef:
             name: insights-agent-config
       args:
+        - "--debug"
         - "$(MCP_SERVER_MODE)"
         - "--port"
         - "$(MCP_SERVER_PORT)"

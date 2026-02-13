@@ -1,6 +1,8 @@
 """Authentication middleware for A2A endpoints."""
 
+import contextvars
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import Request, Response
@@ -15,6 +17,18 @@ from insights_agent.auth.introspection import (
 from insights_agent.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Request-scoped access token for forwarding to downstream services (e.g. MCP).
+# Stores (token, expiry) or None.  Set by AuthenticationMiddleware, read by
+# the MCP header provider in tools/mcp_headers.py.
+_request_access_token: contextvars.ContextVar[tuple[str, datetime] | None] = (
+    contextvars.ContextVar("_request_access_token", default=None)
+)
+
+
+def get_request_access_token() -> tuple[str, datetime] | None:
+    """Return the current request's access token and its expiry, or None."""
+    return _request_access_token.get()
 
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
@@ -68,9 +82,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         if self._is_public(path, method):
             return await call_next(request)
 
-        # Skip authentication in development mode
+        # Skip authentication in development mode, but still extract the
+        # Bearer token so it can be forwarded to downstream services (MCP).
         if self._settings.skip_jwt_validation:
             logger.debug("Skipping authentication (development mode)")
+            self._extract_token_for_passthrough(request)
             return await call_next(request)
 
         # Check for Bearer token
@@ -90,6 +106,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             # Store user in request state for access in handlers
             request.state.user = user
             request.state.access_token = token
+            # Make token available to downstream services (MCP header provider)
+            _request_access_token.set((token, user.token_exp))
             logger.debug("Authenticated user: %s", user.user_id)
         except InsufficientScopeError as e:
             logger.warning("Insufficient scope: %s", e)
@@ -120,6 +138,23 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # Everything else is public by default
         return True
+
+    @staticmethod
+    def _extract_token_for_passthrough(request: Request) -> None:
+        """Extract Bearer token from the request for downstream forwarding.
+
+        Called when JWT validation is skipped.  The token is not validated
+        but is still made available via the ContextVar so the MCP header
+        provider can forward it.  A generous expiry is assumed since we
+        are not introspecting.
+        """
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            # Use a generous expiry — the MCP server will validate the token.
+            far_future = datetime.now(UTC) + timedelta(hours=1)
+            _request_access_token.set((token, far_future))
+            logger.debug("Extracted Bearer token for pass-through (validation skipped)")
 
     def _unauthorized_response(self, detail: str) -> JSONResponse:
         """Build 401 Unauthorized response."""

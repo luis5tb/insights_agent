@@ -60,11 +60,17 @@ class MCPServerConfig:
         return f"{self.server_url}/mcp"
 
     def get_http_headers(self) -> dict[str, str]:
-        """Get headers for HTTP transport."""
-        return {
-            "lightspeed-client-id": self.client_id,
-            "lightspeed-client-secret": self.client_secret,
-        }
+        """Get static headers for HTTP transport.
+
+        Only returns lightspeed headers when credentials are configured.
+        When header_provider is active it takes precedence; these are the
+        fallback for when header_provider is not used.
+        """
+        headers: dict[str, str] = {}
+        if self.client_id and self.client_secret:
+            headers["lightspeed-client-id"] = self.client_id
+            headers["lightspeed-client-secret"] = self.client_secret
+        return headers
 
 
 def setup_mcp_environment(config: MCPServerConfig) -> None:
