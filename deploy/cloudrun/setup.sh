@@ -154,12 +154,6 @@ secrets=(
     "redhat-sso-client-secret"
 )
 
-# Optional secrets (Lightspeed credentials - only needed if not using JWT pass-through)
-optional_secrets=(
-    "lightspeed-client-id"
-    "lightspeed-client-secret"
-)
-
 # DCR (Dynamic Client Registration) secrets
 # Required when DCR_ENABLED=true (default)
 dcr_secrets=(
@@ -174,7 +168,7 @@ db_secrets=(
 )
 
 # Combine all optional secrets
-optional_secrets=("${optional_secrets[@]}" "${dcr_secrets[@]}" "${db_secrets[@]}")
+optional_secrets=("${dcr_secrets[@]}" "${db_secrets[@]}")
 
 for secret in "${secrets[@]}"; do
     if ! gcloud secrets describe "$secret" --project="$PROJECT_ID" &>/dev/null; then
@@ -258,7 +252,7 @@ if [[ "$ENABLE_MARKETPLACE" == "true" ]]; then
     # -------------------------------------------------------------------------
     # Create Pub/Sub Topic
     # -------------------------------------------------------------------------
-    PUBSUB_TOPIC="marketplace-entitlements"
+    PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
 
     if ! gcloud pubsub topics describe "$PUBSUB_TOPIC" --project="$PROJECT_ID" &>/dev/null; then
         gcloud pubsub topics create "$PUBSUB_TOPIC" --project="$PROJECT_ID"
@@ -305,11 +299,6 @@ echo "2. Update secrets with actual values:"
 echo ""
 echo "   # Google API Key (for Vertex AI / Gemini)"
 echo "   echo -n 'YOUR_API_KEY' | gcloud secrets versions add google-api-key --data-file=- --project=$PROJECT_ID"
-echo ""
-echo "   # Red Hat Lightspeed credentials (OPTIONAL - only if not using JWT pass-through)"
-echo "   # If omitted, the agent forwards the caller's Bearer token to the MCP server."
-echo "   #echo -n 'YOUR_CLIENT_ID' | gcloud secrets versions add lightspeed-client-id --data-file=- --project=$PROJECT_ID"
-echo "   #echo -n 'YOUR_CLIENT_SECRET' | gcloud secrets versions add lightspeed-client-secret --data-file=- --project=$PROJECT_ID"
 echo ""
 echo "   # Red Hat SSO credentials (for user authentication)"
 echo "   echo -n 'YOUR_SSO_CLIENT_ID' | gcloud secrets versions add redhat-sso-client-id --data-file=- --project=$PROJECT_ID"

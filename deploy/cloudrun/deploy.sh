@@ -69,8 +69,8 @@ PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Marketplace Pub/Sub configuration
 ENABLE_MARKETPLACE="${ENABLE_MARKETPLACE:-true}"
-PUBSUB_TOPIC="marketplace-entitlements"
-PUBSUB_SUBSCRIPTION="${PUBSUB_TOPIC}-sub"
+PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
+PUBSUB_SUBSCRIPTION="${PUBSUB_SUBSCRIPTION:-${PUBSUB_TOPIC}-sub}"
 
 # Default images
 AGENT_IMAGE="${AGENT_IMAGE:-}"
