@@ -63,6 +63,23 @@ The deployment consists of **two separate Cloud Run services**:
 
 The MCP server runs as a sidecar in the Agent service. The agent forwards the caller's JWT token to the MCP server, which uses it to authenticate with console.redhat.com on behalf of the user. Alternatively, if Lightspeed service account credentials are configured, the agent sends those instead (see [MCP Authentication](#mcp-authentication)).
 
+## Service Accounts
+
+The deployment uses **two separate service accounts** following the principle of least privilege:
+
+| Service Account | Name | Purpose | Permissions |
+|-----------------|------|---------|-------------|
+| **Runtime SA** | `lightspeed-agent` | Cloud Run service identity for both services | Secret Manager access, Vertex AI, Pub/Sub, Cloud SQL, logging, monitoring |
+| **Pub/Sub Invoker SA** | `pubsub-invoker` | Authenticates Pub/Sub push subscriptions to invoke Cloud Run | `roles/run.invoker` on marketplace-handler service only |
+
+**Why two service accounts?**
+
+- The **Runtime SA** runs as the identity of both Cloud Run services and needs access to secrets, AI models, databases, etc. It does **not** need `roles/run.invoker`.
+- The **Pub/Sub Invoker SA** is used exclusively by the Pub/Sub push subscription to authenticate when delivering marketplace events to the handler. It only has `roles/run.invoker` on the marketplace-handler service (not project-wide).
+- This separation ensures that if one SA is compromised, the blast radius is limited.
+
+Both are created automatically by `setup.sh`. The Pub/Sub Invoker SA is only created when `ENABLE_MARKETPLACE=true` (the default).
+
 ## Prerequisites
 
 - [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) installed and authenticated
@@ -88,7 +105,7 @@ export ENABLE_MARKETPLACE="false"
 
 ### 2. Run Setup Script
 
-The setup script enables required APIs, creates a service account, and sets up secrets:
+The setup script enables required APIs, creates service accounts (runtime + Pub/Sub invoker), and sets up secrets:
 
 ```bash
 ./deploy/cloudrun/setup.sh
@@ -99,8 +116,9 @@ The setup script enables required APIs, creates a service account, and sets up s
 |----------|---------|-------------|
 | `GOOGLE_CLOUD_PROJECT` | (required) | GCP project ID |
 | `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
-| `SERVICE_NAME` | `lightspeed-agent` | Cloud Run service name |
-| `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub for marketplace integration |
+| `SERVICE_NAME` | `lightspeed-agent` | Cloud Run service name and runtime SA name |
+| `PUBSUB_INVOKER_NAME` | `pubsub-invoker` | Pub/Sub invoker SA name |
+| `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub invoker SA and topic for marketplace integration |
 
 ### 3. Set Up Cloud SQL Database
 
@@ -204,6 +222,9 @@ docker push gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp:latest
 
 The deploy script uses the YAML service configs (`service.yaml` and
 `marketplace-handler.yaml`) with variable substitution to deploy both services.
+When deploying the handler (or `all`), it also configures the Pub/Sub push
+subscription with the handler's URL and the Pub/Sub Invoker SA for
+authentication.
 
 ```bash
 # Build and deploy both services (recommended for first deployment)
@@ -1611,10 +1632,10 @@ To remove all resources created by the setup and deploy scripts:
 ```
 
 This will delete:
-- Cloud Run service
+- Cloud Run services (lightspeed-agent, marketplace-handler)
 - Pub/Sub topic and subscription
 - Secret Manager secrets
-- Service account and IAM bindings
+- Service accounts (runtime + Pub/Sub invoker) and IAM bindings
 
 Use `--force` to skip the confirmation prompt:
 

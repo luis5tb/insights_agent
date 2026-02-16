@@ -4,10 +4,10 @@
 # =============================================================================
 #
 # This script removes all GCP resources created by setup.sh and deploy.sh:
-# - Cloud Run service
+# - Cloud Run services
 # - Pub/Sub topic and subscription
 # - Secrets in Secret Manager
-# - Service account and IAM bindings
+# - Service accounts (runtime + Pub/Sub invoker) and IAM bindings
 #
 # Usage:
 #   ./deploy/cloudrun/cleanup.sh [--force]
@@ -42,6 +42,10 @@ REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-lightspeed-agent}"
 SERVICE_ACCOUNT="${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
+# Pub/Sub Invoker Service Account (must match setup.sh)
+PUBSUB_INVOKER_NAME="${PUBSUB_INVOKER_NAME:-pubsub-invoker}"
+PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
 # Parse arguments
 FORCE=false
 
@@ -74,7 +78,8 @@ echo "  - Pub/Sub subscription: marketplace-entitlements-sub"
 echo "  - Secrets: google-api-key, lightspeed-client-id, lightspeed-client-secret,"
 echo "             redhat-sso-client-id, redhat-sso-client-secret, database-url,"
 echo "             session-database-url, dcr-initial-access-token, dcr-encryption-key"
-echo "  - Service account: $SERVICE_ACCOUNT"
+echo "  - Service accounts: $SERVICE_ACCOUNT"
+echo "                      $PUBSUB_INVOKER_SA"
 echo ""
 
 # Confirmation prompt
@@ -179,7 +184,6 @@ done
 log_info "Removing service account IAM bindings..."
 
 roles=(
-    "roles/run.invoker"
     "roles/secretmanager.secretAccessor"
     "roles/aiplatform.user"
     "roles/pubsub.subscriber"
@@ -187,6 +191,7 @@ roles=(
     "roles/servicemanagement.serviceController"
     "roles/logging.logWriter"
     "roles/monitoring.metricWriter"
+    "roles/cloudsql.client"
 )
 
 if gcloud iam service-accounts describe "$SERVICE_ACCOUNT" --project="$PROJECT_ID" &>/dev/null; then
@@ -198,13 +203,43 @@ if gcloud iam service-accounts describe "$SERVICE_ACCOUNT" --project="$PROJECT_I
             --quiet 2>/dev/null || true
     done
 
-    log_info "Deleting service account..."
+    log_info "Deleting runtime service account..."
     gcloud iam service-accounts delete "$SERVICE_ACCOUNT" \
         --project="$PROJECT_ID" \
         --quiet
     log_info "Service account '$SERVICE_ACCOUNT' deleted"
 else
     log_info "Service account '$SERVICE_ACCOUNT' does not exist, skipping"
+fi
+
+# Delete Pub/Sub Invoker Service Account
+log_info "Removing Pub/Sub Invoker service account..."
+
+if gcloud iam service-accounts describe "$PUBSUB_INVOKER_SA" --project="$PROJECT_ID" &>/dev/null; then
+    # Remove the service-level run.invoker binding on marketplace-handler
+    log_info "  Removing roles/run.invoker from marketplace-handler..."
+    gcloud run services remove-iam-policy-binding "marketplace-handler" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --member="serviceAccount:$PUBSUB_INVOKER_SA" \
+        --role="roles/run.invoker" \
+        --quiet 2>/dev/null || true
+
+    # Remove the self-referencing serviceAccountUser binding
+    log_info "  Removing roles/iam.serviceAccountUser..."
+    gcloud iam service-accounts remove-iam-policy-binding "$PUBSUB_INVOKER_SA" \
+        --member="serviceAccount:$PUBSUB_INVOKER_SA" \
+        --role="roles/iam.serviceAccountUser" \
+        --project="$PROJECT_ID" \
+        --quiet 2>/dev/null || true
+
+    log_info "Deleting Pub/Sub Invoker service account..."
+    gcloud iam service-accounts delete "$PUBSUB_INVOKER_SA" \
+        --project="$PROJECT_ID" \
+        --quiet
+    log_info "Service account '$PUBSUB_INVOKER_SA' deleted"
+else
+    log_info "Service account '$PUBSUB_INVOKER_SA' does not exist, skipping"
 fi
 
 # =============================================================================
@@ -219,7 +254,7 @@ echo "The following resources have been removed:"
 echo "  - Cloud Run services (lightspeed-agent, marketplace-handler)"
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
-echo "  - Service account and IAM bindings"
+echo "  - Service accounts (runtime + Pub/Sub invoker) and IAM bindings"
 echo ""
 echo "Note: The following resources were NOT deleted (delete manually if needed):"
 echo "  - Cloud SQL instances"

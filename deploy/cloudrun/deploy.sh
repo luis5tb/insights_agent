@@ -63,6 +63,15 @@ REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-lightspeed-agent}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 
+# Pub/Sub Invoker Service Account (must match setup.sh)
+PUBSUB_INVOKER_NAME="${PUBSUB_INVOKER_NAME:-pubsub-invoker}"
+PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+# Marketplace Pub/Sub configuration
+ENABLE_MARKETPLACE="${ENABLE_MARKETPLACE:-true}"
+PUBSUB_TOPIC="marketplace-entitlements"
+PUBSUB_SUBSCRIPTION="${PUBSUB_TOPIC}-sub"
+
 # Default images
 AGENT_IMAGE="${AGENT_IMAGE:-}"
 HANDLER_IMAGE="${HANDLER_IMAGE:-}"
@@ -229,6 +238,67 @@ deploy_handler() {
 }
 
 # =============================================================================
+# Configure Pub/Sub push subscription
+# =============================================================================
+configure_pubsub_push() {
+    if [[ "$ENABLE_MARKETPLACE" != "true" ]]; then
+        log_info "Skipping Pub/Sub push configuration (ENABLE_MARKETPLACE=$ENABLE_MARKETPLACE)"
+        return
+    fi
+
+    log_info "Configuring Pub/Sub push subscription..."
+
+    # Get the marketplace-handler URL for the push endpoint
+    local handler_url
+    handler_url=$(gcloud run services describe "marketplace-handler" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --format='value(status.url)' 2>/dev/null || echo "")
+
+    if [[ -z "$handler_url" ]]; then
+        log_warn "Could not retrieve marketplace-handler URL. Skipping Pub/Sub push configuration."
+        log_warn "Run deploy.sh again after the handler is deployed."
+        return
+    fi
+
+    local push_endpoint="${handler_url}/dcr"
+
+    # Grant the Pub/Sub Invoker SA permission to invoke the marketplace-handler.
+    # This is a service-level binding (not project-level), following least privilege.
+    log_info "Granting roles/run.invoker to Pub/Sub Invoker SA on marketplace-handler..."
+    gcloud run services add-iam-policy-binding "marketplace-handler" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --member="serviceAccount:$PUBSUB_INVOKER_SA" \
+        --role="roles/run.invoker" \
+        --quiet || true
+
+    # Create or update the push subscription
+    if gcloud pubsub subscriptions describe "$PUBSUB_SUBSCRIPTION" --project="$PROJECT_ID" &>/dev/null; then
+        log_info "Updating existing subscription '$PUBSUB_SUBSCRIPTION' with push endpoint..."
+        gcloud pubsub subscriptions update "$PUBSUB_SUBSCRIPTION" \
+            --push-endpoint="$push_endpoint" \
+            --push-auth-service-account="$PUBSUB_INVOKER_SA" \
+            --ack-deadline=60 \
+            --project="$PROJECT_ID" \
+            --quiet
+    else
+        log_info "Creating push subscription '$PUBSUB_SUBSCRIPTION'..."
+        gcloud pubsub subscriptions create "$PUBSUB_SUBSCRIPTION" \
+            --topic="$PUBSUB_TOPIC" \
+            --push-endpoint="$push_endpoint" \
+            --push-auth-service-account="$PUBSUB_INVOKER_SA" \
+            --ack-deadline=60 \
+            --project="$PROJECT_ID"
+    fi
+
+    log_info "Pub/Sub push subscription configured:"
+    log_info "  Subscription: $PUBSUB_SUBSCRIPTION"
+    log_info "  Push endpoint: $push_endpoint"
+    log_info "  Auth SA: $PUBSUB_INVOKER_SA"
+}
+
+# =============================================================================
 # Main deployment
 # =============================================================================
 
@@ -252,10 +322,12 @@ fi
 case "$DEPLOY_SERVICE" in
     all)
         deploy_handler
+        configure_pubsub_push
         deploy_agent
         ;;
     handler)
         deploy_handler
+        configure_pubsub_push
         ;;
     agent)
         deploy_agent

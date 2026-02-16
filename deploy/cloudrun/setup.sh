@@ -5,8 +5,10 @@
 #
 # This script sets up all required GCP services for the Lightspeed Agent:
 # - Enables required APIs
-# - Creates service account with appropriate permissions
+# - Creates runtime service account with appropriate permissions
+# - Creates Pub/Sub Invoker service account (for push subscription auth)
 # - Creates secrets in Secret Manager
+# - Creates Pub/Sub topic for marketplace events
 #
 # Usage:
 #   ./deploy/cloudrun/setup.sh
@@ -39,6 +41,10 @@ REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-lightspeed-agent}"
 SERVICE_ACCOUNT="${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
+# Pub/Sub Invoker Service Account (separate SA for push subscription auth)
+PUBSUB_INVOKER_NAME="${PUBSUB_INVOKER_NAME:-pubsub-invoker}"
+PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
 # Optional features
 ENABLE_MARKETPLACE="${ENABLE_MARKETPLACE:-true}"
 
@@ -52,6 +58,7 @@ fi
 log_info "Setting up Cloud Run deployment for project: $PROJECT_ID"
 log_info "Region: $REGION"
 log_info "Service: $SERVICE_NAME"
+log_info "Pub/Sub invoker SA: $PUBSUB_INVOKER_NAME"
 log_info "Marketplace integration: $ENABLE_MARKETPLACE"
 
 # =============================================================================
@@ -104,7 +111,6 @@ fi
 log_info "Granting IAM roles to service account..."
 
 # IAM roles and their purposes:
-# - run.invoker: Allow the service to invoke itself (for internal calls)
 # - secretmanager.secretAccessor: Read secrets (API keys, credentials)
 # - aiplatform.user: Access Vertex AI / Gemini models
 # - pubsub.subscriber: Receive marketplace procurement events
@@ -112,8 +118,12 @@ log_info "Granting IAM roles to service account..."
 # - servicemanagement.serviceController: Report usage to Service Control API
 # - logging.logWriter: Write logs to Cloud Logging
 # - monitoring.metricWriter: Write metrics to Cloud Monitoring
+# - cloudsql.client: Connect to Cloud SQL instances
+#
+# Note: roles/run.invoker is NOT granted here. It is granted to the
+# separate Pub/Sub Invoker SA on the marketplace-handler service
+# (see deploy.sh). This follows the principle of least privilege.
 roles=(
-    "roles/run.invoker"
     "roles/secretmanager.secretAccessor"
     "roles/aiplatform.user"
     "roles/pubsub.subscriber"
@@ -210,11 +220,44 @@ for secret in "${optional_secrets[@]}"; do
 done
 
 # =============================================================================
-# Step 4: Create Pub/Sub Topic for Marketplace Integration (Optional)
+# Step 4: Create Pub/Sub Invoker Service Account and Topic (Optional)
 # =============================================================================
 if [[ "$ENABLE_MARKETPLACE" == "true" ]]; then
     log_info "Setting up Pub/Sub for Marketplace integration..."
 
+    # -------------------------------------------------------------------------
+    # Create Pub/Sub Invoker Service Account
+    # -------------------------------------------------------------------------
+    # This is a SEPARATE service account from the runtime SA, used exclusively
+    # to authenticate Pub/Sub push subscriptions when invoking Cloud Run.
+    # Following the principle of least privilege, it only has roles/run.invoker
+    # on the marketplace-handler service (granted in deploy.sh after the
+    # handler is deployed).
+    log_info "Creating Pub/Sub Invoker service account: $PUBSUB_INVOKER_SA"
+
+    if ! gcloud iam service-accounts describe "$PUBSUB_INVOKER_SA" --project="$PROJECT_ID" &>/dev/null; then
+        gcloud iam service-accounts create "$PUBSUB_INVOKER_NAME" \
+            --display-name="Pub/Sub Invoker SA" \
+            --description="Authorizes Pub/Sub push subscriptions to invoke Cloud Run services" \
+            --project="$PROJECT_ID"
+        log_info "Pub/Sub Invoker service account created"
+    else
+        log_info "Pub/Sub Invoker service account already exists"
+    fi
+
+    # Grant the Pub/Sub Invoker SA permission to act as itself.
+    # Required because we authenticate AS this SA and create a subscription
+    # that uses it as the push-auth identity.
+    log_info "Granting Service Account User to Pub/Sub Invoker SA on itself..."
+    gcloud iam service-accounts add-iam-policy-binding "$PUBSUB_INVOKER_SA" \
+        --member="serviceAccount:$PUBSUB_INVOKER_SA" \
+        --role="roles/iam.serviceAccountUser" \
+        --project="$PROJECT_ID" \
+        --quiet || true
+
+    # -------------------------------------------------------------------------
+    # Create Pub/Sub Topic
+    # -------------------------------------------------------------------------
     PUBSUB_TOPIC="marketplace-entitlements"
 
     if ! gcloud pubsub topics describe "$PUBSUB_TOPIC" --project="$PROJECT_ID" &>/dev/null; then
@@ -224,16 +267,10 @@ if [[ "$ENABLE_MARKETPLACE" == "true" ]]; then
         log_info "Pub/Sub topic '$PUBSUB_TOPIC' already exists"
     fi
 
-    # Create subscription
-    PUBSUB_SUBSCRIPTION="${PUBSUB_TOPIC}-sub"
-    if ! gcloud pubsub subscriptions describe "$PUBSUB_SUBSCRIPTION" --project="$PROJECT_ID" &>/dev/null; then
-        gcloud pubsub subscriptions create "$PUBSUB_SUBSCRIPTION" \
-            --topic="$PUBSUB_TOPIC" \
-            --project="$PROJECT_ID"
-        log_info "Pub/Sub subscription '$PUBSUB_SUBSCRIPTION' created"
-    else
-        log_info "Pub/Sub subscription '$PUBSUB_SUBSCRIPTION' already exists"
-    fi
+    # Note: The push subscription is created in deploy.sh after the
+    # marketplace-handler is deployed, because the push endpoint URL
+    # (the handler's Cloud Run URL) is not known until then.
+    log_info "Pub/Sub push subscription will be configured by deploy.sh"
 else
     log_info "Skipping Pub/Sub setup (ENABLE_MARKETPLACE=false)"
 fi
@@ -245,6 +282,12 @@ echo ""
 log_info "=========================================="
 log_info "Setup complete!"
 log_info "=========================================="
+echo ""
+echo "Service accounts created:"
+echo "  Runtime SA:         $SERVICE_ACCOUNT"
+if [[ "$ENABLE_MARKETPLACE" == "true" ]]; then
+    echo "  Pub/Sub Invoker SA: $PUBSUB_INVOKER_SA"
+fi
 echo ""
 echo "Next steps:"
 echo ""
