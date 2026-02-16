@@ -1,4 +1,4 @@
-# Red Hat Insights Agent
+# Red Hat Lightspeed Agent for Google Cloud
 
 An A2A-ready agent for Red Hat Insights built with Google Agent Development Kit (ADK).
 
@@ -47,10 +47,10 @@ The system consists of **two separate services**:
                                  │ Shared PostgreSQL
                                  ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│                     Insights Agent (Port 8000)                         │
+│                    Lightspeed Agent (Port 8000)                        │
 │                     ──────────────────────────                         │
 │  ┌─────────────────────┐      ┌─────────────────────────────┐          │
-│  │   Insights Agent    │ HTTP │   Red Hat Insights MCP      │          │
+│  │  Lightspeed Agent   │ HTTP │   Red Hat Lightspeed MCP    │          │
 │  │   (Gemini + ADK)    │◄────►│   Server (Sidecar)          │          │
 │  │                     │      │                             │          │
 │  │   - A2A protocol    │      │   - Advisor, Inventory      │          │
@@ -71,7 +71,7 @@ The system consists of **two separate services**:
 | Service | Port | Purpose | Scaling |
 |---------|------|---------|---------|
 | **Marketplace Handler** | 8001 | Pub/Sub events, DCR, provisioning | Always on (minScale=1) |
-| **Insights Agent** | 8000 | A2A queries, user interactions, MCP | Scale to zero when idle |
+| **Lightspeed Agent** | 8000 | A2A queries, user interactions, MCP | Scale to zero when idle |
 
 ### Deployment Order
 
@@ -93,7 +93,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 1. Clone the repository:
    ```bash
    git clone <repository-url>
-   cd insights-agent
+   cd lightspeed-agent
    ```
 
 2. Create a virtual environment:
@@ -117,7 +117,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 ### Running the Agent
 
-The agent requires the Red Hat Insights MCP server to be running to access Insights APIs. Choose one of the following approaches:
+The Lightspeed Agent requires the Red Hat Lightspeed MCP server to be running to access Insights APIs. Choose one of the following approaches:
 
 #### Option 1: Development Mode (with MCP Server)
 
@@ -140,12 +140,12 @@ The agent requires the Red Hat Insights MCP server to be running to access Insig
 
    **Terminal Mode:**
    ```bash
-   adk run agents/rh_insights_agent
+   adk run agents/rh_lightspeed_agent
    ```
 
    **API Server:**
    ```bash
-   python -m insights_agent.main
+   python -m lightspeed_agent.main
    ```
 
 #### Option 2: Full Stack with Podman Pod
@@ -158,8 +158,8 @@ podman kube play deploy/podman/my-secrets.yaml
 
 # Start all services
 podman kube play \
-  --configmap deploy/podman/insights-agent-configmap.yaml \
-  deploy/podman/insights-agent-pod.yaml
+  --configmap deploy/podman/lightspeed-agent-configmap.yaml \
+  deploy/podman/lightspeed-agent-pod.yaml
 
 # Access the agent at http://localhost:8000
 ```
@@ -223,7 +223,7 @@ For user authentication via OAuth 2.0:
 ## Project Structure
 
 ```
-insights_agent/
+lightspeed_agent/
 ├── agent.py                 # ADK CLI entry point
 ├── pyproject.toml          # Project configuration
 ├── .env.example            # Environment template
@@ -247,11 +247,11 @@ insights_agent/
 │   │   └── deploy.sh              # Deploy script (--service all|handler|agent)
 │   └── podman/             # Podman/Kubernetes deployment
 │       ├── marketplace-handler-pod.yaml  # Handler pod (start first)
-│       ├── insights-agent-pod.yaml       # Agent pod
-│       ├── insights-agent-configmap.yaml
-│       └── insights-agent-secret.yaml
+│       ├── lightspeed-agent-pod.yaml       # Agent pod
+│       ├── lightspeed-agent-configmap.yaml
+│       └── lightspeed-agent-secret.yaml
 └── src/
-    └── insights_agent/
+    └── lightspeed_agent/
         ├── api/                # A2A endpoints and AgentCard
         │   └── a2a/            # A2A protocol setup
         ├── auth/               # OAuth 2.0 authentication
@@ -276,7 +276,7 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 
 - [Architecture Overview](docs/architecture.md) - Two-service architecture and data flows
 - [Authentication](docs/authentication.md) - OAuth 2.0, DCR, JWT validation, MCP authentication
-- [MCP Server Integration](docs/mcp-integration.md) - Red Hat Insights MCP server setup
+- [MCP Server Integration](docs/mcp-integration.md) - Red Hat Lightspeed MCP server setup
 - [Authentication Guide](docs/authentication.md) - OAuth 2.0 and JWT validation
 - [API Reference](docs/api.md) - Endpoints and examples
 - [Configuration Reference](docs/configuration.md) - All environment variables
@@ -291,9 +291,9 @@ The system is deployed as **two separate pods**, each with its own PostgreSQL da
    - **marketplace-handler**: Handles Pub/Sub events and DCR requests
    - **postgres**: PostgreSQL database for marketplace data (orders, entitlements, DCR clients)
 
-2. **Insights Agent Pod** (start after handler):
-   - **insights-agent**: Main A2A agent (Gemini + Google ADK)
-   - **insights-mcp**: Red Hat Insights MCP server
+2. **Lightspeed Agent Pod** (start after handler):
+   - **lightspeed-agent**: Main A2A agent (Gemini + Google ADK)
+   - **insights-mcp**: Red Hat Lightspeed MCP server
    - **session-postgres**: PostgreSQL database for agent sessions (ADK session persistence)
    - **a2a-inspector**: Web UI for agent interaction (optional)
 
@@ -311,7 +311,7 @@ The system is deployed as **two separate pods**, each with its own PostgreSQL da
 podman build -t localhost/marketplace-handler:latest -f Containerfile.marketplace-handler .
 
 # Build the agent image
-podman build -t localhost/insights-agent:latest -f Containerfile .
+podman build -t localhost/lightspeed-agent:latest -f Containerfile .
 
 # (Optional) Build the A2A Inspector for web UI
 git clone https://github.com/a2aproject/a2a-inspector.git /tmp/a2a-inspector
@@ -333,7 +333,7 @@ podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
 3. Create your secrets file with credentials:
    ```bash
    # Copy the template
-   cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
+   cp deploy/podman/lightspeed-agent-secret.yaml deploy/podman/my-secrets.yaml
 
    # Edit with your actual credentials (plain text, no encoding needed)
    # IMPORTANT: Never commit my-secrets.yaml to version control!
@@ -354,10 +354,10 @@ podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
 
    **Database URLs:**
    - `MARKETPLACE_DATABASE_URL`: Marketplace DB URL for marketplace-handler pod (uses `localhost:5432` since PostgreSQL is in the same pod)
-   - `DATABASE_URL`: Marketplace DB URL for insights-agent pod (uses `host.containers.internal:5432` to reach the marketplace-handler pod's PostgreSQL)
-   - `SESSION_DATABASE_URL`: Session DB URL for insights-agent pod (uses `localhost:5433` since session PostgreSQL is in the same pod)
+   - `DATABASE_URL`: Marketplace DB URL for lightspeed-agent pod (uses `host.containers.internal:5432` to reach the marketplace-handler pod's PostgreSQL)
+   - `SESSION_DATABASE_URL`: Session DB URL for lightspeed-agent pod (uses `localhost:5433` since session PostgreSQL is in the same pod)
 
-4. (Optional) Customize configuration in `deploy/podman/insights-agent-configmap.yaml`:
+4. (Optional) Customize configuration in `deploy/podman/lightspeed-agent-configmap.yaml`:
    - Database users and names (`MARKETPLACE_DB_USER`, `SESSION_DB_USER`, etc.)
    - Agent settings, logging, rate limiting
    - MCP server configuration
@@ -370,13 +370,13 @@ podman kube play deploy/podman/my-secrets.yaml
 
 # Start the marketplace handler FIRST (contains PostgreSQL)
 podman kube play \
-  --configmap deploy/podman/insights-agent-configmap.yaml \
+  --configmap deploy/podman/lightspeed-agent-configmap.yaml \
   deploy/podman/marketplace-handler-pod.yaml
 
 # Then start the agent pod (connects to handler's PostgreSQL)
 podman kube play \
-  --configmap deploy/podman/insights-agent-configmap.yaml \
-  deploy/podman/insights-agent-pod.yaml
+  --configmap deploy/podman/lightspeed-agent-configmap.yaml \
+  deploy/podman/lightspeed-agent-pod.yaml
 
 # View pod status
 podman pod ps
@@ -384,12 +384,12 @@ podman pod ps
 # View container logs
 podman logs marketplace-handler-marketplace-handler  # Handler logs
 podman logs marketplace-handler-postgres             # Marketplace PostgreSQL logs
-podman logs insights-agent-pod-insights-agent        # Agent logs
-podman logs insights-agent-pod-insights-mcp          # MCP server logs
-podman logs insights-agent-pod-session-postgres      # Session PostgreSQL logs
+podman logs lightspeed-agent-pod-lightspeed-agent        # Agent logs
+podman logs lightspeed-agent-pod-insights-mcp          # MCP server logs
+podman logs lightspeed-agent-pod-session-postgres      # Session PostgreSQL logs
 
 # Stop and remove all resources (reverse order)
-podman kube down deploy/podman/insights-agent-pod.yaml
+podman kube down deploy/podman/lightspeed-agent-pod.yaml
 podman kube down deploy/podman/marketplace-handler-pod.yaml
 podman kube down deploy/podman/my-secrets.yaml
 ```
@@ -403,7 +403,7 @@ podman kube down deploy/podman/my-secrets.yaml
 | Handler Health | http://localhost:8001/health | Handler health status |
 | DCR Endpoint | http://localhost:8001/dcr | Pub/Sub + DCR hybrid endpoint |
 
-**Insights Agent:**
+**Lightspeed Agent:**
 
 | Service | URL | Description |
 |---------|-----|-------------|
@@ -554,7 +554,7 @@ This mode skips Keycloak entirely. The handler returns pre-configured credential
 
 1. **Copy the secrets template and edit it:**
    ```bash
-   cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
+   cp deploy/podman/lightspeed-agent-secret.yaml deploy/podman/my-secrets.yaml
    ```
 
    Edit `deploy/podman/my-secrets.yaml` and set at minimum:
@@ -563,11 +563,11 @@ This mode skips Keycloak entirely. The handler returns pre-configured credential
      RED_HAT_SSO_CLIENT_ID: "my-test-client"
      RED_HAT_SSO_CLIENT_SECRET: "my-test-secret"
      DCR_ENCRYPTION_KEY: "<your-fernet-key>"
-     MARKETPLACE_DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
+     MARKETPLACE_DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/lightspeed_agent"
      MARKETPLACE_DB_PASSWORD: "insights"
    ```
 
-2. **Set `DCR_ENABLED` to `false`** in `deploy/podman/insights-agent-configmap.yaml`:
+2. **Set `DCR_ENABLED` to `false`** in `deploy/podman/lightspeed-agent-configmap.yaml`:
    ```yaml
    DCR_ENABLED: "false"
    SKIP_JWT_VALIDATION: "true"
@@ -577,7 +577,7 @@ This mode skips Keycloak entirely. The handler returns pre-configured credential
    ```bash
    podman kube play deploy/podman/my-secrets.yaml
    podman kube play \
-     --configmap deploy/podman/insights-agent-configmap.yaml \
+     --configmap deploy/podman/lightspeed-agent-configmap.yaml \
      deploy/podman/marketplace-handler-pod.yaml
    ```
 
@@ -670,21 +670,21 @@ This mode exercises the full DCR flow -- real OAuth client creation in a locally
 
 5. **Copy the secrets template and configure for local Keycloak:**
    ```bash
-   cp deploy/podman/insights-agent-secret.yaml deploy/podman/my-secrets.yaml
+   cp deploy/podman/lightspeed-agent-secret.yaml deploy/podman/my-secrets.yaml
    ```
 
    Edit `deploy/podman/my-secrets.yaml`:
    ```yaml
    stringData:
-     RED_HAT_SSO_CLIENT_ID: "insights-agent"
+     RED_HAT_SSO_CLIENT_ID: "lightspeed-agent"
      RED_HAT_SSO_CLIENT_SECRET: "dummy"
      DCR_INITIAL_ACCESS_TOKEN: "<the IAT from step 4>"
      DCR_ENCRYPTION_KEY: "<your-fernet-key>"
-     MARKETPLACE_DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/insights_agent"
+     MARKETPLACE_DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/lightspeed_agent"
      MARKETPLACE_DB_PASSWORD: "insights"
    ```
 
-6. **Update the configmap** in `deploy/podman/insights-agent-configmap.yaml`:
+6. **Update the configmap** in `deploy/podman/lightspeed-agent-configmap.yaml`:
    ```yaml
    DCR_ENABLED: "true"
    SKIP_JWT_VALIDATION: "true"
@@ -697,7 +697,7 @@ This mode exercises the full DCR flow -- real OAuth client creation in a locally
    ```bash
    podman kube play deploy/podman/my-secrets.yaml
    podman kube play \
-     --configmap deploy/podman/insights-agent-configmap.yaml \
+     --configmap deploy/podman/lightspeed-agent-configmap.yaml \
      deploy/podman/marketplace-handler-pod.yaml
    ```
 
@@ -760,12 +760,12 @@ The script sends two identical requests to verify idempotency — per Google's D
 | marketplace-handler | 8001 | Pub/Sub events and DCR endpoint |
 | postgres | 5432 | PostgreSQL for marketplace data (orders, entitlements, DCR clients) |
 
-**Insights Agent Pod:**
+**Lightspeed Agent Pod:**
 
 | Container | Port | Description |
 |-----------|------|-------------|
-| insights-agent | 8000 | Main A2A agent API |
-| insights-mcp | 8081 | Red Hat Insights MCP server |
+| lightspeed-agent | 8000 | Main A2A agent API |
+| insights-mcp | 8081 | Red Hat Lightspeed MCP server |
 | session-postgres | 5433 | PostgreSQL for agent sessions (ADK session persistence) |
 | a2a-inspector | 8080 | Web UI for agent interaction (optional) |
 
@@ -776,7 +776,7 @@ The system uses **two separate PostgreSQL databases** for security isolation:
 | Database | Pod | Port | Purpose |
 |----------|-----|------|---------|
 | Marketplace DB | marketplace-handler | 5432 | Orders, entitlements, DCR clients |
-| Session DB | insights-agent | 5433 | ADK agent sessions |
+| Session DB | lightspeed-agent | 5433 | ADK agent sessions |
 
 This separation ensures:
 - Agent sessions cannot access marketplace/auth data
@@ -800,7 +800,7 @@ The Lightspeed credentials (`LIGHTSPEED_CLIENT_ID` and `LIGHTSPEED_CLIENT_SECRET
 By default, both PostgreSQL databases use `emptyDir` volumes and data is lost when the pods are removed. To persist data:
 
 1. **Marketplace Database**: Edit `deploy/podman/marketplace-handler-pod.yaml` and change the `postgres-data` volume from `emptyDir` to `hostPath`
-2. **Session Database**: Edit `deploy/podman/insights-agent-pod.yaml` and change the `session-pgdata` volume from `emptyDir` to `hostPath`
+2. **Session Database**: Edit `deploy/podman/lightspeed-agent-pod.yaml` and change the `session-pgdata` volume from `emptyDir` to `hostPath`
 
 Example hostPath configuration:
 ```yaml
@@ -817,7 +817,7 @@ For production deployment to Google Cloud Run, see [deploy/cloudrun/README.md](d
 
 The system deploys as **two separate Cloud Run services**:
 - **marketplace-handler**: Always running (minScale=1) for Pub/Sub events
-- **insights-agent**: Scales to zero when idle
+- **lightspeed-agent**: Scales to zero when idle
 
 Quick deploy:
 

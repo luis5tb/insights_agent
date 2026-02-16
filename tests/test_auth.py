@@ -9,18 +9,18 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from insights_agent.auth import (
+from lightspeed_agent.auth import (
     AuthenticatedUser,
     OAuthClient,
     TokenResponse,
     oauth_router,
 )
-from insights_agent.auth.introspection import (
+from lightspeed_agent.auth.introspection import (
     InsufficientScopeError,
     TokenIntrospector,
     TokenValidationError,
 )
-from insights_agent.config import Settings
+from lightspeed_agent.config import Settings
 
 
 @pytest.fixture

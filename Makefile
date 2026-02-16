@@ -1,11 +1,11 @@
-# Red Hat Insights Agent - Makefile
+# Red Hat Lightspeed Agent for Google Cloud - Makefile
 # Common development and deployment commands
 
 .PHONY: help build run stop logs logs-mcp clean test lint dev check-env
 
 # Default target
 help:
-	@echo "Red Hat Insights Agent - Available Commands"
+	@echo "Red Hat Lightspeed Agent for Google Cloud - Available Commands"
 	@echo ""
 	@echo "Development:"
 	@echo "  make dev          - Run agent in development mode (no container)"
@@ -37,7 +37,7 @@ help:
 
 dev:
 	@echo "Starting agent in development mode..."
-	source .venv/bin/activate && python -m insights_agent.main
+	source .venv/bin/activate && python -m lightspeed_agent.main
 
 test:
 	@echo "Running tests..."
@@ -47,15 +47,15 @@ lint:
 	@echo "Running linter..."
 	source .venv/bin/activate && ruff check src/ tests/
 	@echo "Running type checker..."
-	source .venv/bin/activate && mypy src/insights_agent/ --ignore-missing-imports
+	source .venv/bin/activate && mypy src/lightspeed_agent/ --ignore-missing-imports
 
 # =============================================================================
 # Container Commands (Podman)
 # =============================================================================
 
-IMAGE_NAME ?= localhost/insights-agent
+IMAGE_NAME ?= localhost/lightspeed-agent
 IMAGE_TAG ?= latest
-POD_NAME = insights-agent-pod
+POD_NAME = lightspeed-agent-pod
 
 build:
 	@echo "Building container image..."
@@ -69,7 +69,7 @@ run: check-env build
 		podman pod rm $(POD_NAME) 2>/dev/null || true; \
 	fi
 	@mkdir -p config
-	podman play kube insights-agent-pod.yaml
+	podman play kube lightspeed-agent-pod.yaml
 	@echo ""
 	@echo "Pod started. Services available at:"
 	@echo "  - Agent API:  http://localhost:8000"
@@ -89,7 +89,7 @@ stop:
 
 logs:
 	@echo "Showing agent logs..."
-	podman logs -f $(POD_NAME)-insights-agent
+	podman logs -f $(POD_NAME)-lightspeed-agent
 
 logs-mcp:
 	@echo "Showing MCP server logs..."

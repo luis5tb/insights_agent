@@ -1,0 +1,85 @@
+# Red Hat Lightspeed Agent for Google Cloud - Configuration
+#
+# Non-sensitive configuration values for the Lightspeed Agent.
+# Use with: podman play kube --configmap lightspeed-agent-configmap.yaml lightspeed-agent-pod.yaml
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lightspeed-agent-config
+data:
+  # Google AI Configuration
+  GOOGLE_GENAI_USE_VERTEXAI: "FALSE"
+  GOOGLE_CLOUD_LOCATION: "us-central1"
+  GEMINI_MODEL: "gemini-2.5-flash"
+
+  # Red Hat SSO Configuration
+  RED_HAT_SSO_ISSUER: "https://sso.redhat.com/auth/realms/redhat-external"
+  RED_HAT_SSO_REDIRECT_URI: "http://localhost:8000/auth/callback"
+  AGENT_REQUIRED_SCOPE: "agent:insights"
+
+  # MCP Server Configuration (for agent)
+  MCP_TRANSPORT_MODE: "http"
+  MCP_SERVER_URL: "http://localhost:8081"
+  MCP_READ_ONLY: "true"
+
+  # MCP Server Configuration (for MCP server container)
+  # Using port 8081 to avoid conflict with A2A Inspector (which uses 8080)
+  MCP_SERVER_MODE: "http"
+  MCP_SERVER_PORT: "8081"
+  MCP_SERVER_HOST: "0.0.0.0"
+
+  # Agent Configuration
+  AGENT_PROVIDER_URL: "http://localhost:8000"
+  AGENT_NAME: "lightspeed_agent"
+  AGENT_DESCRIPTION: "Red Hat Lightspeed Agent for Google Cloud"
+  AGENT_HOST: "0.0.0.0"
+  AGENT_PORT: "8000"
+
+  # Database Configuration
+  # DATABASE_URL and passwords are stored in secrets (contain credentials)
+  # Marketplace PostgreSQL (in marketplace-handler pod)
+  MARKETPLACE_DB_USER: "insights"
+  MARKETPLACE_DB_NAME: "lightspeed_agent"
+  MARKETPLACE_DB_HOST: "host.containers.internal"
+  MARKETPLACE_DB_PORT: "5432"
+  # Session PostgreSQL (in lightspeed-agent pod)
+  SESSION_DB_USER: "sessions"
+  SESSION_DB_NAME: "agent_sessions"
+  SESSION_DB_HOST: "localhost"
+  SESSION_DB_PORT: "5433"
+
+  # Rate Limiting Configuration (in-memory, no Redis required)
+  RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+  RATE_LIMIT_REQUESTS_PER_HOUR: "1000"
+
+  # Usage Reporting Configuration
+  USAGE_REPORT_INTERVAL_SECONDS: "3600"
+
+  # Google Cloud Service Control (for usage reporting to Marketplace)
+  # Set SERVICE_CONTROL_SERVICE_NAME in secrets for production
+  SERVICE_CONTROL_ENABLED: "false"
+
+  # Logging
+  LOG_LEVEL: "DEBUG"
+  LOG_FORMAT: "json"
+
+  # DCR (Dynamic Client Registration) Configuration
+  # Set to "true" to enable real DCR with Red Hat SSO (Keycloak)
+  # When "false", uses static credentials from RED_HAT_SSO_CLIENT_ID/SECRET
+  DCR_ENABLED: "true"
+  DCR_CLIENT_NAME_PREFIX: "gemini-order-"
+
+  # Development Settings
+  DEBUG: "true"
+  SKIP_JWT_VALIDATION: "false"
+
+  # OpenTelemetry Configuration
+  # Set OTEL_ENABLED to "true" to enable distributed tracing
+  OTEL_ENABLED: "false"
+  OTEL_SERVICE_NAME: "lightspeed_agent"
+  OTEL_EXPORTER_TYPE: "otlp"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
+  OTEL_EXPORTER_OTLP_HTTP_ENDPOINT: "http://localhost:4318"
+  OTEL_TRACES_SAMPLER: "always_on"
+  OTEL_TRACES_SAMPLER_ARG: "1.0"

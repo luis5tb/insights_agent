@@ -1,6 +1,6 @@
 # Authentication
 
-This document describes the authentication mechanisms used by the Insights Agent.
+This document describes the authentication mechanisms used by the Lightspeed Agent.
 
 ## Overview
 
@@ -21,7 +21,7 @@ The system uses four distinct authentication flows:
    |    event         |    (software_statement)                             |
    v                  v                                                     v
 +--------------------------------------------------------+    +---------------------------+
-|            Marketplace Handler (8001)                  |    |   Insights Agent (8000)   |
+|            Marketplace Handler (8001)                  |    |  Lightspeed Agent (8000)  |
 |                                                        |    |                           |
 |  +---------------------------------------------------+ |    | +-------+  +-----------+  |
 |  |             Hybrid /dcr Endpoint                  | |    | | Agent |  | OAuth     |  |
@@ -496,7 +496,7 @@ This is the easiest way to test the authentication flow without needing real Red
 
 2. **Start the API server**:
    ```bash
-   python -m insights_agent.main
+   python -m lightspeed_agent.main
    ```
 
 3. **Test the health endpoint**:
@@ -559,7 +559,7 @@ For integration testing with real Red Hat SSO authentication:
 
 2. **Start the API server**:
    ```bash
-   python -m insights_agent.main
+   python -m lightspeed_agent.main
    ```
 
 3. **Initiate the OAuth flow** - Open in browser:
@@ -610,7 +610,7 @@ For a more interactive testing experience:
 
 1. **Start the server** with debug mode for detailed logging:
    ```bash
-   DEBUG=true python -m insights_agent.main
+   DEBUG=true python -m lightspeed_agent.main
    ```
 
 2. **Open browser developer tools** (F12) to monitor network requests
@@ -721,7 +721,7 @@ If testing from a browser on a different origin, you may need to configure CORS.
 Check the logs for configuration errors:
 ```bash
 # Run with debug logging
-LOG_LEVEL=DEBUG python -m insights_agent.main
+LOG_LEVEL=DEBUG python -m lightspeed_agent.main
 ```
 
 ### Automated Testing
@@ -736,7 +736,7 @@ pytest tests/test_auth.py -v
 pytest tests/test_auth.py::TestTokenIntrospector -v
 
 # Run with coverage
-pytest tests/test_auth.py --cov=insights_agent.auth
+pytest tests/test_auth.py --cov=lightspeed_agent.auth
 ```
 
 ## Error Handling

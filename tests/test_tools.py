@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from insights_agent.tools.mcp_config import MCPServerConfig
-from insights_agent.tools.skills import (
+from lightspeed_agent.tools.mcp_config import MCPServerConfig
+from lightspeed_agent.tools.skills import (
     ALL_SKILLS,
     READ_ONLY_SKILLS,
     Skill,
     get_skills_for_agent_card,
 )
-from insights_agent.tools.insights_tools import (
+from lightspeed_agent.tools.insights_tools import (
     ADVISOR_TOOLS,
     ALL_INSIGHTS_TOOLS,
     INVENTORY_TOOLS,
@@ -33,7 +33,7 @@ class TestMCPServerConfig:
             "MCP_READ_ONLY": "true",
         }):
             # Clear cached settings
-            from insights_agent.config.settings import get_settings
+            from lightspeed_agent.config.settings import get_settings
             get_settings.cache_clear()
 
             config = MCPServerConfig.from_settings()

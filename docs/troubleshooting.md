@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-This guide helps diagnose and resolve common issues with the Insights Agent.
+This guide helps diagnose and resolve common issues with the Lightspeed Agent.
 
 ## Quick Diagnostics
 
@@ -11,7 +11,7 @@ This guide helps diagnose and resolve common issues with the Insights Agent.
 curl http://localhost:8000/health
 
 # Expected response
-{"status": "healthy", "agent": "insights_agent"}
+{"status": "healthy", "agent": "lightspeed_agent"}
 ```
 
 ### Readiness Check
@@ -21,20 +21,20 @@ curl http://localhost:8000/health
 curl http://localhost:8000/ready
 
 # Expected response
-{"status": "ready", "agent": "insights_agent"}
+{"status": "ready", "agent": "lightspeed_agent"}
 ```
 
 ### View Logs
 
 ```bash
 # Local development
-python -m insights_agent.main 2>&1 | tee agent.log
+python -m lightspeed_agent.main 2>&1 | tee agent.log
 
 # Podman
-podman logs insights-agent-pod-insights-agent
+podman logs lightspeed-agent-pod-lightspeed-agent
 
 # Cloud Run
-gcloud run services logs read insights-agent --region=us-central1
+gcloud run services logs read lightspeed-agent --region=us-central1
 ```
 
 ## Startup Issues
@@ -47,7 +47,7 @@ gcloud run services logs read insights-agent --region=us-central1
 
 ```bash
 # Validate environment
-python -c "from insights_agent.config import get_settings; print(get_settings())"
+python -c "from lightspeed_agent.config import get_settings; print(get_settings())"
 ```
 
 **Common Causes**:
@@ -70,7 +70,7 @@ lsof -i :8000
 kill -9 <PID>
 
 # Or use a different port
-AGENT_PORT=8001 python -m insights_agent.main
+AGENT_PORT=8001 python -m lightspeed_agent.main
 ```
 
 ### Import Errors
@@ -232,17 +232,17 @@ echo $LIGHTSPEED_CLIENT_ID
 pg_isready -h localhost -p 5432
 
 # Test connection
-psql postgresql://insights:insights@localhost:5432/insights_agent
+psql postgresql://insights:insights@localhost:5432/lightspeed_agent
 ```
 
 **SQLite**:
 
 ```bash
 # Check database file permissions
-ls -la insights_agent.db
+ls -la lightspeed_agent.db
 
 # Test with sqlite3
-sqlite3 insights_agent.db ".tables"
+sqlite3 lightspeed_agent.db ".tables"
 ```
 
 ### Migration Errors
@@ -268,10 +268,10 @@ alembic current
 podman pod ps
 
 # Check container logs
-podman logs insights-agent-pod-insights-agent
+podman logs lightspeed-agent-pod-lightspeed-agent
 
 # Describe pod
-podman pod inspect insights-agent-pod
+podman pod inspect lightspeed-agent-pod
 ```
 
 ### Image Pull Failures
@@ -295,7 +295,7 @@ podman pull registry.access.redhat.com/ubi9/python-311:latest
 ls -la ./config/
 
 # Check volume mounts
-podman inspect insights-agent-pod-insights-agent | jq '.[].Mounts'
+podman inspect lightspeed-agent-pod-lightspeed-agent | jq '.[].Mounts'
 ```
 
 ## Cloud Run Issues
@@ -318,10 +318,10 @@ gcloud builds describe BUILD_ID
 
 ```bash
 # Check service status
-gcloud run services describe insights-agent --region=us-central1
+gcloud run services describe lightspeed-agent --region=us-central1
 
 # Check revision status
-gcloud run revisions list --service=insights-agent --region=us-central1
+gcloud run revisions list --service=lightspeed-agent --region=us-central1
 ```
 
 ### Cold Start Timeouts
@@ -331,12 +331,12 @@ gcloud run revisions list --service=insights-agent --region=us-central1
 **Solutions**:
 1. Set minimum instances:
    ```bash
-   gcloud run services update insights-agent --min-instances=1
+   gcloud run services update lightspeed-agent --min-instances=1
    ```
 
 2. Enable CPU boost:
    ```bash
-   gcloud run services update insights-agent \
+   gcloud run services update lightspeed-agent \
      --cpu-boost
    ```
 
@@ -371,10 +371,10 @@ curl -w "@curl-format.txt" -o /dev/null -s http://localhost:8000/a2a
 
 ```bash
 # Monitor memory usage
-podman stats insights-agent-pod-insights-agent
+podman stats lightspeed-agent-pod-lightspeed-agent
 
 # Increase memory limit
-# Edit insights-agent-pod.yaml or Cloud Run config
+# Edit lightspeed-agent-pod.yaml or Cloud Run config
 ```
 
 ## Logging and Debugging
@@ -383,14 +383,14 @@ podman stats insights-agent-pod-insights-agent
 
 ```bash
 # Set environment variable
-LOG_LEVEL=DEBUG python -m insights_agent.main
+LOG_LEVEL=DEBUG python -m lightspeed_agent.main
 ```
 
 ### Enable Debug Mode
 
 ```bash
 # Enables /docs endpoint
-DEBUG=true python -m insights_agent.main
+DEBUG=true python -m lightspeed_agent.main
 
 # Access Swagger UI
 open http://localhost:8000/docs
@@ -414,7 +414,7 @@ Before reporting an issue, collect:
 
 1. **Logs**:
    ```bash
-   LOG_LEVEL=DEBUG python -m insights_agent.main 2>&1 | tee debug.log
+   LOG_LEVEL=DEBUG python -m lightspeed_agent.main 2>&1 | tee debug.log
    ```
 
 2. **Configuration** (redact secrets):
@@ -425,7 +425,7 @@ Before reporting an issue, collect:
 3. **Version Info**:
    ```bash
    python --version
-   pip show insights-agent
+   pip show lightspeed-agent
    ```
 
 4. **Request/Response** (redact tokens):
@@ -435,7 +435,7 @@ Before reporting an issue, collect:
 
 ### Report Issues
 
-File issues at: https://github.com/your-org/insights-agent/issues
+File issues at: https://github.com/your-org/lightspeed-agent/issues
 
 Include:
 - Description of the problem

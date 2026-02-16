@@ -1,0 +1,244 @@
+# Red Hat Lightspeed Agent for Google Cloud - Podman/Kubernetes Pod Configuration
+#
+# This pod deploys the Lightspeed Agent stack:
+#   - lightspeed-agent: Main A2A agent (Gemini + Google ADK)
+#   - insights-mcp: Red Hat Lightspeed MCP server (tools for console.redhat.com)
+#   - a2a-inspector: Web UI for interacting with the agent (optional)
+#
+# IMPORTANT: This pod requires the marketplace-handler pod to be running first,
+# as it provides the shared PostgreSQL database.
+#
+# Deployment Order:
+#   1. Start marketplace-handler pod FIRST (contains PostgreSQL)
+#   2. Then start this pod (connects to PostgreSQL via network)
+#
+# MCP authentication (two modes, determined by whether Lightspeed credentials
+# are present in the secret):
+#   - Lightspeed credentials set: agent sends lightspeed-client-id/secret headers
+#   - Lightspeed credentials absent: agent forwards the caller's JWT token
+# The agent connects to the MCP server over HTTP to access Insights tools
+# (Advisor, Inventory, Vulnerability, etc.).
+#
+# Prerequisites (run from repository root):
+#   1. Build the agent image: podman build -t localhost/lightspeed-agent:latest -f Containerfile .
+#   2. Build the handler image: podman build -t localhost/marketplace-handler:latest -f Containerfile.marketplace-handler .
+#   3. (Optional) Build the A2A Inspector image:
+#        git clone https://github.com/a2aproject/a2a-inspector.git /tmp/a2a-inspector
+#        podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
+#   4. Create config directory: mkdir -p config
+#   5. Create and deploy secrets:
+#      cp deploy/podman/lightspeed-agent-secret.yaml deploy/podman/my-secrets.yaml
+#      # Edit my-secrets.yaml with your credentials (plain text)
+#      podman kube play deploy/podman/my-secrets.yaml
+#
+# Usage with Podman (from repository root):
+#   # Start marketplace handler first (includes PostgreSQL)
+#   podman kube play \
+#     --configmap deploy/podman/lightspeed-agent-configmap.yaml \
+#     deploy/podman/marketplace-handler-pod.yaml
+#
+#   # Then start the agent
+#   podman kube play \
+#     --configmap deploy/podman/lightspeed-agent-configmap.yaml \
+#     deploy/podman/lightspeed-agent-pod.yaml
+#
+#   # View logs
+#   podman logs lightspeed-agent-pod-lightspeed-agent
+#   podman logs lightspeed-agent-pod-insights-mcp
+#
+#   # Access A2A Inspector web UI at http://localhost:8080
+#   # In the UI, enter http://localhost:8000 as the agent URL
+#
+# Usage with Kubernetes:
+#   kubectl apply -f deploy/podman/my-secrets.yaml
+#   kubectl apply -f deploy/podman/lightspeed-agent-configmap.yaml
+#   kubectl apply -f deploy/podman/marketplace-handler-pod.yaml
+#   kubectl apply -f deploy/podman/lightspeed-agent-pod.yaml
+#
+# Stop and remove resources:
+#   podman kube down deploy/podman/lightspeed-agent-pod.yaml
+#   podman kube down deploy/podman/marketplace-handler-pod.yaml
+#   podman kube down deploy/podman/my-secrets.yaml
+#
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lightspeed-agent-pod
+  labels:
+    app: lightspeed-agent
+spec:
+  containers:
+    # =========================================================================
+    # Lightspeed Agent - Main Application
+    # =========================================================================
+    - name: lightspeed-agent
+      image: localhost/lightspeed-agent:latest
+      envFrom:
+        # Load configuration from ConfigMap
+        - configMapRef:
+            name: lightspeed-agent-config
+      env:
+        # Vertex AI credentials path (if using Vertex AI)
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /config/vertex-credentials.json
+        # Secrets loaded via secretKeyRef
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: lightspeed-agent-secrets
+              key: GOOGLE_API_KEY
+        - name: GOOGLE_CLOUD_PROJECT
+          valueFrom:
+            secretKeyRef:
+              name: lightspeed-agent-secrets
+              key: GOOGLE_CLOUD_PROJECT
+              optional: true
+        - name: RED_HAT_SSO_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: lightspeed-agent-secrets
+              key: RED_HAT_SSO_CLIENT_ID
+        - name: RED_HAT_SSO_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: lightspeed-agent-secrets
+              key: RED_HAT_SSO_CLIENT_SECRET
+        #- name: LIGHTSPEED_CLIENT_ID
+        #  valueFrom:
+        #    secretKeyRef:
+        #      name: lightspeed-agent-secrets
+        #      key: LIGHTSPEED_CLIENT_ID
+        #      optional: true
+        #- name: LIGHTSPEED_CLIENT_SECRET
+        #  valueFrom:
+        #    secretKeyRef:
+        #      name: lightspeed-agent-secrets
+        #      key: LIGHTSPEED_CLIENT_SECRET
+        #      optional: true
+        - name: DCR_INITIAL_ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: lightspeed-agent-secrets
+              key: DCR_INITIAL_ACCESS_TOKEN
+              optional: true
+        - name: DCR_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: lightspeed-agent-secrets
+              key: DCR_ENCRYPTION_KEY
+              optional: true
+        # Database URL - Connect to PostgreSQL in the marketplace-handler pod
+        # Uses host.containers.internal to reach the handler pod's PostgreSQL
+        # Used for marketplace data (orders, entitlements, DCR clients)
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: lightspeed-agent-secrets
+              key: DATABASE_URL
+        # Session Database URL - For ADK session persistence
+        # Required for persistent sessions; if not set, uses in-memory storage
+        - name: SESSION_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: lightspeed-agent-secrets
+              key: SESSION_DATABASE_URL
+              optional: true
+      ports:
+        - containerPort: 8000
+          hostPort: 8000
+      volumeMounts:
+        - mountPath: /config:Z
+          name: config
+          readOnly: true
+
+    # =========================================================================
+    # Red Hat Lightspeed MCP Server
+    # =========================================================================
+    # The MCP server provides tools for interacting with Red Hat Insights APIs.
+    # Credentials are passed by the agent via HTTP headers, not environment variables.
+    - name: insights-mcp
+      image: quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp:latest
+      #image: localhost/insights-mcp
+      envFrom:
+        # Load MCP server configuration from ConfigMap
+        # Uses: MCP_SERVER_MODE, MCP_SERVER_PORT, MCP_SERVER_HOST
+        - configMapRef:
+            name: lightspeed-agent-config
+      args:
+        - "--debug"
+        - "$(MCP_SERVER_MODE)"
+        - "--port"
+        - "$(MCP_SERVER_PORT)"
+        - "--host"
+        - "$(MCP_SERVER_HOST)"
+      ports:
+        - containerPort: 8081
+          hostPort: 8081
+
+    # =========================================================================
+    # NOTE: Marketplace PostgreSQL is in the marketplace-handler pod
+    # This pod connects to it via host.containers.internal:5432
+    # =========================================================================
+
+    # =========================================================================
+    # Session PostgreSQL Database
+    # =========================================================================
+    # Separate database for ADK sessions. This provides security isolation:
+    # - Agent can't access marketplace credentials even if compromised
+    # - Sessions can have different retention/backup policies
+    # - Independent scaling for session vs. marketplace data
+    - name: session-postgres
+      image: registry.redhat.io/rhel9/postgresql-16:latest
+      env:
+        - name: POSTGRESQL_USER
+          valueFrom:
+            configMapKeyRef:
+              name: lightspeed-agent-config
+              key: SESSION_DB_USER
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: lightspeed-agent-secrets
+              key: SESSION_DB_PASSWORD
+        - name: POSTGRESQL_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: lightspeed-agent-config
+              key: SESSION_DB_NAME
+      ports:
+        - containerPort: 5433
+          hostPort: 5433
+      volumeMounts:
+        - name: session-pgdata
+          mountPath: /var/lib/pgsql/data:Z
+      resources:
+        limits:
+          cpu: "0.5"
+          memory: 256Mi
+
+    # =========================================================================
+    # A2A Inspector - Web UI for Agent Interaction
+    # =========================================================================
+    # Provides a web interface to interact with the A2A agent, view agent cards,
+    # validate spec compliance, and debug JSON-RPC 2.0 messages.
+    # Access at http://localhost:8080 and connect to http://localhost:8000
+    #
+    # Build the inspector image first:
+    #   git clone https://github.com/a2aproject/a2a-inspector.git /tmp/a2a-inspector
+    #   podman build -t localhost/a2a-inspector:latest /tmp/a2a-inspector
+    - name: a2a-inspector
+      image: localhost/a2a-inspector:latest
+      ports:
+        - containerPort: 8080
+          hostPort: 8080
+
+  volumes:
+    - name: config
+      hostPath:
+        path: ./config
+        type: Directory
+    # Session PostgreSQL data volume
+    # Using emptyDir for simplicity; for persistent sessions across pod restarts,
+    # change to hostPath with path: ./data/session-pgdata
+    - name: session-pgdata
+      emptyDir: {}

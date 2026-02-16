@@ -39,7 +39,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
-SERVICE_NAME="${SERVICE_NAME:-insights-agent}"
+SERVICE_NAME="${SERVICE_NAME:-lightspeed-agent}"
 SERVICE_ACCOUNT="${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Parse arguments
@@ -95,7 +95,7 @@ log_info "Starting cleanup..."
 # =============================================================================
 log_info "Deleting Cloud Run services..."
 
-# Delete insights-agent service
+# Delete lightspeed-agent service
 if gcloud run services describe "$SERVICE_NAME" --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
     gcloud run services delete "$SERVICE_NAME" \
         --region="$REGION" \
@@ -216,7 +216,7 @@ log_info "Cleanup complete!"
 log_info "=========================================="
 echo ""
 echo "The following resources have been removed:"
-echo "  - Cloud Run services (insights-agent, marketplace-handler)"
+echo "  - Cloud Run services (lightspeed-agent, marketplace-handler)"
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
 echo "  - Service account and IAM bindings"
@@ -228,8 +228,8 @@ echo "  - VPC connectors"
 echo "  - Cloud Build triggers"
 echo ""
 echo "To delete these, use the respective gcloud commands:"
-echo "  gcloud sql instances delete insights-agent-db --project=$PROJECT_ID"
-echo "  gcloud container images delete gcr.io/$PROJECT_ID/insights-agent --force-delete-tags --quiet"
+echo "  gcloud sql instances delete lightspeed-agent-db --project=$PROJECT_ID"
+echo "  gcloud container images delete gcr.io/$PROJECT_ID/lightspeed-agent --force-delete-tags --quiet"
 echo "  gcloud container images delete gcr.io/$PROJECT_ID/marketplace-handler --force-delete-tags --quiet"
 echo "  gcloud container images delete gcr.io/$PROJECT_ID/insights-mcp --force-delete-tags --quiet"
 echo "  gcloud compute networks vpc-access connectors delete CONNECTOR_NAME --region=$REGION --project=$PROJECT_ID"

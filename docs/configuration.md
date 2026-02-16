@@ -1,6 +1,6 @@
 # Configuration Reference
 
-This document describes all configuration options for the Insights Agent.
+This document describes all configuration options for the Lightspeed Agent.
 
 ## Environment Variables
 
@@ -50,7 +50,7 @@ RED_HAT_SSO_CLIENT_SECRET=my-client-secret
 RED_HAT_SSO_REDIRECT_URI=https://myagent.example.com/oauth/callback
 ```
 
-### Red Hat Insights MCP
+### Red Hat Lightspeed MCP
 
 The MCP server runs as a sidecar container and provides tools for accessing Red Hat Insights APIs. See [MCP Integration](mcp-integration.md) for details.
 
@@ -95,16 +95,16 @@ MCP_READ_ONLY=true
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_PROVIDER_URL` | `https://localhost:8000` | Agent public URL (for AgentCard) |
-| `AGENT_NAME` | `insights_agent` | Agent name |
-| `AGENT_DESCRIPTION` | Red Hat Insights Agent... | Agent description |
+| `AGENT_NAME` | `lightspeed_agent` | Agent name |
+| `AGENT_DESCRIPTION` | Red Hat Lightspeed Agent for Google Cloud | Agent description |
 | `AGENT_HOST` | `0.0.0.0` | Server bind address |
 | `AGENT_PORT` | `8000` | Server port |
 
 **Example:**
 
 ```bash
-AGENT_PROVIDER_URL=https://insights-agent.example.com
-AGENT_NAME=insights_agent
+AGENT_PROVIDER_URL=https://lightspeed-agent.example.com
+AGENT_NAME=lightspeed_agent
 AGENT_HOST=0.0.0.0
 AGENT_PORT=8000
 ```
@@ -113,25 +113,25 @@ AGENT_PORT=8000
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `sqlite+aiosqlite:///./insights_agent.db` | Marketplace database connection URL (orders, DCR clients, auth) |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./lightspeed_agent.db` | Marketplace database connection URL (orders, DCR clients, auth) |
 | `SESSION_DATABASE_URL` | (uses DATABASE_URL) | Session database URL for ADK sessions. Optional - for security isolation. |
 
 **SQLite (Development):**
 
 ```bash
-DATABASE_URL=sqlite+aiosqlite:///./insights_agent.db
+DATABASE_URL=sqlite+aiosqlite:///./lightspeed_agent.db
 ```
 
 **PostgreSQL (Production):**
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/insights_agent
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/lightspeed_agent
 ```
 
 **Cloud SQL (GCP):**
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://user:password@/insights_agent?host=/cloudsql/project:region:instance
+DATABASE_URL=postgresql+asyncpg://user:password@/lightspeed_agent?host=/cloudsql/project:region:instance
 ```
 
 **Security Isolation (Optional):**
@@ -207,7 +207,7 @@ See [Rate Limiting](rate-limiting.md) for details on the sliding window algorith
 **Example:**
 
 ```bash
-SERVICE_CONTROL_SERVICE_NAME=insights-agent.endpoints.my-project.cloud.goog
+SERVICE_CONTROL_SERVICE_NAME=lightspeed-agent.endpoints.my-project.cloud.goog
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
 
@@ -318,7 +318,7 @@ Use Kubernetes secrets:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: insights-agent-secrets
+  name: lightspeed-agent-secrets
 type: Opaque
 stringData:
   GOOGLE_API_KEY: your-api-key
@@ -330,7 +330,7 @@ stringData:
 The agent validates configuration at startup:
 
 ```python
-from insights_agent.config import get_settings
+from lightspeed_agent.config import get_settings
 
 settings = get_settings()
 # Raises ValidationError if required fields missing

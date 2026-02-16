@@ -1,6 +1,6 @@
 # OpenTelemetry Integration
 
-The Insights Agent supports distributed tracing via OpenTelemetry, enabling observability across agent-to-agent interactions and MCP tool calls.
+The Lightspeed Agent supports distributed tracing via OpenTelemetry, enabling observability across agent-to-agent interactions and MCP tool calls.
 
 ## Overview
 
@@ -17,7 +17,7 @@ When enabled, OpenTelemetry automatically instruments:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing |
-| `OTEL_SERVICE_NAME` | `insights_agent` | Service name for traces |
+| `OTEL_SERVICE_NAME` | `lightspeed_agent` | Service name for traces |
 | `OTEL_EXPORTER_TYPE` | `otlp` | Exporter type (see below) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC endpoint |
 | `OTEL_EXPORTER_OTLP_HTTP_ENDPOINT` | `http://localhost:4318` | OTLP HTTP endpoint |
@@ -188,7 +188,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 3. Use **Search** tab to find traces by service name or trace ID
 4. Or use **TraceQL** for advanced queries:
    ```
-   { resource.service.name = "insights_agent" }
+   { resource.service.name = "lightspeed_agent" }
    ```
 
 ### 4. Production with OTLP Collector
@@ -255,7 +255,7 @@ The following attributes are attached to spans:
 To add custom spans in your code:
 
 ```python
-from insights_agent.telemetry.setup import get_tracer
+from lightspeed_agent.telemetry.setup import get_tracer
 
 tracer = get_tracer(__name__)
 

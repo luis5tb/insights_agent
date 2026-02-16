@@ -3,7 +3,7 @@
 # Google Cloud Run Deployment Setup Script
 # =============================================================================
 #
-# This script sets up all required GCP services for the Insights Agent:
+# This script sets up all required GCP services for the Lightspeed Agent:
 # - Enables required APIs
 # - Creates service account with appropriate permissions
 # - Creates secrets in Secret Manager
@@ -36,7 +36,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 # Required: Set these before running
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
-SERVICE_NAME="${SERVICE_NAME:-insights-agent}"
+SERVICE_NAME="${SERVICE_NAME:-lightspeed-agent}"
 SERVICE_ACCOUNT="${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Optional features
@@ -92,8 +92,8 @@ log_info "Creating service account: $SERVICE_ACCOUNT"
 # Create service account if it doesn't exist
 if ! gcloud iam service-accounts describe "$SERVICE_ACCOUNT" --project="$PROJECT_ID" &>/dev/null; then
     gcloud iam service-accounts create "$SERVICE_NAME" \
-        --display-name="Insights Agent Service Account" \
-        --description="Service account for the Red Hat Insights Agent" \
+        --display-name="Lightspeed Agent Service Account" \
+        --description="Service account for the Red Hat Lightspeed Agent for Google Cloud" \
         --project="$PROJECT_ID"
     log_info "Service account created"
 else
@@ -250,13 +250,13 @@ echo "Next steps:"
 echo ""
 echo "1. Set up Cloud SQL database:"
 echo "   # Create instance"
-echo "   gcloud sql instances create insights-agent-db --database-version=POSTGRES_16 --edition=ENTERPRISE --tier=db-g1-small --region=$REGION --project=$PROJECT_ID"
+echo "   gcloud sql instances create lightspeed-agent-db --database-version=POSTGRES_16 --edition=ENTERPRISE --tier=db-g1-small --region=$REGION --project=$PROJECT_ID"
 echo ""
 echo "   # Create databases and users"
-echo "   gcloud sql databases create insights_agent --instance=insights-agent-db --project=$PROJECT_ID"
-echo "   gcloud sql users create insights --instance=insights-agent-db --password=YOUR_MARKETPLACE_PASSWORD --project=$PROJECT_ID"
-echo "   gcloud sql databases create agent_sessions --instance=insights-agent-db --project=$PROJECT_ID"
-echo "   gcloud sql users create sessions --instance=insights-agent-db --password=YOUR_SESSION_PASSWORD --project=$PROJECT_ID"
+echo "   gcloud sql databases create lightspeed_agent --instance=lightspeed-agent-db --project=$PROJECT_ID"
+echo "   gcloud sql users create insights --instance=lightspeed-agent-db --password=YOUR_MARKETPLACE_PASSWORD --project=$PROJECT_ID"
+echo "   gcloud sql databases create agent_sessions --instance=lightspeed-agent-db --project=$PROJECT_ID"
+echo "   gcloud sql users create sessions --instance=lightspeed-agent-db --password=YOUR_SESSION_PASSWORD --project=$PROJECT_ID"
 echo ""
 echo "2. Update secrets with actual values:"
 echo ""
@@ -278,8 +278,8 @@ echo "   # Generate Fernet key: python -c 'from cryptography.fernet import Ferne
 echo "   echo -n 'YOUR_FERNET_KEY' | gcloud secrets versions add dcr-encryption-key --data-file=- --project=$PROJECT_ID"
 echo ""
 echo "   # Database URLs (after Cloud SQL setup)"
-echo "   CONNECTION_NAME=\$(gcloud sql instances describe insights-agent-db --project=$PROJECT_ID --format='value(connectionName)')"
-echo "   echo -n \"postgresql+asyncpg://insights:PASSWORD@/insights_agent?host=/cloudsql/\$CONNECTION_NAME\" | gcloud secrets versions add database-url --data-file=- --project=$PROJECT_ID"
+echo "   CONNECTION_NAME=\$(gcloud sql instances describe lightspeed-agent-db --project=$PROJECT_ID --format='value(connectionName)')"
+echo "   echo -n \"postgresql+asyncpg://insights:PASSWORD@/lightspeed_agent?host=/cloudsql/\$CONNECTION_NAME\" | gcloud secrets versions add database-url --data-file=- --project=$PROJECT_ID"
 echo "   echo -n \"postgresql+asyncpg://sessions:PASSWORD@/agent_sessions?host=/cloudsql/\$CONNECTION_NAME\" | gcloud secrets versions add session-database-url --data-file=- --project=$PROJECT_ID"
 echo ""
 echo "3. Copy the MCP server image to GCR (Cloud Run doesn't support Quay.io):"

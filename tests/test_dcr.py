@@ -6,8 +6,8 @@ import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 
-from insights_agent.api.app import create_app
-from insights_agent.dcr.models import (
+from lightspeed_agent.api.app import create_app
+from lightspeed_agent.dcr.models import (
     DCRError,
     DCRErrorCode,
     DCRRequest,
@@ -16,11 +16,11 @@ from insights_agent.dcr.models import (
     GoogleJWTClaims,
     RegisteredClient,
 )
-from insights_agent.dcr.repository import DCRClientRepository
-from insights_agent.dcr.service import DCRService
-from insights_agent.marketplace.models import Account, AccountState, Entitlement, EntitlementState
-from insights_agent.marketplace.repository import AccountRepository, EntitlementRepository
-from insights_agent.marketplace.service import ProcurementService
+from lightspeed_agent.dcr.repository import DCRClientRepository
+from lightspeed_agent.dcr.service import DCRService
+from lightspeed_agent.marketplace.models import Account, AccountState, Entitlement, EntitlementState
+from lightspeed_agent.marketplace.repository import AccountRepository, EntitlementRepository
+from lightspeed_agent.marketplace.service import ProcurementService
 
 
 class TestModels:
@@ -274,7 +274,7 @@ class TestAgentCardDCRExtension:
 
     def test_agent_card_has_dcr_extension(self):
         """Test that AgentCard includes DCR extension."""
-        from insights_agent.api.a2a.agent_card import build_agent_card
+        from lightspeed_agent.api.a2a.agent_card import build_agent_card
 
         card = build_agent_card()
 
@@ -314,7 +314,7 @@ class TestKeycloakDCRClient:
 
     def test_keycloak_client_response_model(self):
         """Test KeycloakClientResponse dataclass."""
-        from insights_agent.dcr.keycloak_client import KeycloakClientResponse
+        from lightspeed_agent.dcr.keycloak_client import KeycloakClientResponse
 
         response = KeycloakClientResponse(
             client_id="kc-client-123",
@@ -332,7 +332,7 @@ class TestKeycloakDCRClient:
 
     def test_keycloak_dcr_error(self):
         """Test KeycloakDCRError exception."""
-        from insights_agent.dcr.keycloak_client import KeycloakDCRError
+        from lightspeed_agent.dcr.keycloak_client import KeycloakDCRError
 
         error = KeycloakDCRError(
             "Failed to create client",

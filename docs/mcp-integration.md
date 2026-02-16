@@ -1,10 +1,10 @@
-# Red Hat Insights MCP Server Integration
+# Red Hat Lightspeed MCP Server Integration
 
-This document explains how the Insights Agent integrates with the Red Hat Insights MCP server to access console.redhat.com APIs.
+This document explains how the Lightspeed Agent integrates with the Red Hat Lightspeed MCP server to access console.redhat.com APIs.
 
 ## Overview
 
-The agent uses the [Red Hat Insights MCP Server](https://github.com/RedHatInsights/insights-mcp) as a sidecar to access Red Hat Insights APIs. The MCP (Model Context Protocol) server provides tools that the agent can call to retrieve data from:
+The agent uses the [Red Hat Lightspeed MCP Server](https://github.com/RedHatInsights/insights-mcp) as a sidecar to access Red Hat Insights APIs. The MCP (Model Context Protocol) server provides tools that the agent can call to retrieve data from:
 
 - **Advisor**: System configuration recommendations
 - **Inventory**: Registered systems and host information
@@ -20,7 +20,7 @@ The agent uses the [Red Hat Insights MCP Server](https://github.com/RedHatInsigh
 │                         Deployment Pod                          │
 │                                                                 │
 │  ┌─────────────────────┐      ┌─────────────────────────────┐   │
-│  │   Insights Agent    │      │   Red Hat Insights MCP      │   │
+│  │  Lightspeed Agent   │      │   Red Hat Lightspeed MCP    │   │
 │  │                     │      │   Server                    │   │
 │  │   ┌─────────────┐   │ HTTP │   ┌─────────────────────┐   │   │
 │  │   │   Gemini    │   │◄────►│   │   MCP Tools         │   │   │
@@ -150,7 +150,7 @@ podman run --env LIGHTSPEED_CLIENT_ID --env LIGHTSPEED_CLIENT_SECRET \
 
 ### Podman Pod
 
-The `insights-agent-pod.yaml` includes the MCP server as a container:
+The `lightspeed-agent-pod.yaml` includes the MCP server as a container:
 
 ```yaml
 containers:
@@ -175,7 +175,7 @@ The MCP server runs as a sidecar container in the Cloud Run service:
 
 ```yaml
 containers:
-  - name: insights-agent
+  - name: lightspeed-agent
     # ... agent configuration ...
     env:
       - name: MCP_TRANSPORT_MODE
@@ -248,7 +248,7 @@ The MCP server provides these tools to the agent:
 
 1. Check if the MCP server container is running:
    ```bash
-   podman logs insights-agent-pod-insights-mcp
+   podman logs lightspeed-agent-pod-insights-mcp
    ```
 
 2. Verify the health endpoint:
@@ -264,7 +264,7 @@ The MCP server provides these tools to the agent:
 2. Check if the service account is active in console.redhat.com
 3. Look for OAuth errors in MCP server logs:
    ```bash
-   podman logs insights-agent-pod-insights-mcp | grep -i auth
+   podman logs lightspeed-agent-pod-insights-mcp | grep -i auth
    ```
 
 ### API Errors

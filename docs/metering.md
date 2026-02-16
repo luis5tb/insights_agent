@@ -4,9 +4,9 @@ This document describes the usage tracking system for monitoring API usage, toke
 
 ## Overview
 
-The Insights Agent uses the **ADK Plugin System** for usage tracking via the `UsageTrackingPlugin`. This approach integrates directly with the agent's execution lifecycle, providing accurate metrics without external dependencies.
+The Lightspeed Agent uses the **ADK Plugin System** for usage tracking via the `UsageTrackingPlugin`. This approach integrates directly with the agent's execution lifecycle, providing accurate metrics without external dependencies.
 
-All usage tracking is handled by the `UsageTrackingPlugin` in `src/insights_agent/api/a2a/usage_plugin.py`. There is no separate metering middleware - the plugin captures all metrics directly from ADK callbacks.
+All usage tracking is handled by the `UsageTrackingPlugin` in `src/lightspeed_agent/api/a2a/usage_plugin.py`. There is no separate metering middleware - the plugin captures all metrics directly from ADK callbacks.
 
 ### What's Tracked
 
@@ -86,7 +86,7 @@ class UsageTrackingPlugin(BasePlugin):
 
 # Register the plugin
 app = App(
-    name="insights-agent",
+    name="lightspeed-agent",
     root_agent=agent,
     plugins=[UsageTrackingPlugin()],  # Plugin registered here
 )
@@ -94,7 +94,7 @@ app = App(
 
 ## UsageTrackingPlugin Implementation
 
-The `UsageTrackingPlugin` (`src/insights_agent/api/a2a/usage_plugin.py`) implements three callbacks:
+The `UsageTrackingPlugin` (`src/lightspeed_agent/api/a2a/usage_plugin.py`) implements three callbacks:
 
 ### Request Counting
 
@@ -305,7 +305,7 @@ ADK has built-in OpenTelemetry support. Enable it for distributed tracing:
 
 ```bash
 # Enable OTEL export to Google Cloud
-adk run --otel_to_cloud agents/rh_insights_agent
+adk run --otel_to_cloud agents/rh_lightspeed_agent
 ```
 
 Or configure programmatically:
@@ -320,7 +320,7 @@ exporter = CloudMonitoringMetricsExporter(project_id="your-project")
 
 ### Google Cloud Service Control
 
-The agent includes a Service Control integration for Google Cloud Marketplace billing in `src/insights_agent/service_control/`. This module:
+The agent includes a Service Control integration for Google Cloud Marketplace billing in `src/lightspeed_agent/service_control/`. This module:
 
 - Reports usage metrics to Google Cloud Service Control API
 - Runs on a scheduled hourly basis (Google's minimum requirement)
@@ -351,7 +351,7 @@ ADK provides a BigQuery Agent Analytics Plugin for detailed analytics:
 from google.adk.plugins import BigQueryAnalyticsPlugin
 
 app = App(
-    name="insights-agent",
+    name="lightspeed-agent",
     root_agent=agent,
     plugins=[
         UsageTrackingPlugin(),
@@ -377,7 +377,7 @@ For production deployments with multiple replicas or billing requirements, imple
 
 ```bash
 # Start the server
-python -m insights_agent.main
+python -m lightspeed_agent.main
 
 # Check initial usage
 curl http://localhost:8000/usage

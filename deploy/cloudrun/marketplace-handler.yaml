@@ -26,7 +26,7 @@ metadata:
     app: marketplace-handler
     component: provisioning
   annotations:
-    run.googleapis.com/description: "Marketplace provisioning and DCR handler for Insights Agent"
+    run.googleapis.com/description: "Marketplace provisioning and DCR handler for Lightspeed Agent"
     run.googleapis.com/ingress: all
     run.googleapis.com/launch-stage: GA
 spec:
@@ -39,11 +39,11 @@ spec:
         run.googleapis.com/cpu-throttling: "false"
         run.googleapis.com/startup-cpu-boost: "true"
         # Cloud SQL connection
-        run.googleapis.com/cloudsql-instances: "emerge-partners:us-central1:insights-agent-db"
+        run.googleapis.com/cloudsql-instances: "emerge-partners:us-central1:lightspeed-agent-db"
     spec:
       containerConcurrency: 80
       timeoutSeconds: 60
-      serviceAccountName: insights-agent@${PROJECT_ID}.iam.gserviceaccount.com
+      serviceAccountName: lightspeed-agent@${PROJECT_ID}.iam.gserviceaccount.com
       containers:
         - name: marketplace-handler
           image: gcr.io/${PROJECT_ID}/marketplace-handler:latest

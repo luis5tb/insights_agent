@@ -1,10 +1,10 @@
 # Google Cloud Marketplace Integration
 
-This document describes the integration with Google Cloud Marketplace for commercial distribution of the Insights Agent.
+This document describes the integration with Google Cloud Marketplace for commercial distribution of the Lightspeed Agent.
 
 ## Overview
 
-The Insights Agent integrates with Google Cloud Marketplace to enable:
+The Lightspeed Agent integrates with Google Cloud Marketplace to enable:
 
 - **Discovery**: Customers find the agent in the Marketplace catalog
 - **Procurement**: Subscription management through Google billing
@@ -45,7 +45,7 @@ The system uses a **two-service architecture** to handle marketplace integration
                                 │ Shared PostgreSQL
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                      Insights Agent (Port 8000)                             │
+│                     Lightspeed Agent (Port 8000)                            │
 │                      ──────────────────────────                             │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
 │  │   A2A Protocol  │  │  Usage Metering │  │   OAuth Callback            │  │
@@ -65,7 +65,7 @@ The system uses a **two-service architecture** to handle marketplace integration
 | Service | Port | Purpose | Scaling |
 |---------|------|---------|---------|
 | **Marketplace Handler** | 8001 | Pub/Sub events, DCR, provisioning | Always on (minScale=1) |
-| **Insights Agent** | 8000 | A2A queries, user interactions | Scale to zero when idle |
+| **Lightspeed Agent** | 8000 | A2A queries, user interactions | Scale to zero when idle |
 
 ### Deployment Order
 
@@ -141,8 +141,8 @@ Marketplace sends procurement events via Pub/Sub:
   "entitlement": {
     "id": "entitlements/abc123",
     "account": "accounts/user@example.com",
-    "provider": "providers/insights-agent",
-    "product": "products/insights-agent",
+    "provider": "providers/lightspeed-agent",
+    "product": "products/lightspeed-agent",
     "plan": "plans/professional",
     "state": "ENTITLEMENT_ACTIVE",
     "createTime": "2024-01-15T10:00:00Z"
@@ -197,7 +197,7 @@ async def report_usage(
     client = servicecontrol_v1.ServiceControllerAsyncClient()
 
     await client.report(
-        service_name="insights-agent.endpoints.project.cloud.goog",
+        service_name="lightspeed-agent.endpoints.project.cloud.goog",
         operations=[
             servicecontrol_v1.Operation(
                 operation_id=operation_id,
@@ -285,11 +285,11 @@ gcloud pubsub subscriptions create marketplace-entitlements-sub \
 
 ```bash
 # Set service name
-export SERVICE_CONTROL_SERVICE_NAME=insights-agent.endpoints.PROJECT_ID.cloud.goog
+export SERVICE_CONTROL_SERVICE_NAME=lightspeed-agent.endpoints.PROJECT_ID.cloud.goog
 
 # Grant service account permissions
 gcloud projects add-iam-policy-binding PROJECT_ID \
-  --member="serviceAccount:insights-agent@PROJECT_ID.iam.gserviceaccount.com" \
+  --member="serviceAccount:lightspeed-agent@PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/servicecontrol.serviceController"
 ```
 
@@ -307,10 +307,10 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 
 ```bash
 # Start the marketplace handler first (port 8001)
-python -m insights_agent.marketplace
+python -m lightspeed_agent.marketplace
 
 # In another terminal, start the agent (port 8000)
-python -m insights_agent.main
+python -m lightspeed_agent.main
 
 # Test DCR endpoint on the handler (requires valid Google JWT)
 # For local testing, you may need to mock the JWT validation

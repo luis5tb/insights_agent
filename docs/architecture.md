@@ -1,15 +1,15 @@
 # Architecture
 
-This document describes the architecture of the Red Hat Insights Agent.
+This document describes the architecture of the Red Hat Lightspeed Agent for Google Cloud.
 
 ## Overview
 
-The Red Hat Insights Agent is an A2A-ready (Agent-to-Agent) service that provides AI-powered access to Red Hat Insights. It is built using Google's Agent Development Kit (ADK) and integrates with Red Hat's MCP (Model Context Protocol) server for Insights data access.
+The Red Hat Lightspeed Agent for Google Cloud is an A2A-ready (Agent-to-Agent) service that provides AI-powered access to Red Hat Insights. It is built using Google's Agent Development Kit (ADK) and integrates with Red Hat's MCP (Model Context Protocol) server for Insights data access.
 
 The system consists of **two separate services**:
 
 1. **Marketplace Handler** - Always running service that handles provisioning and client registration
-2. **Insights Agent** - The AI agent that handles user interactions (deployed after provisioning)
+2. **Lightspeed Agent** - The AI agent that handles user interactions (deployed after provisioning)
 
 ## Architecture Diagram
 
@@ -48,7 +48,7 @@ The system consists of **two separate services**:
          │ Read/Write
          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            Insights Agent Service                               │
+│                           Lightspeed Agent Service                              │
 │                  (Cloud Run - Deployed After Provisioning)                      │
 │  ┌───────────────────────────────────────────────────────────────────────────┐  │
 │  │                           FastAPI Application                             │  │
@@ -73,7 +73,7 @@ The system consists of **two separate services**:
 │  │                              ▼                                            │  │
 │  │  ┌─────────────────────────────────────────────────────────────────┐      │  │
 │  │  │                      MCP Sidecar                                │      │  │
-│  │  │              (Red Hat Insights MCP Server)                      │      │  │
+│  │  │              (Red Hat Lightspeed MCP Server)                    │      │  │
 │  │  └─────────────────────────────────────────────────────────────────┘      │  │
 │  └───────────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -98,7 +98,7 @@ The system is split into two services for important operational reasons:
 | Service | Purpose | Lifecycle |
 |---------|---------|-----------|
 | **Marketplace Handler** | Handles provisioning and DCR | Always running (minScale=1) |
-| **Insights Agent** | AI agent for user queries | Deployed after provisioning |
+| **Lightspeed Agent** | AI agent for user queries | Deployed after provisioning |
 
 1. **Marketplace Handler must be always running** to receive Pub/Sub events from Google Cloud Marketplace for account approvals
 2. **Agent can be deployed on-demand** after a customer has been provisioned
@@ -117,7 +117,7 @@ A separate FastAPI application for provisioning, providing:
 - **Health Endpoints**: Kubernetes-compatible health checks
 - **Database Access**: PostgreSQL for persistent storage
 
-### Insights Agent Service
+### Lightspeed Agent Service
 
 The main AI agent FastAPI application, providing:
 
@@ -244,7 +244,7 @@ This flow handles actual user interactions with the agent:
 ## Module Structure
 
 ```
-src/insights_agent/
+src/lightspeed_agent/
 ├── api/                        # Agent API layer
 │   ├── app.py                 # FastAPI application factory (Agent)
 │   └── a2a/                   # A2A protocol
@@ -276,7 +276,7 @@ src/insights_agent/
 │   ├── models.py              # Marketplace Pydantic models
 │   ├── repository.py          # PostgreSQL repositories
 │   ├── service.py             # Procurement API integration
-│   └── __main__.py            # Entry point: python -m insights_agent.marketplace
+│   └── __main__.py            # Entry point: python -m lightspeed_agent.marketplace
 └── tools/                      # MCP integration
     ├── mcp_config.py          # MCP server configuration
     ├── mcp_headers.py         # MCP auth headers
@@ -288,9 +288,9 @@ src/insights_agent/
 
 | Image | Service | Port | Purpose |
 |-------|---------|------|---------|
-| `insights-agent` | Agent | 8000 | A2A protocol, user queries |
+| `lightspeed-agent` | Agent | 8000 | A2A protocol, user queries |
 | `marketplace-handler` | Handler | 8001 | Pub/Sub events, DCR |
-| `insights-mcp` | MCP Sidecar | 8081 | Red Hat Insights tools |
+| `insights-mcp` | MCP Sidecar | 8081 | Red Hat Lightspeed tools |
 
 ## External Dependencies
 
@@ -298,7 +298,7 @@ src/insights_agent/
 |---------|---------|---------|----------|
 | Google Gemini | Agent | AI model for queries | Yes |
 | Red Hat SSO | Both | User authentication, DCR | Yes |
-| Red Hat Insights MCP | Agent | Data access | Yes |
+| Red Hat Lightspeed MCP | Agent | Data access | Yes |
 | PostgreSQL | Both | Data persistence | Yes (Production) |
 | Google Cloud Pub/Sub | Handler | Marketplace events | Production |
 | Google Procurement API | Handler | Account/entitlement approval | Production |
@@ -317,14 +317,14 @@ src/insights_agent/
 | Service | Min Instances | Max Instances | Notes |
 |---------|---------------|---------------|-------|
 | Marketplace Handler | 1 | 5 | Always running for Pub/Sub |
-| Insights Agent | 0 | 10 | Scale to zero when idle |
+| Lightspeed Agent | 0 | 10 | Scale to zero when idle |
 
 ### Resource Requirements
 
 | Service | CPU | Memory | Notes |
 |---------|-----|--------|-------|
 | Marketplace Handler | 1 | 512Mi | Lightweight, event-driven |
-| Insights Agent | 2 | 2Gi | AI processing, MCP calls |
+| Lightspeed Agent | 2 | 2Gi | AI processing, MCP calls |
 | MCP Sidecar | 0.5 | 256Mi | Red Hat Insights queries |
 
 ### Connection Pooling

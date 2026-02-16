@@ -21,7 +21,7 @@ os.environ["RED_HAT_SSO_CLIENT_SECRET"] = "test-static-client-secret"
 @pytest.fixture
 def test_settings():
     """Provide test settings."""
-    from insights_agent.config import Settings
+    from lightspeed_agent.config import Settings
 
     return Settings(
         google_api_key="test-api-key",
@@ -42,7 +42,7 @@ async def db_session():
 
     Creates all tables and yields, then cleans up after.
     """
-    from insights_agent.db import init_database, close_database
+    from lightspeed_agent.db import init_database, close_database
 
     await init_database()
     yield

@@ -13,8 +13,8 @@ from a2a.types import (
     TextPart,
 )
 
-from insights_agent.api.a2a.agent_card import build_agent_card, get_agent_card_dict
-from insights_agent.api.app import create_app
+from lightspeed_agent.api.a2a.agent_card import build_agent_card, get_agent_card_dict
+from lightspeed_agent.api.app import create_app
 
 
 class TestAgentCard:

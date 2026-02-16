@@ -1,4 +1,4 @@
-# This directory contains configuration files for the Insights Agent pod.
+# This directory contains configuration files for the Lightspeed Agent pod.
 #
 # Required files:
 # - vertex-credentials.json (if using Vertex AI)

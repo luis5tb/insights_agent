@@ -21,7 +21,7 @@ FROM registry.access.redhat.com/ubi9/python-311:latest as production
 
 # Labels for container metadata
 LABEL org.opencontainers.image.title="Marketplace Handler"
-LABEL org.opencontainers.image.description="DCR and Pub/Sub handler for Red Hat Insights Agent"
+LABEL org.opencontainers.image.description="DCR and Pub/Sub handler for Red Hat Lightspeed Agent for Google Cloud"
 LABEL org.opencontainers.image.vendor="Red Hat"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL io.k8s.display-name="Marketplace Handler"
@@ -57,4 +57,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # UBI images already run as non-root user (UID 1001)
 # Default command - run the marketplace handler
-CMD ["python", "-m", "insights_agent.marketplace"]
+CMD ["python", "-m", "lightspeed_agent.marketplace"]

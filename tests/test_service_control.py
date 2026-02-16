@@ -6,15 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from insights_agent.service_control.models import (
+from lightspeed_agent.service_control.models import (
     CheckError,
     CheckErrorCode,
     CheckResponse,
     ReportResponse,
     UsageReport,
 )
-from insights_agent.service_control.reporter import ReportResult, UsageReporter
-from insights_agent.service_control.scheduler import ReportingScheduler
+from lightspeed_agent.service_control.reporter import ReportResult, UsageReporter
+from lightspeed_agent.service_control.scheduler import ReportingScheduler
 
 
 class TestModels:

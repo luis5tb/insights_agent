@@ -5,17 +5,17 @@
 # 2. DCR requests from Gemini Enterprise (sync client registration)
 #
 # This service must be ALWAYS RUNNING to receive procurement events.
-# It includes PostgreSQL which is shared with the insights-agent pod.
+# It includes PostgreSQL which is shared with the lightspeed-agent pod.
 #
 # Deployment Order:
 #   1. Start this pod FIRST (it contains PostgreSQL)
-#   2. Then start the insights-agent pod (connects to this PostgreSQL)
+#   2. Then start the lightspeed-agent pod (connects to this PostgreSQL)
 #
 # Usage:
 #   podman play kube deploy/podman/marketplace-handler-pod.yaml
 #
 # Note: Apply secrets first:
-#   podman play kube deploy/podman/insights-agent-secret.yaml
+#   podman play kube deploy/podman/lightspeed-agent-secret.yaml
 
 apiVersion: v1
 kind: Pod
@@ -41,7 +41,7 @@ spec:
           memory: 512Mi
       envFrom:
         - configMapRef:
-            name: insights-agent-config
+            name: lightspeed-agent-config
       env:
         # Override port for marketplace handler
         - name: HANDLER_HOST
@@ -57,30 +57,30 @@ spec:
         - name: RED_HAT_SSO_CLIENT_ID
           valueFrom:
             secretKeyRef:
-              name: insights-agent-secrets
+              name: lightspeed-agent-secrets
               key: RED_HAT_SSO_CLIENT_ID
         - name: RED_HAT_SSO_CLIENT_SECRET
           valueFrom:
             secretKeyRef:
-              name: insights-agent-secrets
+              name: lightspeed-agent-secrets
               key: RED_HAT_SSO_CLIENT_SECRET
         - name: DCR_INITIAL_ACCESS_TOKEN
           valueFrom:
             secretKeyRef:
-              name: insights-agent-secrets
+              name: lightspeed-agent-secrets
               key: DCR_INITIAL_ACCESS_TOKEN
               optional: true
         - name: DCR_ENCRYPTION_KEY
           valueFrom:
             secretKeyRef:
-              name: insights-agent-secrets
+              name: lightspeed-agent-secrets
               key: DCR_ENCRYPTION_KEY
               optional: true
         # Database URL - Connect to PostgreSQL in this pod via localhost
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
-              name: insights-agent-secrets
+              name: lightspeed-agent-secrets
               key: MARKETPLACE_DATABASE_URL
 
     # ==========================================================================
@@ -96,17 +96,17 @@ spec:
         - name: POSTGRESQL_USER
           valueFrom:
             configMapKeyRef:
-              name: insights-agent-config
+              name: lightspeed-agent-config
               key: MARKETPLACE_DB_USER
         - name: POSTGRESQL_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: insights-agent-secrets
+              name: lightspeed-agent-secrets
               key: MARKETPLACE_DB_PASSWORD
         - name: POSTGRESQL_DATABASE
           valueFrom:
             configMapKeyRef:
-              name: insights-agent-config
+              name: lightspeed-agent-config
               key: MARKETPLACE_DB_NAME
       volumeMounts:
         - name: postgres-data

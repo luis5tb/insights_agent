@@ -5,7 +5,7 @@
 #
 # Deploys BOTH services to Google Cloud Run:
 # 1. marketplace-handler - Handles DCR and Pub/Sub events (always running)
-# 2. insights-agent - A2A agent with MCP sidecar (runs after provisioning)
+# 2. lightspeed-agent - A2A agent with MCP sidecar (runs after provisioning)
 #
 # Uses the YAML service configs (service.yaml and marketplace-handler.yaml)
 # with variable substitution to deploy each service.
@@ -17,7 +17,7 @@
 #   --service <service>       Which service to deploy: all, handler, agent
 #                             (default: all)
 #   --image <image>           Container image for the agent
-#                             (default: gcr.io/$PROJECT_ID/insights-agent:latest)
+#                             (default: gcr.io/$PROJECT_ID/lightspeed-agent:latest)
 #   --handler-image <image>   Container image for the marketplace handler
 #                             (default: gcr.io/$PROJECT_ID/marketplace-handler:latest)
 #   --mcp-image <image>       Container image for the MCP server
@@ -27,7 +27,7 @@
 #
 # Architecture:
 #   ┌─────────────────────────┐     ┌─────────────────────────┐
-#   │  Marketplace Handler    │     │    Insights Agent       │
+#   │  Marketplace Handler    │     │   Lightspeed Agent      │
 #   │  (Cloud Run #1)         │     │    (Cloud Run #2)       │
 #   │                         │     │                         │
 #   │  - POST /dcr            │     │  - POST / (A2A)         │
@@ -60,7 +60,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
-SERVICE_NAME="${SERVICE_NAME:-insights-agent}"
+SERVICE_NAME="${SERVICE_NAME:-lightspeed-agent}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 
 # Default images
@@ -117,7 +117,7 @@ fi
 
 # Set default images if not specified
 if [[ -z "$AGENT_IMAGE" ]]; then
-    AGENT_IMAGE="gcr.io/${PROJECT_ID}/insights-agent:${IMAGE_TAG}"
+    AGENT_IMAGE="gcr.io/${PROJECT_ID}/lightspeed-agent:${IMAGE_TAG}"
 fi
 if [[ -z "$HANDLER_IMAGE" ]]; then
     HANDLER_IMAGE="gcr.io/${PROJECT_ID}/marketplace-handler:${IMAGE_TAG}"
@@ -170,7 +170,7 @@ deploy_agent() {
 
     # Substitute variables in service.yaml
     # Note: Image substitution must happen BEFORE PROJECT_ID substitution
-    sed -e "s|gcr.io/\${PROJECT_ID}/insights-agent:latest|${AGENT_IMAGE}|g" \
+    sed -e "s|gcr.io/\${PROJECT_ID}/lightspeed-agent:latest|${AGENT_IMAGE}|g" \
         -e "s|\${MCP_IMAGE}|${MCP_IMAGE}|g" \
         -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
         -e "s|\${REGION}|${REGION}|g" \

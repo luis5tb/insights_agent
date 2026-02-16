@@ -1,10 +1,10 @@
-# Insights Agent Documentation
+# Lightspeed Agent Documentation
 
-Welcome to the Red Hat Insights Agent documentation.
+Welcome to the Red Hat Lightspeed Agent for Google Cloud documentation.
 
 ## Overview
 
-The Insights Agent is an A2A-ready (Agent-to-Agent) service that provides AI-powered access to Red Hat Insights. It enables natural language interaction with Red Hat's infrastructure management tools.
+The Lightspeed Agent is an A2A-ready (Agent-to-Agent) service that provides AI-powered access to Red Hat Insights. It enables natural language interaction with Red Hat's infrastructure management tools.
 
 ## Documentation
 
@@ -29,7 +29,7 @@ The Insights Agent is an A2A-ready (Agent-to-Agent) service that provides AI-pow
 
 ### Integration
 
-- [MCP Server Integration](mcp-integration.md) - Red Hat Insights MCP server and console.redhat.com APIs
+- [MCP Server Integration](mcp-integration.md) - Red Hat Lightspeed MCP server and console.redhat.com APIs
 - [Marketplace Integration](marketplace.md) - Google Cloud Marketplace, DCR, and billing
 
 ### Operations
@@ -73,5 +73,5 @@ The agent provides access to:
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/insights-agent/issues)
+- **Issues**: [GitHub Issues](https://github.com/your-org/lightspeed-agent/issues)
 - **Red Hat Support**: [Red Hat Customer Portal](https://access.redhat.com)

@@ -1,4 +1,4 @@
-# Red Hat Insights Agent - Container Image
+# Red Hat Lightspeed Agent for Google Cloud - Container Image
 # Built on Red Hat Universal Base Image (UBI)
 
 # =============================================================================
@@ -19,11 +19,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 FROM registry.access.redhat.com/ubi9/python-311:latest as production
 
 # Labels for container metadata
-LABEL org.opencontainers.image.title="Red Hat Insights Agent"
+LABEL org.opencontainers.image.title="Red Hat Lightspeed Agent for Google Cloud"
 LABEL org.opencontainers.image.description="A2A-ready agent for Red Hat Insights using Google ADK"
 LABEL org.opencontainers.image.vendor="Red Hat"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL io.k8s.display-name="Red Hat Insights Agent"
+LABEL io.k8s.display-name="Red Hat Lightspeed Agent for Google Cloud"
 LABEL io.k8s.description="A2A-ready agent for Red Hat Insights using Google ADK"
 
 WORKDIR /opt/app-root/src
@@ -57,4 +57,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # UBI images already run as non-root user (UID 1001)
 # Default command
-CMD ["python", "-m", "insights_agent.main"]
+CMD ["python", "-m", "lightspeed_agent.main"]

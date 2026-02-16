@@ -1,6 +1,6 @@
 # Google Cloud Run Deployment
 
-Deploy the Red Hat Insights Agent to Google Cloud Run for production use.
+Deploy the Red Hat Lightspeed Agent for Google Cloud to Google Cloud Run for production use.
 
 ## Architecture
 
@@ -29,10 +29,10 @@ The deployment consists of **two separate Cloud Run services**:
            │ Shared PostgreSQL Database                      │ DCR (create OAuth clients)
            ▼                                                 ▼
 ┌──────────────────────────────────────────────┐    ┌──────────────────────┐
-│   Insights Agent Service (Port 8000)         │    │  Red Hat SSO         │
+│   Lightspeed Agent Service (Port 8000)       │    │  Red Hat SSO         │
 │   ─────────────────────────────────────      │    │  (Keycloak)          │
 │  ┌──────────────────┐   ┌──────────────────┐ │    │                      │
-│  │  Insights Agent  │   │ Insights MCP     │ │    │  Production:         │
+│  │ Lightspeed Agent │   │ Lightspeed MCP   │ │    │  Production:         │
 │  │                  │   │ Server (8081)    │ │    │   sso.redhat.com     │
 │  │  - Gemini 2.5    │   │                  │ │    │                      │
 │  │  - A2A protocol  │◄-►│ - Advisor tools  │ │    │  Testing:            │
@@ -54,7 +54,7 @@ The deployment consists of **two separate Cloud Run services**:
 | Service | Port | Purpose | Scaling |
 |---------|------|---------|---------|
 | **Marketplace Handler** | 8001 | Pub/Sub events, DCR | Always on (minScale=1) |
-| **Insights Agent** | 8000 | A2A queries, user interactions | Scale to zero |
+| **Lightspeed Agent** | 8000 | A2A queries, user interactions | Scale to zero |
 
 ### Deployment Order
 
@@ -80,7 +80,7 @@ The MCP server runs as a sidecar in the Agent service. The agent forwards the ca
 ```bash
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 export GOOGLE_CLOUD_LOCATION="us-central1"
-export SERVICE_NAME="insights-agent"
+export SERVICE_NAME="lightspeed-agent"
 
 # Optional: disable Pub/Sub marketplace integration
 export ENABLE_MARKETPLACE="false"
@@ -99,7 +99,7 @@ The setup script enables required APIs, creates a service account, and sets up s
 |----------|---------|-------------|
 | `GOOGLE_CLOUD_PROJECT` | (required) | GCP project ID |
 | `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
-| `SERVICE_NAME` | `insights-agent` | Cloud Run service name |
+| `SERVICE_NAME` | `lightspeed-agent` | Cloud Run service name |
 | `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub for marketplace integration |
 
 ### 3. Set Up Cloud SQL Database
@@ -108,7 +108,7 @@ Cloud Run requires PostgreSQL for production. Create a Cloud SQL instance with t
 
 ```bash
 # Create Cloud SQL instance (using smallest Enterprise tier)
-gcloud sql instances create insights-agent-db \
+gcloud sql instances create lightspeed-agent-db \
   --database-version=POSTGRES_16 \
   --edition=ENTERPRISE \
   --tier=db-g1-small \
@@ -116,27 +116,27 @@ gcloud sql instances create insights-agent-db \
   --project=$GOOGLE_CLOUD_PROJECT
 
 # Create marketplace database and user
-gcloud sql databases create insights_agent \
-  --instance=insights-agent-db \
+gcloud sql databases create lightspeed_agent \
+  --instance=lightspeed-agent-db \
   --project=$GOOGLE_CLOUD_PROJECT
 
 gcloud sql users create insights \
-  --instance=insights-agent-db \
+  --instance=lightspeed-agent-db \
   --password=YOUR_MARKETPLACE_PASSWORD \
   --project=$GOOGLE_CLOUD_PROJECT
 
 # Create session database and user
 gcloud sql databases create agent_sessions \
-  --instance=insights-agent-db \
+  --instance=lightspeed-agent-db \
   --project=$GOOGLE_CLOUD_PROJECT
 
 gcloud sql users create sessions \
-  --instance=insights-agent-db \
+  --instance=lightspeed-agent-db \
   --password=YOUR_SESSION_PASSWORD \
   --project=$GOOGLE_CLOUD_PROJECT
 
 # Get the connection name for later use
-CONNECTION_NAME=$(gcloud sql instances describe insights-agent-db \
+CONNECTION_NAME=$(gcloud sql instances describe lightspeed-agent-db \
   --project=$GOOGLE_CLOUD_PROJECT --format='value(connectionName)')
 echo "Connection name: $CONNECTION_NAME"
 ```
@@ -178,7 +178,7 @@ echo -n 'your-fernet-key' | \
 
 # Database URLs (use CONNECTION_NAME from step 3)
 # Marketplace database: stores orders, entitlements, DCR clients
-echo -n "postgresql+asyncpg://insights:YOUR_MARKETPLACE_PASSWORD@/insights_agent?host=/cloudsql/$CONNECTION_NAME" | \
+echo -n "postgresql+asyncpg://insights:YOUR_MARKETPLACE_PASSWORD@/lightspeed_agent?host=/cloudsql/$CONNECTION_NAME" | \
   gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 
 # Session database: stores agent sessions (required for persistence)
@@ -213,7 +213,7 @@ The deploy script uses the YAML service configs (`service.yaml` and
 ./deploy/cloudrun/deploy.sh --service handler --allow-unauthenticated
 
 # Deploy only the agent with a custom image
-./deploy/cloudrun/deploy.sh --service agent --image gcr.io/my-project/insights-agent:v1.0
+./deploy/cloudrun/deploy.sh --service agent --image gcr.io/my-project/lightspeed-agent:v1.0
 
 # Deploy the handler with a custom image
 ./deploy/cloudrun/deploy.sh --service handler --handler-image gcr.io/my-project/marketplace-handler:v1.0
@@ -224,7 +224,7 @@ The deploy script uses the YAML service configs (`service.yaml` and
 | Flag | Description |
 |------|-------------|
 | `--service <service>` | Which service to deploy: `all` (default), `handler`, `agent` |
-| `--image <image>` | Container image for the agent (default: `gcr.io/$PROJECT_ID/insights-agent:latest`) |
+| `--image <image>` | Container image for the agent (default: `gcr.io/$PROJECT_ID/lightspeed-agent:latest`) |
 | `--handler-image <image>` | Container image for the marketplace handler (default: `gcr.io/$PROJECT_ID/marketplace-handler:latest`) |
 | `--mcp-image <image>` | Container image for the MCP server (default: `gcr.io/$PROJECT_ID/insights-mcp:latest`) |
 | `--build` | Build the image(s) before deploying |
@@ -411,22 +411,22 @@ on behalf of the user.
 **Mode A: JWT pass-through (default)**
 
 ```
-Client                     Agent                 MCP Server        console.redhat.com
-  │                          │                       │                     │
-  │  POST / (A2A)            │                       │                     │
-  │  Authorization: Bearer T │                       │                     │
-  ├─────────────────────────►│                       │                     │
-  │                          │  MCP tool call         │                     │
-  │                          │  Authorization: Bearer T                     │
-  │                          ├──────────────────────►│                     │
-  │                          │                       │  API Request + T    │
-  │                          │                       ├────────────────────►│
-  │                          │                       │  API Response       │
-  │                          │                       │◄────────────────────┤
-  │                          │  Tool result           │                     │
-  │                          │◄──────────────────────┤                     │
-  │  A2A Response            │                       │                     │
-  │◄─────────────────────────┤                       │                     │
+Client                     Agent                   MCP Server        console.redhat.com
+  │                          │                         │                     │
+  │  POST / (A2A)            │                         │                     │
+  │  Authorization: Bearer T │                         │                     │
+  ├─────────────────────────►│                         │                     │
+  │                          │  MCP tool call          │                     │
+  │                          │  Authorization: Bearer T|                     │
+  │                          ├────────────────────────►│                     │
+  │                          │                         │  API Request + T    │
+  │                          │                         ├────────────────────►│
+  │                          │                         │  API Response       │
+  │                          │                         │◄────────────────────┤
+  │                          │  Tool result            │                     │
+  │                          │◄────────────────────────┤                     │
+  │  A2A Response            │                         │                     │
+  │◄─────────────────────────┤                         │                     │
 ```
 
 **Mode B: Lightspeed credentials (optional)**
@@ -457,7 +457,7 @@ Bearer token that is active and carries the `agent:insights` scope.
 
 ```
 ┌──────────┐    ┌───────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐
-│  Client  │    │Insights Agent │    │ Red Hat SSO  │    │  MCP Server  │    │console.redhat.com│
+│  Client  │    │Lightspeed Agt │    │ Red Hat SSO  │    │  MCP Server  │    │console.redhat.com│
 │(Gemini)  │    │  (port 8000)  │    │  (Keycloak)  │    │  (port 8080) │    │ (Insights APIs)  │
 └────┬─────┘    └──────┬────────┘    └──────┬───────┘    └──────┬───────┘    └────────┬─────────┘
      │                 │                    │                   │                     │
@@ -533,7 +533,7 @@ After deployment, the following endpoints are available:
 | `POST /dcr` | Hybrid endpoint (Pub/Sub events + DCR requests) |
 | `POST /oauth/register` | DCR endpoint (RFC 7591 compliant path) |
 
-### Insights Agent Service
+### Lightspeed Agent Service
 
 | Endpoint | Description |
 |----------|-------------|
@@ -553,7 +553,7 @@ HANDLER_URL=$(gcloud run services describe marketplace-handler \
   --project=$GOOGLE_CLOUD_PROJECT \
   --format='value(status.url)')
 
-AGENT_URL=$(gcloud run services describe insights-agent \
+AGENT_URL=$(gcloud run services describe lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --format='value(status.url)')
@@ -572,7 +572,7 @@ gcloud run services logs read marketplace-handler \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
 
-gcloud run services logs read insights-agent \
+gcloud run services logs read lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
 ```
@@ -598,7 +598,7 @@ This separation ensures:
 If you deployed services before setting up Cloud SQL, add the connection:
 
 ```bash
-CONNECTION_NAME=$(gcloud sql instances describe insights-agent-db \
+CONNECTION_NAME=$(gcloud sql instances describe lightspeed-agent-db \
   --project=$GOOGLE_CLOUD_PROJECT --format='value(connectionName)')
 
 # Add to marketplace handler
@@ -608,7 +608,7 @@ gcloud run services update marketplace-handler \
   --project=$GOOGLE_CLOUD_PROJECT
 
 # Add to insights agent
-gcloud run services update insights-agent \
+gcloud run services update lightspeed-agent \
   --add-cloudsql-instances=$CONNECTION_NAME \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
@@ -627,7 +627,7 @@ Map a custom domain to your Cloud Run service:
 
 ```bash
 gcloud run domain-mappings create \
-  --service=insights-agent \
+  --service=lightspeed-agent \
   --domain=agent.yourdomain.com \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
@@ -645,7 +645,7 @@ Verify the agent is running and accessible:
 
 ```bash
 # Get the agent URL
-AGENT_URL=$(gcloud run services describe insights-agent \
+AGENT_URL=$(gcloud run services describe lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --format='value(status.url)')
@@ -665,7 +665,7 @@ The local proxy handles Google Cloud Run authentication, allowing you to test wi
 
 ```bash
 # Start proxy on localhost:8099 (NOT 8080 - that's used by MCP sidecar)
-gcloud run services proxy insights-agent \
+gcloud run services proxy lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --port=8099
@@ -679,7 +679,7 @@ The agent card needs to advertise the proxy URL so tools like A2A Inspector conn
 
 ```bash
 # In a new terminal, set the agent URL to point to your local proxy
-gcloud run services update insights-agent \
+gcloud run services update lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --update-env-vars="AGENT_PROVIDER_URL=http://localhost:8099"
@@ -853,13 +853,13 @@ When you're done testing, clean up the local proxy and restore the production co
 
 ```bash
 # Get the actual Cloud Run service URL
-SERVICE_URL=$(gcloud run services describe insights-agent \
+SERVICE_URL=$(gcloud run services describe lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --format='value(status.url)')
 
 # Restore the agent card to advertise the real Cloud Run URL
-gcloud run services update insights-agent \
+gcloud run services update lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --update-env-vars="AGENT_PROVIDER_URL=$SERVICE_URL"
@@ -867,7 +867,7 @@ gcloud run services update insights-agent \
 # Verify the agent card now shows the correct URL
 curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
   $SERVICE_URL/.well-known/agent-card.json | jq -r '.url'
-# Should show: https://insights-agent-xxxxx.run.app/
+# Should show: https://lightspeed-agent-xxxxx.run.app/
 ```
 
 **2. Stop the proxy:**
@@ -898,7 +898,7 @@ If you prefer to test without the proxy, you'll need to:
 
 1. **Allow unauthenticated access** (requires admin permissions):
    ```bash
-   gcloud run services add-iam-policy-binding insights-agent \
+   gcloud run services add-iam-policy-binding lightspeed-agent \
      --region=$GOOGLE_CLOUD_LOCATION \
      --project=$GOOGLE_CLOUD_PROJECT \
      --member="allUsers" \
@@ -943,7 +943,7 @@ echo $RED_HAT_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq .
 
 # Make sure proxy is running
 # You should see: "Listening on http://localhost:8080"
-gcloud run services proxy insights-agent --region=us-central1 --port=8080
+gcloud run services proxy lightspeed-agent --region=us-central1 --port=8080
 ```
 
 **"Invalid Authorization header format"**
@@ -970,7 +970,7 @@ You're not using the correct A2A JSON-RPC format. Make sure your request include
 - Ensure the proxy is running in a separate terminal
 - Verify the agent is deployed and healthy:
   ```bash
-  gcloud run services describe insights-agent \
+  gcloud run services describe lightspeed-agent \
     --region=us-central1 \
     --format='value(status.conditions.status)'
   # Should show: True;True;True
@@ -1265,7 +1265,7 @@ curl -s -X POST "$KEYCLOAK_URL/admin/realms/test-realm/clients" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "clientId": "insights-agent",
+    "clientId": "lightspeed-agent",
     "enabled": true,
     "clientAuthenticatorType": "client-secret",
     "serviceAccountsEnabled": true,
@@ -1273,7 +1273,7 @@ curl -s -X POST "$KEYCLOAK_URL/admin/realms/test-realm/clients" \
   }'
 
 # Get the client UUID
-CLIENT_UUID=$(curl -s "$KEYCLOAK_URL/admin/realms/test-realm/clients?clientId=insights-agent" \
+CLIENT_UUID=$(curl -s "$KEYCLOAK_URL/admin/realms/test-realm/clients?clientId=lightspeed-agent" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
 
@@ -1282,7 +1282,7 @@ CLIENT_SECRET=$(curl -s "$KEYCLOAK_URL/admin/realms/test-realm/clients/$CLIENT_U
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
 
-echo "RED_HAT_SSO_CLIENT_ID=insights-agent"
+echo "RED_HAT_SSO_CLIENT_ID=lightspeed-agent"
 echo "RED_HAT_SSO_CLIENT_SECRET=$CLIENT_SECRET"
 ```
 
@@ -1307,7 +1307,7 @@ newly created clients.  After DCR, the agent uses the Admin API to fix
 this, which requires the `manage-clients` role.
 
 ```bash
-# Get the service account user for insights-agent
+# Get the service account user for lightspeed-agent
 SA_USER_ID=$(curl -s \
   "$KEYCLOAK_URL/admin/realms/test-realm/clients/$CLIENT_UUID/service-account-user" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -1335,7 +1335,7 @@ curl -s -X POST \
 Store the client credentials in Secret Manager:
 
 ```bash
-echo -n "insights-agent" | \
+echo -n "lightspeed-agent" | \
   gcloud secrets versions add redhat-sso-client-id \
     --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 
@@ -1396,7 +1396,7 @@ introspection endpoint.  The secrets were already updated above; now point
 the agent to the test Keycloak:
 
 ```bash
-gcloud run services update insights-agent \
+gcloud run services update lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --update-env-vars="\
@@ -1526,7 +1526,7 @@ RED_HAT_SSO_ISSUER=https://sso.redhat.com/auth/realms/redhat-external,\
 SKIP_JWT_VALIDATION=false"
 
 # Restore agent to production configuration
-gcloud run services update insights-agent \
+gcloud run services update lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --update-env-vars="\
@@ -1566,12 +1566,12 @@ The test script at `scripts/test_deployed_dcr.py` is configurable via environmen
 ## Monitoring
 
 View metrics in Google Cloud Console:
-- **Cloud Run** → **Services** → **insights-agent** → **Metrics**
+- **Cloud Run** → **Services** → **lightspeed-agent** → **Metrics**
 
 Set up alerts:
 ```bash
 gcloud monitoring policies create \
-  --display-name="Insights Agent Error Rate" \
+  --display-name="Lightspeed Agent Error Rate" \
   --condition-display-name="Error rate > 5%" \
   --condition-filter='resource.type="cloud_run_revision" AND metric.type="run.googleapis.com/request_count" AND metric.labels.response_code_class="5xx"' \
   --project=$GOOGLE_CLOUD_PROJECT
@@ -1582,7 +1582,7 @@ gcloud monitoring policies create \
 ### View Logs
 
 ```bash
-gcloud run services logs read insights-agent \
+gcloud run services logs read lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --limit=100
@@ -1591,7 +1591,7 @@ gcloud run services logs read insights-agent \
 ### Check Service Status
 
 ```bash
-gcloud run services describe insights-agent \
+gcloud run services describe lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
 ```
@@ -1626,7 +1626,7 @@ Use `--force` to skip the confirmation prompt:
 
 ```bash
 # Delete container images
-gcloud container images delete gcr.io/$GOOGLE_CLOUD_PROJECT/insights-agent --force-delete-tags --quiet
+gcloud container images delete gcr.io/$GOOGLE_CLOUD_PROJECT/lightspeed-agent --force-delete-tags --quiet
 gcloud container images delete gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp --force-delete-tags --quiet
 
 # Delete Cloud SQL instance (if created)

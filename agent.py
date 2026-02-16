@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 # Load environment variables before importing agent
 load_dotenv()
 
-from insights_agent.core.agent import root_agent  # noqa: E402
+from lightspeed_agent.core.agent import root_agent  # noqa: E402
 
 # Export root_agent for ADK CLI
 __all__ = ["root_agent"]

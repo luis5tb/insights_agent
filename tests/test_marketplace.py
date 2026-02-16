@@ -2,7 +2,7 @@
 
 import pytest
 
-from insights_agent.marketplace.models import (
+from lightspeed_agent.marketplace.models import (
     Account,
     AccountState,
     Entitlement,
@@ -10,11 +10,11 @@ from insights_agent.marketplace.models import (
     ProcurementEvent,
     ProcurementEventType,
 )
-from insights_agent.marketplace.repository import (
+from lightspeed_agent.marketplace.repository import (
     AccountRepository,
     EntitlementRepository,
 )
-from insights_agent.marketplace.service import ProcurementService
+from lightspeed_agent.marketplace.service import ProcurementService
 
 
 class TestModels:

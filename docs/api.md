@@ -1,10 +1,10 @@
 # API Reference
 
-This document describes the API endpoints provided by the Insights Agent.
+This document describes the API endpoints provided by the Lightspeed Agent.
 
 ## Architecture Overview
 
-The Insights Agent is built using [Google ADK](https://github.com/google/adk-python) (Agent Development Kit)
+The Lightspeed Agent is built using [Google ADK](https://github.com/google/adk-python) (Agent Development Kit)
 with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for interoperability.
 
 ### High-Level Architecture
@@ -274,7 +274,7 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
                                       │ connects to
                                       ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                       insights_agent (this project)                        │
+│                       lightspeed_agent (this project)                        │
 ├────────────────────────────────────────────────────────────────────────────┤
 │                                                                            │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -345,8 +345,8 @@ Returns the AgentCard describing the agent's capabilities.
 
 ```json
 {
-  "name": "insights-agent",
-  "description": "Red Hat Insights Agent for infrastructure management",
+  "name": "lightspeed-agent",
+  "description": "Red Hat Lightspeed Agent for Google Cloud",
   "url": "https://your-agent-url.com",
   "version": "0.1.0",
   "provider": {
@@ -724,7 +724,7 @@ Health check endpoint for load balancers and orchestrators.
 ```json
 {
   "status": "healthy",
-  "agent": "insights-agent"
+  "agent": "lightspeed-agent"
 }
 ```
 
@@ -739,7 +739,7 @@ Readiness check endpoint indicating the service is ready to accept requests.
 ```json
 {
   "status": "ready",
-  "agent": "insights-agent"
+  "agent": "lightspeed-agent"
 }
 ```
 

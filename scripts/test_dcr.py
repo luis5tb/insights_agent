@@ -88,7 +88,7 @@ The handler must be started with at least these environment variables:
 
     # Always required
     DCR_ENCRYPTION_KEY=<generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'>
-    DATABASE_URL=sqlite+aiosqlite:///./insights_agent.db
+    DATABASE_URL=sqlite+aiosqlite:///./lightspeed_agent.db
 
     # Must match PROVIDER_URL below (or set AGENT_PROVIDER_URL on the handler)
     AGENT_PROVIDER_URL=https://your-agent-domain.com
