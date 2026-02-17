@@ -37,7 +37,7 @@ spec:
     spec:
       containerConcurrency: 80
       timeoutSeconds: 300
-      serviceAccountName: lightspeed-agent@${PROJECT_ID}.iam.gserviceaccount.com
+      serviceAccountName: ${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
       containers:
         - name: lightspeed-agent
           image: gcr.io/${PROJECT_ID}/lightspeed-agent:latest

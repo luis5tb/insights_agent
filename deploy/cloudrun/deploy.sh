@@ -183,6 +183,7 @@ deploy_agent() {
         -e "s|\${MCP_IMAGE}|${MCP_IMAGE}|g" \
         -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
         -e "s|\${REGION}|${REGION}|g" \
+        -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
         deploy/cloudrun/service.yaml > "$tmp_yaml"
 
     # Deploy using the YAML
@@ -216,6 +217,7 @@ deploy_handler() {
     sed -e "s|gcr.io/\${PROJECT_ID}/marketplace-handler:latest|${HANDLER_IMAGE}|g" \
         -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
         -e "s|\${REGION}|${REGION}|g" \
+        -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
         deploy/cloudrun/marketplace-handler.yaml > "$tmp_yaml"
 
     # Deploy using the YAML
