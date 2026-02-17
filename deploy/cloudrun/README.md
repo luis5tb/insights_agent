@@ -118,6 +118,7 @@ The setup script enables required APIs, creates service accounts (runtime + Pub/
 | `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
 | `SERVICE_NAME` | `lightspeed-agent` | Cloud Run service name and runtime SA name |
 | `PUBSUB_INVOKER_NAME` | `pubsub-invoker` | Pub/Sub invoker SA name |
+| `PUBSUB_TOPIC` | `marketplace-entitlements` | Pub/Sub topic name for marketplace events |
 | `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub invoker SA and topic for marketplace integration |
 
 ### 3. Set Up Cloud SQL Database
@@ -133,6 +134,13 @@ gcloud sql instances create lightspeed-agent-db \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT
 
+# Generate random passwords for database users
+MARKETPLACE_DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+SESSION_DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+echo "Marketplace DB password: $MARKETPLACE_DB_PASSWORD"
+echo "Session DB password: $SESSION_DB_PASSWORD"
+# Save these — you'll need them for the database-url secrets below
+
 # Create marketplace database and user
 gcloud sql databases create lightspeed_agent \
   --instance=lightspeed-agent-db \
@@ -140,7 +148,7 @@ gcloud sql databases create lightspeed_agent \
 
 gcloud sql users create insights \
   --instance=lightspeed-agent-db \
-  --password=YOUR_MARKETPLACE_PASSWORD \
+  --password=$MARKETPLACE_DB_PASSWORD \
   --project=$GOOGLE_CLOUD_PROJECT
 
 # Create session database and user
@@ -150,7 +158,7 @@ gcloud sql databases create agent_sessions \
 
 gcloud sql users create sessions \
   --instance=lightspeed-agent-db \
-  --password=YOUR_SESSION_PASSWORD \
+  --password=$SESSION_DB_PASSWORD \
   --project=$GOOGLE_CLOUD_PROJECT
 
 # Get the connection name for later use
@@ -167,15 +175,6 @@ Update the placeholder secrets with actual values:
 # Google API Key (for Google AI Studio)
 echo -n 'your-google-api-key' | \
   gcloud secrets versions add google-api-key --data-file=- --project=$GOOGLE_CLOUD_PROJECT
-
-# Red Hat Insights Lightspeed credentials (optional)
-# Only needed if you prefer service-account authentication to the MCP server
-# instead of JWT pass-through.  If omitted, the agent forwards the caller's
-# Bearer token to the MCP server automatically.
-#echo -n 'your-client-id' | \
-#  gcloud secrets versions add lightspeed-client-id --data-file=- --project=$GOOGLE_CLOUD_PROJECT
-#echo -n 'your-client-secret' | \
-#  gcloud secrets versions add lightspeed-client-secret --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 
 # Red Hat SSO credentials
 echo -n 'your-sso-client-id' | \
@@ -194,13 +193,13 @@ echo -n 'your-initial-access-token' | \
 echo -n 'your-fernet-key' | \
   gcloud secrets versions add dcr-encryption-key --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 
-# Database URLs (use CONNECTION_NAME from step 3)
+# Database URLs (use CONNECTION_NAME and passwords from step 3)
 # Marketplace database: stores orders, entitlements, DCR clients
-echo -n "postgresql+asyncpg://insights:YOUR_MARKETPLACE_PASSWORD@/lightspeed_agent?host=/cloudsql/$CONNECTION_NAME" | \
+echo -n "postgresql+asyncpg://insights:$MARKETPLACE_DB_PASSWORD@/lightspeed_agent?host=/cloudsql/$CONNECTION_NAME" | \
   gcloud secrets versions add database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 
 # Session database: stores agent sessions (required for persistence)
-echo -n "postgresql+asyncpg://sessions:YOUR_SESSION_PASSWORD@/agent_sessions?host=/cloudsql/$CONNECTION_NAME" | \
+echo -n "postgresql+asyncpg://sessions:$SESSION_DB_PASSWORD@/agent_sessions?host=/cloudsql/$CONNECTION_NAME" | \
   gcloud secrets versions add session-database-url --data-file=- --project=$GOOGLE_CLOUD_PROJECT
 ```
 
