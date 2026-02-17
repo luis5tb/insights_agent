@@ -558,6 +558,7 @@ Bearer token that is active and carries the `agent:insights` scope.
 |------------------|-------------|
 | `redhat-sso-client-id` | Resource Server client ID (used for introspection + OAuth login) |
 | `redhat-sso-client-secret` | Resource Server client secret |
+| `RED_HAT_SSO_REDIRECT_URI` | OAuth redirect URI for the authorization code flow (must match the Cloud Run service URL, e.g. `https://<service-url>/oauth/callback`). Set automatically by `deploy.sh`. |
 | `AGENT_REQUIRED_SCOPE` | OAuth scope required in tokens (default: `agent:insights`) |
 
 ### Development Mode

@@ -381,6 +381,23 @@ case "$DEPLOY_SERVICE" in
         show_service_info "$HANDLER_SERVICE_NAME"
         echo ""
         show_service_info "$SERVICE_NAME"
+
+        # Update AGENT_PROVIDER_URL and RED_HAT_SSO_REDIRECT_URI with the actual Cloud Run URL
+        service_url=$(gcloud run services describe "$SERVICE_NAME" \
+            --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --format='value(status.url)' 2>/dev/null)
+
+        if [[ -n "$service_url" ]]; then
+            log_info "Updating AGENT_PROVIDER_URL and RED_HAT_SSO_REDIRECT_URI to $service_url"
+            gcloud run services update "$SERVICE_NAME" \
+                --region="$REGION" \
+                --project="$PROJECT_ID" \
+                --set-env-vars="AGENT_PROVIDER_URL=$service_url,RED_HAT_SSO_REDIRECT_URI=$service_url/oauth/callback" \
+                --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
+            log_info "Agent card URL and OAuth redirect URI updated successfully"
+        fi
+
         echo ""
         echo "Architecture:"
         echo "  1. Marketplace Handler receives Pub/Sub events and DCR requests"
@@ -409,13 +426,13 @@ case "$DEPLOY_SERVICE" in
             --format='value(status.url)' 2>/dev/null)
 
         if [[ -n "$service_url" ]]; then
-            log_info "Updating AGENT_PROVIDER_URL to $service_url"
+            log_info "Updating AGENT_PROVIDER_URL and RED_HAT_SSO_REDIRECT_URI to $service_url"
             gcloud run services update "$SERVICE_NAME" \
                 --region="$REGION" \
                 --project="$PROJECT_ID" \
-                --set-env-vars="AGENT_PROVIDER_URL=$service_url" \
+                --set-env-vars="AGENT_PROVIDER_URL=$service_url,RED_HAT_SSO_REDIRECT_URI=$service_url/oauth/callback" \
                 --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
-            log_info "Agent card URL updated successfully"
+            log_info "Agent card URL and OAuth redirect URI updated successfully"
         fi
 
         echo ""
