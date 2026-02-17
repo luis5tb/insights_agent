@@ -747,7 +747,7 @@ If you have the [ocm CLI](https://github.com/openshift-online/ocm-cli) installed
 
 ```bash
 # Login to OCM (if not already logged in)
-ocm login
+ocm login --use-auth-code
 
 # Get access token
 export RED_HAT_TOKEN=$(ocm token)
