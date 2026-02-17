@@ -404,7 +404,7 @@ case "$DEPLOY_SERVICE" in
             gcloud run services update "$SERVICE_NAME" \
                 --region="$REGION" \
                 --project="$PROJECT_ID" \
-                --set-env-vars="$env_vars" \
+                --update-env-vars="$env_vars" \
                 --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
             log_info "Agent env vars updated successfully"
         fi
@@ -452,7 +452,7 @@ case "$DEPLOY_SERVICE" in
             gcloud run services update "$SERVICE_NAME" \
                 --region="$REGION" \
                 --project="$PROJECT_ID" \
-                --set-env-vars="$env_vars" \
+                --update-env-vars="$env_vars" \
                 --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
             log_info "Agent env vars updated successfully"
         fi
