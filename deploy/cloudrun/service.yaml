@@ -13,9 +13,9 @@
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: lightspeed-agent
+  name: ${SERVICE_NAME}
   labels:
-    app: lightspeed-agent
+    app: ${SERVICE_NAME}
     managed-by: cloud-build
   annotations:
     run.googleapis.com/description: "Red Hat Lightspeed Agent for Google Cloud - A2A-ready agent using Google ADK"
@@ -33,11 +33,11 @@ spec:
         # Startup probe
         run.googleapis.com/startup-cpu-boost: "true"
         # Cloud SQL connection
-        run.googleapis.com/cloudsql-instances: "${PROJECT_ID}:${REGION}:lightspeed-agent-db"
+        run.googleapis.com/cloudsql-instances: "${PROJECT_ID}:${REGION}:${DB_INSTANCE_NAME}"
     spec:
       containerConcurrency: 80
       timeoutSeconds: 300
-      serviceAccountName: ${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
+      serviceAccountName: ${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
       containers:
         - name: lightspeed-agent
           image: gcr.io/${PROJECT_ID}/lightspeed-agent:latest

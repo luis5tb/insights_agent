@@ -39,7 +39,10 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-lightspeed-agent}"
-SERVICE_ACCOUNT="${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+SERVICE_ACCOUNT_NAME="${SERVICE_ACCOUNT_NAME:-${SERVICE_NAME}}"
+HANDLER_SERVICE_NAME="${HANDLER_SERVICE_NAME:-marketplace-handler}"
+DB_INSTANCE_NAME="${DB_INSTANCE_NAME:-lightspeed-agent-db}"
+SERVICE_ACCOUNT="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Pub/Sub Invoker Service Account (separate SA for push subscription auth)
 PUBSUB_INVOKER_NAME="${PUBSUB_INVOKER_NAME:-pubsub-invoker}"
@@ -58,6 +61,9 @@ fi
 log_info "Setting up Cloud Run deployment for project: $PROJECT_ID"
 log_info "Region: $REGION"
 log_info "Service: $SERVICE_NAME"
+log_info "Service account: $SERVICE_ACCOUNT_NAME"
+log_info "Handler service: $HANDLER_SERVICE_NAME"
+log_info "DB instance: $DB_INSTANCE_NAME"
 log_info "Pub/Sub invoker SA: $PUBSUB_INVOKER_NAME"
 log_info "Marketplace integration: $ENABLE_MARKETPLACE"
 
@@ -98,7 +104,7 @@ log_info "Creating service account: $SERVICE_ACCOUNT"
 
 # Create service account if it doesn't exist
 if ! gcloud iam service-accounts describe "$SERVICE_ACCOUNT" --project="$PROJECT_ID" &>/dev/null; then
-    gcloud iam service-accounts create "$SERVICE_NAME" \
+    gcloud iam service-accounts create "$SERVICE_ACCOUNT_NAME" \
         --display-name="Lightspeed Agent Service Account" \
         --description="Service account for the Red Hat Lightspeed Agent for Google Cloud" \
         --project="$PROJECT_ID"
@@ -287,7 +293,7 @@ echo "Next steps:"
 echo ""
 echo "1. Set up Cloud SQL database:"
 echo "   # Create instance"
-echo "   gcloud sql instances create lightspeed-agent-db --database-version=POSTGRES_16 --edition=ENTERPRISE --tier=db-g1-small --region=$REGION --project=$PROJECT_ID"
+echo "   gcloud sql instances create $DB_INSTANCE_NAME --database-version=POSTGRES_16 --edition=ENTERPRISE --tier=db-g1-small --region=$REGION --project=$PROJECT_ID"
 echo ""
 echo "   # Generate random passwords for database users"
 echo "   MARKETPLACE_DB_PASSWORD=\$(python3 -c \"import secrets; print(secrets.token_urlsafe(24))\")"
@@ -296,10 +302,10 @@ echo "   echo \"Marketplace DB password: \$MARKETPLACE_DB_PASSWORD\""
 echo "   echo \"Session DB password: \$SESSION_DB_PASSWORD\""
 echo ""
 echo "   # Create databases and users"
-echo "   gcloud sql databases create lightspeed_agent --instance=lightspeed-agent-db --project=$PROJECT_ID"
-echo "   gcloud sql users create insights --instance=lightspeed-agent-db --password=\$MARKETPLACE_DB_PASSWORD --project=$PROJECT_ID"
-echo "   gcloud sql databases create agent_sessions --instance=lightspeed-agent-db --project=$PROJECT_ID"
-echo "   gcloud sql users create sessions --instance=lightspeed-agent-db --password=\$SESSION_DB_PASSWORD --project=$PROJECT_ID"
+echo "   gcloud sql databases create lightspeed_agent --instance=$DB_INSTANCE_NAME --project=$PROJECT_ID"
+echo "   gcloud sql users create insights --instance=$DB_INSTANCE_NAME --password=\$MARKETPLACE_DB_PASSWORD --project=$PROJECT_ID"
+echo "   gcloud sql databases create agent_sessions --instance=$DB_INSTANCE_NAME --project=$PROJECT_ID"
+echo "   gcloud sql users create sessions --instance=$DB_INSTANCE_NAME --password=\$SESSION_DB_PASSWORD --project=$PROJECT_ID"
 echo ""
 echo "2. Update secrets with actual values:"
 echo ""
@@ -316,7 +322,7 @@ echo "   # Generate Fernet key: python -c 'from cryptography.fernet import Ferne
 echo "   echo -n 'YOUR_FERNET_KEY' | gcloud secrets versions add dcr-encryption-key --data-file=- --project=$PROJECT_ID"
 echo ""
 echo "   # Database URLs (after Cloud SQL setup)"
-echo "   CONNECTION_NAME=\$(gcloud sql instances describe lightspeed-agent-db --project=$PROJECT_ID --format='value(connectionName)')"
+echo "   CONNECTION_NAME=\$(gcloud sql instances describe $DB_INSTANCE_NAME --project=$PROJECT_ID --format='value(connectionName)')"
 echo "   echo -n \"postgresql+asyncpg://insights:\$MARKETPLACE_DB_PASSWORD@/lightspeed_agent?host=/cloudsql/\$CONNECTION_NAME\" | gcloud secrets versions add database-url --data-file=- --project=$PROJECT_ID"
 echo "   echo -n \"postgresql+asyncpg://sessions:\$SESSION_DB_PASSWORD@/agent_sessions?host=/cloudsql/\$CONNECTION_NAME\" | gcloud secrets versions add session-database-url --data-file=- --project=$PROJECT_ID"
 echo ""

@@ -21,9 +21,9 @@
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: marketplace-handler
+  name: ${HANDLER_SERVICE_NAME}
   labels:
-    app: marketplace-handler
+    app: ${HANDLER_SERVICE_NAME}
     component: provisioning
   annotations:
     run.googleapis.com/description: "Marketplace provisioning and DCR handler for Lightspeed Agent"
@@ -39,13 +39,13 @@ spec:
         run.googleapis.com/cpu-throttling: "false"
         run.googleapis.com/startup-cpu-boost: "true"
         # Cloud SQL connection
-        run.googleapis.com/cloudsql-instances: "${PROJECT_ID}:${REGION}:lightspeed-agent-db"
+        run.googleapis.com/cloudsql-instances: "${PROJECT_ID}:${REGION}:${DB_INSTANCE_NAME}"
     spec:
       containerConcurrency: 80
       timeoutSeconds: 60
-      serviceAccountName: ${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
+      serviceAccountName: ${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
       containers:
-        - name: marketplace-handler
+        - name: ${HANDLER_SERVICE_NAME}
           image: gcr.io/${PROJECT_ID}/marketplace-handler:latest
           ports:
             - name: http1

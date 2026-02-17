@@ -99,6 +99,9 @@ export GOOGLE_CLOUD_PROJECT="your-project-id"
 export GOOGLE_CLOUD_LOCATION="us-central1"
 export SERVICE_NAME="lightspeed-agent"
 
+# Optional: use a different name for the GCP service account
+# export SERVICE_ACCOUNT_NAME="my-custom-sa"
+
 # Optional: disable Pub/Sub marketplace integration
 export ENABLE_MARKETPLACE="false"
 ```
@@ -116,7 +119,10 @@ The setup script enables required APIs, creates service accounts (runtime + Pub/
 |----------|---------|-------------|
 | `GOOGLE_CLOUD_PROJECT` | (required) | GCP project ID |
 | `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
-| `SERVICE_NAME` | `lightspeed-agent` | Cloud Run service name and runtime SA name |
+| `SERVICE_NAME` | `lightspeed-agent` | Cloud Run service name |
+| `SERVICE_ACCOUNT_NAME` | `${SERVICE_NAME}` | GCP service account name (allows a different name than the Cloud Run service) |
+| `HANDLER_SERVICE_NAME` | `marketplace-handler` | Marketplace handler Cloud Run service name |
+| `DB_INSTANCE_NAME` | `lightspeed-agent-db` | Cloud SQL instance name |
 | `PUBSUB_INVOKER_NAME` | `pubsub-invoker` | Pub/Sub invoker SA name |
 | `PUBSUB_TOPIC` | `marketplace-entitlements` | Pub/Sub topic name for marketplace events |
 | `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub invoker SA and topic for marketplace integration |
@@ -127,7 +133,7 @@ Cloud Run requires PostgreSQL for production. Create a Cloud SQL instance with t
 
 ```bash
 # Create Cloud SQL instance (using smallest Enterprise tier)
-gcloud sql instances create lightspeed-agent-db \
+gcloud sql instances create $DB_INSTANCE_NAME \
   --database-version=POSTGRES_16 \
   --edition=ENTERPRISE \
   --tier=db-g1-small \
@@ -143,26 +149,26 @@ echo "Session DB password: $SESSION_DB_PASSWORD"
 
 # Create marketplace database and user
 gcloud sql databases create lightspeed_agent \
-  --instance=lightspeed-agent-db \
+  --instance=$DB_INSTANCE_NAME \
   --project=$GOOGLE_CLOUD_PROJECT
 
 gcloud sql users create insights \
-  --instance=lightspeed-agent-db \
+  --instance=$DB_INSTANCE_NAME \
   --password=$MARKETPLACE_DB_PASSWORD \
   --project=$GOOGLE_CLOUD_PROJECT
 
 # Create session database and user
 gcloud sql databases create agent_sessions \
-  --instance=lightspeed-agent-db \
+  --instance=$DB_INSTANCE_NAME \
   --project=$GOOGLE_CLOUD_PROJECT
 
 gcloud sql users create sessions \
-  --instance=lightspeed-agent-db \
+  --instance=$DB_INSTANCE_NAME \
   --password=$SESSION_DB_PASSWORD \
   --project=$GOOGLE_CLOUD_PROJECT
 
 # Get the connection name for later use
-CONNECTION_NAME=$(gcloud sql instances describe lightspeed-agent-db \
+CONNECTION_NAME=$(gcloud sql instances describe $DB_INSTANCE_NAME \
   --project=$GOOGLE_CLOUD_PROJECT --format='value(connectionName)')
 echo "Connection name: $CONNECTION_NAME"
 ```
@@ -639,7 +645,7 @@ This separation ensures:
 If you deployed services before setting up Cloud SQL, add the connection:
 
 ```bash
-CONNECTION_NAME=$(gcloud sql instances describe lightspeed-agent-db \
+CONNECTION_NAME=$(gcloud sql instances describe $DB_INSTANCE_NAME \
   --project=$GOOGLE_CLOUD_PROJECT --format='value(connectionName)')
 
 # Add to marketplace handler

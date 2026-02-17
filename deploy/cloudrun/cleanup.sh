@@ -40,11 +40,18 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-lightspeed-agent}"
-SERVICE_ACCOUNT="${SERVICE_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+SERVICE_ACCOUNT_NAME="${SERVICE_ACCOUNT_NAME:-${SERVICE_NAME}}"
+HANDLER_SERVICE_NAME="${HANDLER_SERVICE_NAME:-marketplace-handler}"
+DB_INSTANCE_NAME="${DB_INSTANCE_NAME:-lightspeed-agent-db}"
+SERVICE_ACCOUNT="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Pub/Sub Invoker Service Account (must match setup.sh)
 PUBSUB_INVOKER_NAME="${PUBSUB_INVOKER_NAME:-pubsub-invoker}"
 PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+# Pub/Sub configuration
+PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
+PUBSUB_SUBSCRIPTION="${PUBSUB_SUBSCRIPTION:-${PUBSUB_TOPIC}-sub}"
 
 # Parse arguments
 FORCE=false
@@ -72,9 +79,9 @@ fi
 
 log_warn "This will delete the following resources from project: $PROJECT_ID"
 echo ""
-echo "  - Cloud Run services: $SERVICE_NAME, marketplace-handler"
-echo "  - Pub/Sub topic: marketplace-entitlements"
-echo "  - Pub/Sub subscription: marketplace-entitlements-sub"
+echo "  - Cloud Run services: $SERVICE_NAME, $HANDLER_SERVICE_NAME"
+echo "  - Pub/Sub topic: $PUBSUB_TOPIC"
+echo "  - Pub/Sub subscription: $PUBSUB_SUBSCRIPTION"
 echo "  - Secrets: google-api-key, lightspeed-client-id, lightspeed-client-secret,"
 echo "             redhat-sso-client-id, redhat-sso-client-secret, database-url,"
 echo "             session-database-url, dcr-initial-access-token, dcr-encryption-key"
@@ -112,23 +119,20 @@ else
 fi
 
 # Delete marketplace-handler service
-if gcloud run services describe "marketplace-handler" --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
-    gcloud run services delete "marketplace-handler" \
+if gcloud run services describe "$HANDLER_SERVICE_NAME" --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+    gcloud run services delete "$HANDLER_SERVICE_NAME" \
         --region="$REGION" \
         --project="$PROJECT_ID" \
         --quiet
-    log_info "Cloud Run service 'marketplace-handler' deleted"
+    log_info "Cloud Run service '$HANDLER_SERVICE_NAME' deleted"
 else
-    log_info "Cloud Run service 'marketplace-handler' does not exist, skipping"
+    log_info "Cloud Run service '$HANDLER_SERVICE_NAME' does not exist, skipping"
 fi
 
 # =============================================================================
 # Step 2: Delete Pub/Sub Resources
 # =============================================================================
 log_info "Deleting Pub/Sub resources..."
-
-PUBSUB_TOPIC="marketplace-entitlements"
-PUBSUB_SUBSCRIPTION="${PUBSUB_TOPIC}-sub"
 
 # Delete subscription first (must be deleted before topic)
 if gcloud pubsub subscriptions describe "$PUBSUB_SUBSCRIPTION" --project="$PROJECT_ID" &>/dev/null; then
@@ -217,8 +221,8 @@ log_info "Removing Pub/Sub Invoker service account..."
 
 if gcloud iam service-accounts describe "$PUBSUB_INVOKER_SA" --project="$PROJECT_ID" &>/dev/null; then
     # Remove the service-level run.invoker binding on marketplace-handler
-    log_info "  Removing roles/run.invoker from marketplace-handler..."
-    gcloud run services remove-iam-policy-binding "marketplace-handler" \
+    log_info "  Removing roles/run.invoker from $HANDLER_SERVICE_NAME..."
+    gcloud run services remove-iam-policy-binding "$HANDLER_SERVICE_NAME" \
         --region="$REGION" \
         --project="$PROJECT_ID" \
         --member="serviceAccount:$PUBSUB_INVOKER_SA" \
@@ -251,7 +255,7 @@ log_info "Cleanup complete!"
 log_info "=========================================="
 echo ""
 echo "The following resources have been removed:"
-echo "  - Cloud Run services (lightspeed-agent, marketplace-handler)"
+echo "  - Cloud Run services ($SERVICE_NAME, $HANDLER_SERVICE_NAME)"
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
 echo "  - Service accounts (runtime + Pub/Sub invoker) and IAM bindings"
@@ -263,9 +267,9 @@ echo "  - VPC connectors"
 echo "  - Cloud Build triggers"
 echo ""
 echo "To delete these, use the respective gcloud commands:"
-echo "  gcloud sql instances delete lightspeed-agent-db --project=$PROJECT_ID"
-echo "  gcloud container images delete gcr.io/$PROJECT_ID/lightspeed-agent --force-delete-tags --quiet"
-echo "  gcloud container images delete gcr.io/$PROJECT_ID/marketplace-handler --force-delete-tags --quiet"
+echo "  gcloud sql instances delete $DB_INSTANCE_NAME --project=$PROJECT_ID"
+echo "  gcloud container images delete gcr.io/$PROJECT_ID/$SERVICE_NAME --force-delete-tags --quiet"
+echo "  gcloud container images delete gcr.io/$PROJECT_ID/$HANDLER_SERVICE_NAME --force-delete-tags --quiet"
 echo "  gcloud container images delete gcr.io/$PROJECT_ID/insights-mcp --force-delete-tags --quiet"
 echo "  gcloud compute networks vpc-access connectors delete CONNECTOR_NAME --region=$REGION --project=$PROJECT_ID"
 echo ""

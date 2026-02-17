@@ -61,6 +61,9 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-lightspeed-agent}"
+SERVICE_ACCOUNT_NAME="${SERVICE_ACCOUNT_NAME:-${SERVICE_NAME}}"
+HANDLER_SERVICE_NAME="${HANDLER_SERVICE_NAME:-marketplace-handler}"
+DB_INSTANCE_NAME="${DB_INSTANCE_NAME:-lightspeed-agent-db}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 
 # Pub/Sub Invoker Service Account (must match setup.sh)
@@ -129,7 +132,7 @@ if [[ -z "$AGENT_IMAGE" ]]; then
     AGENT_IMAGE="gcr.io/${PROJECT_ID}/lightspeed-agent:${IMAGE_TAG}"
 fi
 if [[ -z "$HANDLER_IMAGE" ]]; then
-    HANDLER_IMAGE="gcr.io/${PROJECT_ID}/marketplace-handler:${IMAGE_TAG}"
+    HANDLER_IMAGE="gcr.io/${PROJECT_ID}/${HANDLER_SERVICE_NAME}:${IMAGE_TAG}"
 fi
 
 log_info "Deploying to Cloud Run"
@@ -184,6 +187,8 @@ deploy_agent() {
         -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
         -e "s|\${REGION}|${REGION}|g" \
         -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
+        -e "s|\${SERVICE_ACCOUNT_NAME}|${SERVICE_ACCOUNT_NAME}|g" \
+        -e "s|\${DB_INSTANCE_NAME}|${DB_INSTANCE_NAME}|g" \
         deploy/cloudrun/service.yaml > "$tmp_yaml"
 
     # Deploy using the YAML
@@ -218,6 +223,9 @@ deploy_handler() {
         -e "s|\${PROJECT_ID}|${PROJECT_ID}|g" \
         -e "s|\${REGION}|${REGION}|g" \
         -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
+        -e "s|\${SERVICE_ACCOUNT_NAME}|${SERVICE_ACCOUNT_NAME}|g" \
+        -e "s|\${HANDLER_SERVICE_NAME}|${HANDLER_SERVICE_NAME}|g" \
+        -e "s|\${DB_INSTANCE_NAME}|${DB_INSTANCE_NAME}|g" \
         deploy/cloudrun/marketplace-handler.yaml > "$tmp_yaml"
 
     # Deploy using the YAML
@@ -228,7 +236,7 @@ deploy_handler() {
     # Marketplace handler needs to be publicly accessible for Pub/Sub push
     if [[ "$ALLOW_UNAUTH" == "true" ]]; then
         log_info "Allowing unauthenticated access for handler..."
-        gcloud run services add-iam-policy-binding "marketplace-handler" \
+        gcloud run services add-iam-policy-binding "$HANDLER_SERVICE_NAME" \
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --member="allUsers" \
@@ -252,13 +260,13 @@ configure_pubsub_push() {
 
     # Get the marketplace-handler URL for the push endpoint
     local handler_url
-    handler_url=$(gcloud run services describe "marketplace-handler" \
+    handler_url=$(gcloud run services describe "$HANDLER_SERVICE_NAME" \
         --region="$REGION" \
         --project="$PROJECT_ID" \
         --format='value(status.url)' 2>/dev/null || echo "")
 
     if [[ -z "$handler_url" ]]; then
-        log_warn "Could not retrieve marketplace-handler URL. Skipping Pub/Sub push configuration."
+        log_warn "Could not retrieve $HANDLER_SERVICE_NAME URL. Skipping Pub/Sub push configuration."
         log_warn "Run deploy.sh again after the handler is deployed."
         return
     fi
@@ -267,8 +275,8 @@ configure_pubsub_push() {
 
     # Grant the Pub/Sub Invoker SA permission to invoke the marketplace-handler.
     # This is a service-level binding (not project-level), following least privilege.
-    log_info "Granting roles/run.invoker to Pub/Sub Invoker SA on marketplace-handler..."
-    gcloud run services add-iam-policy-binding "marketplace-handler" \
+    log_info "Granting roles/run.invoker to Pub/Sub Invoker SA on $HANDLER_SERVICE_NAME..."
+    gcloud run services add-iam-policy-binding "$HANDLER_SERVICE_NAME" \
         --region="$REGION" \
         --project="$PROJECT_ID" \
         --member="serviceAccount:$PUBSUB_INVOKER_SA" \
@@ -370,7 +378,7 @@ show_service_info() {
 case "$DEPLOY_SERVICE" in
     all)
         echo ""
-        show_service_info "marketplace-handler"
+        show_service_info "$HANDLER_SERVICE_NAME"
         echo ""
         show_service_info "$SERVICE_NAME"
         echo ""
@@ -379,12 +387,12 @@ case "$DEPLOY_SERVICE" in
         echo "  2. Agent handles A2A protocol and user interactions"
         echo ""
         echo "Test endpoints:"
-        echo "  Handler health: curl \$(gcloud run services describe marketplace-handler --region=$REGION --format='value(status.url)')/health"
+        echo "  Handler health: curl \$(gcloud run services describe $HANDLER_SERVICE_NAME --region=$REGION --format='value(status.url)')/health"
         echo "  Agent card:     curl \$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')/.well-known/agent.json"
         ;;
     handler)
         echo ""
-        show_service_info "marketplace-handler"
+        show_service_info "$HANDLER_SERVICE_NAME"
         echo ""
         echo "The marketplace handler is ready to receive:"
         echo "  - Pub/Sub events from Google Cloud Marketplace"
@@ -418,5 +426,5 @@ esac
 
 echo ""
 echo "View logs:"
-echo "  gcloud run services logs read marketplace-handler --region=$REGION --project=$PROJECT_ID"
+echo "  gcloud run services logs read $HANDLER_SERVICE_NAME --region=$REGION --project=$PROJECT_ID"
 echo "  gcloud run services logs read $SERVICE_NAME --region=$REGION --project=$PROJECT_ID"
