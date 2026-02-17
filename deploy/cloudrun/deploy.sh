@@ -382,20 +382,31 @@ case "$DEPLOY_SERVICE" in
         echo ""
         show_service_info "$SERVICE_NAME"
 
-        # Update AGENT_PROVIDER_URL and RED_HAT_SSO_REDIRECT_URI with the actual Cloud Run URL
+        # Update AGENT_PROVIDER_URL, RED_HAT_SSO_REDIRECT_URI, and MARKETPLACE_HANDLER_URL
         service_url=$(gcloud run services describe "$SERVICE_NAME" \
             --region="$REGION" \
             --project="$PROJECT_ID" \
             --format='value(status.url)' 2>/dev/null)
+        handler_url=$(gcloud run services describe "$HANDLER_SERVICE_NAME" \
+            --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --format='value(status.url)' 2>/dev/null || echo "")
 
         if [[ -n "$service_url" ]]; then
-            log_info "Updating AGENT_PROVIDER_URL and RED_HAT_SSO_REDIRECT_URI to $service_url"
+            local env_vars="AGENT_PROVIDER_URL=$service_url,RED_HAT_SSO_REDIRECT_URI=$service_url/oauth/callback"
+            if [[ -n "$handler_url" ]]; then
+                env_vars="$env_vars,MARKETPLACE_HANDLER_URL=$handler_url"
+            else
+                log_warn "Could not retrieve $HANDLER_SERVICE_NAME URL. MARKETPLACE_HANDLER_URL not set."
+                log_warn "DCR endpoints in the AgentCard will fall back to AGENT_PROVIDER_URL."
+            fi
+            log_info "Updating agent env vars with service URLs"
             gcloud run services update "$SERVICE_NAME" \
                 --region="$REGION" \
                 --project="$PROJECT_ID" \
-                --set-env-vars="AGENT_PROVIDER_URL=$service_url,RED_HAT_SSO_REDIRECT_URI=$service_url/oauth/callback" \
+                --set-env-vars="$env_vars" \
                 --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
-            log_info "Agent card URL and OAuth redirect URI updated successfully"
+            log_info "Agent env vars updated successfully"
         fi
 
         echo ""
@@ -419,20 +430,31 @@ case "$DEPLOY_SERVICE" in
         echo ""
         show_service_info "$SERVICE_NAME"
 
-        # Update AGENT_PROVIDER_URL with the actual Cloud Run URL
+        # Update AGENT_PROVIDER_URL, RED_HAT_SSO_REDIRECT_URI, and MARKETPLACE_HANDLER_URL
         service_url=$(gcloud run services describe "$SERVICE_NAME" \
             --region="$REGION" \
             --project="$PROJECT_ID" \
             --format='value(status.url)' 2>/dev/null)
+        handler_url=$(gcloud run services describe "$HANDLER_SERVICE_NAME" \
+            --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --format='value(status.url)' 2>/dev/null || echo "")
 
         if [[ -n "$service_url" ]]; then
-            log_info "Updating AGENT_PROVIDER_URL and RED_HAT_SSO_REDIRECT_URI to $service_url"
+            local env_vars="AGENT_PROVIDER_URL=$service_url,RED_HAT_SSO_REDIRECT_URI=$service_url/oauth/callback"
+            if [[ -n "$handler_url" ]]; then
+                env_vars="$env_vars,MARKETPLACE_HANDLER_URL=$handler_url"
+            else
+                log_warn "Could not retrieve $HANDLER_SERVICE_NAME URL. MARKETPLACE_HANDLER_URL not set."
+                log_warn "DCR endpoints in the AgentCard will fall back to AGENT_PROVIDER_URL."
+            fi
+            log_info "Updating agent env vars with service URLs"
             gcloud run services update "$SERVICE_NAME" \
                 --region="$REGION" \
                 --project="$PROJECT_ID" \
-                --set-env-vars="AGENT_PROVIDER_URL=$service_url,RED_HAT_SSO_REDIRECT_URI=$service_url/oauth/callback" \
+                --set-env-vars="$env_vars" \
                 --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
-            log_info "Agent card URL and OAuth redirect URI updated successfully"
+            log_info "Agent env vars updated successfully"
         fi
 
         echo ""

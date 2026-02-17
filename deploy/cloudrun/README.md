@@ -246,19 +246,53 @@ docker push gcr.io/$GOOGLE_CLOUD_PROJECT/insights-mcp:latest
 
 ### 6. Deploy
 
-The deploy script uses the YAML service configs (`service.yaml` and
-`marketplace-handler.yaml`) with variable substitution to deploy both services.
-When deploying the handler (or `all`), it also configures the Pub/Sub push
-subscription with the handler's URL and the Pub/Sub Invoker SA for
-authentication.
+The agent's AgentCard advertises the DCR endpoints served by the
+marketplace-handler service. Because of this, the **handler must be
+deployed first** so its URL is known when the agent is configured.
+
+**Step 1: Deploy the marketplace handler**
 
 ```bash
-# Build and deploy both services (recommended for first deployment)
-./deploy/cloudrun/deploy.sh --build --service all --allow-unauthenticated
+./deploy/cloudrun/deploy.sh --build --service handler --allow-unauthenticated
+```
 
-# Deploy only the marketplace handler
-./deploy/cloudrun/deploy.sh --service handler --allow-unauthenticated
+**Step 2: Get the handler URL and set `MARKETPLACE_HANDLER_URL`**
 
+```bash
+# Get the marketplace handler URL
+HANDLER_URL=$(gcloud run services describe ${HANDLER_SERVICE_NAME:-marketplace-handler} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
+echo "Handler URL: $HANDLER_URL"
+
+# Export it so deploy.sh can set it on the agent service
+export MARKETPLACE_HANDLER_URL="$HANDLER_URL"
+```
+
+**Step 3: Deploy the agent**
+
+The deploy script automatically sets `AGENT_PROVIDER_URL`,
+`RED_HAT_SSO_REDIRECT_URI`, and `MARKETPLACE_HANDLER_URL` on the agent
+service using the actual Cloud Run URLs after deployment.
+
+```bash
+./deploy/cloudrun/deploy.sh --build --service agent --allow-unauthenticated
+```
+
+After deployment, verify the AgentCard DCR endpoints point to the handler:
+
+```bash
+AGENT_URL=$(gcloud run services describe ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
+curl -s $AGENT_URL/.well-known/agent.json | jq '.capabilities.extensions'
+```
+
+**Other examples:**
+
+```bash
 # Deploy only the agent with a custom image
 ./deploy/cloudrun/deploy.sh --service agent --image gcr.io/my-project/lightspeed-agent:v1.0
 
@@ -559,6 +593,7 @@ Bearer token that is active and carries the `agent:insights` scope.
 | `redhat-sso-client-id` | Resource Server client ID (used for introspection + OAuth login) |
 | `redhat-sso-client-secret` | Resource Server client secret |
 | `RED_HAT_SSO_REDIRECT_URI` | OAuth redirect URI for the authorization code flow (must match the Cloud Run service URL, e.g. `https://<service-url>/oauth/callback`). Set automatically by `deploy.sh`. |
+| `MARKETPLACE_HANDLER_URL` | URL of the marketplace-handler service. Used to build the DCR endpoints in the AgentCard. If empty, falls back to `AGENT_PROVIDER_URL`. Set automatically by `deploy.sh`. |
 | `AGENT_REQUIRED_SCOPE` | OAuth scope required in tokens (default: `agent:insights`) |
 
 ### Development Mode
