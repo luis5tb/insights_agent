@@ -205,7 +205,28 @@ echo -n "postgresql+asyncpg://sessions:$SESSION_DB_PASSWORD@/agent_sessions?host
 
 ### 5. Copy MCP Image to GCR
 
-Cloud Run doesn't support Quay.io directly. Copy the MCP server image to GCR:
+Cloud Run doesn't support Quay.io directly. Copy the MCP server image to GCR.
+
+**Authenticate to GCR first:**
+
+```bash
+# Authenticate your container runtime to gcr.io using gcloud
+gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin gcr.io
+```
+
+If you're using **Podman** instead of Docker:
+
+```bash
+gcloud auth print-access-token | podman login -u oauth2accesstoken --password-stdin gcr.io
+```
+
+Podman stores the resulting credentials in `${XDG_RUNTIME_DIR}/containers/auth.json` (typically `/run/user/$UID/containers/auth.json`). You can verify the login succeeded with:
+
+```bash
+cat ${XDG_RUNTIME_DIR}/containers/auth.json
+```
+
+**Pull, tag, and push:**
 
 ```bash
 # Pull from Quay.io
