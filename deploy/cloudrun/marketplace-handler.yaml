@@ -39,7 +39,7 @@ spec:
         run.googleapis.com/cpu-throttling: "false"
         run.googleapis.com/startup-cpu-boost: "true"
         # Cloud SQL connection
-        run.googleapis.com/cloudsql-instances: "emerge-partners:us-central1:lightspeed-agent-db"
+        run.googleapis.com/cloudsql-instances: "${PROJECT_ID}:${REGION}:lightspeed-agent-db"
     spec:
       containerConcurrency: 80
       timeoutSeconds: 60
