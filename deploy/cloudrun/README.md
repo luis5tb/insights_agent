@@ -253,7 +253,7 @@ deployed first** so its URL is known when the agent is configured.
 **Step 1: Deploy the marketplace handler**
 
 ```bash
-./deploy/cloudrun/deploy.sh --build --service handler --allow-unauthenticated
+./deploy/cloudrun/deploy.sh --service handler --allow-unauthenticated
 ```
 
 **Step 2: Get the handler URL and set `MARKETPLACE_HANDLER_URL`**
@@ -277,7 +277,7 @@ The deploy script automatically sets `AGENT_PROVIDER_URL`,
 service using the actual Cloud Run URLs after deployment.
 
 ```bash
-./deploy/cloudrun/deploy.sh --build --service agent --allow-unauthenticated
+./deploy/cloudrun/deploy.sh --service agent --allow-unauthenticated
 ```
 
 After deployment, verify the AgentCard DCR endpoints point to the handler:
