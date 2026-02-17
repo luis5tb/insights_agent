@@ -84,6 +84,10 @@ spec:
             # by deploy.sh after deployment (same as AGENT_PROVIDER_URL).
             - name: RED_HAT_SSO_REDIRECT_URI
               value: "https://lightspeed-agent.example.com/oauth/callback"
+            # OAuth scope required in access tokens (checked via introspection).
+            # Set to empty string to disable scope checking.
+            - name: AGENT_REQUIRED_SCOPE
+              value: "agent:insights"
             # MCP Configuration
             # The agent connects to the MCP sidecar container over HTTP
             - name: MCP_TRANSPORT_MODE
