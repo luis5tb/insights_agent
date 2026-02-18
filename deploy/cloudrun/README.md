@@ -1293,6 +1293,9 @@ SKIP_JWT_VALIDATION=true"
 **2. Seed test credentials:**
 
 ```bash
+# Choose a fixed order ID so the seed and test script use the same value
+export TEST_ORDER_ID="order-$(uuidgen || python3 -c 'import uuid; print(uuid.uuid4())')"
+
 # Start the Cloud SQL Auth Proxy first (see Prerequisites above)
 export DATABASE_URL="postgresql+asyncpg://insights:<DB_PASSWORD>@localhost:5432/lightspeed_agent"
 export DCR_ENCRYPTION_KEY=$(gcloud secrets versions access latest \
@@ -1302,7 +1305,7 @@ export DCR_ENCRYPTION_KEY=$(gcloud secrets versions access latest \
 python scripts/seed_dcr_clients.py seed \
   --client-id "test-client-id" \
   --client-secret "test-client-secret" \
-  --order-id "<TEST_ORDER_ID>" \
+  --order-id "$TEST_ORDER_ID" \
   --account-id "test-procurement-account-001"
 ```
 
@@ -1316,6 +1319,8 @@ HANDLER_URL=$(gcloud run services describe marketplace-handler \
 
 export MARKETPLACE_HANDLER_URL=$HANDLER_URL
 export TEST_SA_KEY_FILE=dcr-test-key.json
+# TEST_ORDER_ID is already exported from step 2 — the test script will
+# use it instead of generating a random UUID
 # Don't set SKIP_CLOUD_RUN_AUTH -- script fetches an ID token automatically
 
 python scripts/test_deployed_dcr.py
