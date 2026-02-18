@@ -836,6 +836,7 @@ curl -X POST http://localhost:8099/ \
     "method": "message/send",
     "params": {
       "message": {
+        "messageId": "1",
         "role": "user",
         "parts": [{"type": "text", "text": "What are the latest CVEs affecting my systems?"}]
       }
@@ -1001,6 +1002,7 @@ If you prefer to test without the proxy, you'll need to:
        "method": "message/send",
        "params": {
          "message": {
+           "messageId": "1",
            "role": "user",
            "parts": [{"type": "text", "text": "Hello"}]
          }
@@ -1036,17 +1038,57 @@ The agent expects a Red Hat SSO Bearer token, not a Google Cloud identity token.
 - The token is a valid JWT from Red Hat SSO
 - You're including it as: `-H "Authorization: Bearer $RED_HAT_TOKEN"`
 
-**"Field required" error for "method"**
+**"Field required" error (e.g. "messageId", "method")**
 
-You're not using the correct A2A JSON-RPC format. Make sure your request includes:
+The A2A protocol requires specific fields. A common mistake is omitting
+`messageId` from the message object. Make sure your request includes:
+
 ```json
 {
   "jsonrpc": "2.0",
   "method": "message/send",
-  "params": { "message": {...} },
+  "params": {
+    "message": {
+      "messageId": "1",
+      "role": "user",
+      "parts": [{"type": "text", "text": "Hello"}]
+    }
+  },
   "id": "1"
 }
 ```
+
+**"Token is missing required scope: agent:insights"**
+
+The agent requires the `agent:insights` scope in the access token by
+default. If your Red Hat SSO client is not configured to issue this scope,
+you will see:
+
+```json
+{"jsonrpc":"2.0","error":{"code":-32003,"message":"Forbidden","data":{"detail":"Token is missing required scope: agent:insights"}},"id":null}
+```
+
+To temporarily disable the scope check for testing, set `AGENT_REQUIRED_SCOPE`
+to an empty string on the agent service:
+
+```bash
+gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="AGENT_REQUIRED_SCOPE="
+```
+
+To restore the scope requirement:
+
+```bash
+gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="AGENT_REQUIRED_SCOPE=agent:insights"
+```
+
+This setting is also configurable in `service.yaml` via the
+`AGENT_REQUIRED_SCOPE` environment variable.
 
 **Empty response or connection refused**
 
