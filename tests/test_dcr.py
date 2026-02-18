@@ -140,41 +140,27 @@ class TestDCRService:
         )
 
     @pytest.mark.asyncio
-    async def test_static_credentials_mode(self, service):
-        """Test DCR with static credentials (DCR_ENABLED=false)."""
-        claims = GoogleJWTClaims(
-            iss="https://example.com",
-            iat=int(time.time()),
-            exp=int(time.time()) + 3600,
-            aud="https://example.com",
-            sub="valid-account-123",
-            auth_app_redirect_uris=["https://example.com/callback"],
-            google=GoogleClaims(order="valid-order-789"),
-        )
-
-        # With DCR disabled, should return static credentials
-        result = await service._return_static_credentials(claims)
-        assert isinstance(result, DCRResponse)
-        assert result.client_id == "test-static-client-id"
-        assert result.client_secret == "test-static-client-secret"
-        assert result.client_secret_expires_at == 0
+    async def test_dcr_disabled_no_seeded_credentials(self, service):
+        """Test that DCR_ENABLED=false returns error when no pre-seeded credentials exist."""
+        # Verify _return_static_credentials has been removed
+        assert not hasattr(service, "_return_static_credentials")
 
     @pytest.mark.asyncio
     async def test_get_client(self, service):
-        """Test getting client info."""
-        claims = GoogleJWTClaims(
-            iss="https://example.com",
-            iat=int(time.time()),
-            exp=int(time.time()) + 3600,
-            aud="https://example.com",
-            sub="valid-account-123",
-            google=GoogleClaims(order="valid-order-789"),
+        """Test getting client info from pre-seeded credentials."""
+        # Seed credentials directly via the repository
+        encrypted_secret = service._encrypt_secret("test-secret")
+        await service._client_repository.create(
+            client_id="seeded-client-id",
+            client_secret_encrypted=encrypted_secret,
+            order_id="valid-order-789",
+            account_id="valid-account-123",
+            redirect_uris=["https://example.com/callback"],
+            grant_types=["authorization_code", "refresh_token"],
+            metadata={"seeded_by": "test"},
         )
 
-        result = await service._return_static_credentials(claims)
-        assert isinstance(result, DCRResponse)
-
-        client = await service.get_client(result.client_id)
+        client = await service.get_client("seeded-client-id")
         assert client is not None
         assert client.order_id == "valid-order-789"
         assert client.account_id == "valid-account-123"

@@ -66,7 +66,7 @@ data:
 
   # DCR (Dynamic Client Registration) Configuration
   # Set to "true" to enable real DCR with Red Hat SSO (Keycloak)
-  # When "false", uses static credentials from RED_HAT_SSO_CLIENT_ID/SECRET
+  # When "false", uses pre-seeded credentials from the database
   DCR_ENABLED: "true"
   DCR_CLIENT_NAME_PREFIX: "gemini-order-"
 

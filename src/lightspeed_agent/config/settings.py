@@ -140,7 +140,7 @@ class Settings(BaseSettings):
     # DCR (Dynamic Client Registration) Configuration
     dcr_enabled: bool = Field(
         default=True,
-        description="Enable real DCR with Red Hat SSO (Keycloak). When disabled, uses static credentials.",
+        description="Enable real DCR with Red Hat SSO (Keycloak). When disabled, uses pre-seeded credentials from the database.",
     )
     dcr_initial_access_token: str = Field(
         default="",

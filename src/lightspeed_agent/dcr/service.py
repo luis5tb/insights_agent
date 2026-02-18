@@ -31,12 +31,14 @@ class DCRService:
     This service:
     - Validates software_statement JWTs from Google
     - Cross-references with Marketplace Procurement data
-    - Creates OAuth client credentials (real DCR or static)
+    - Creates OAuth client credentials (real DCR or pre-seeded)
     - Returns RFC 7591 compliant responses
 
     Modes:
     - DCR_ENABLED=true: Creates real OAuth clients in Red Hat SSO (Keycloak)
-    - DCR_ENABLED=false: Returns static credentials from environment variables
+    - DCR_ENABLED=false: Returns pre-seeded credentials from the database
+      (seeded via seed_dcr_clients.py). Returns an error if no credentials
+      are registered for the order.
     """
 
     def __init__(
@@ -159,8 +161,20 @@ class DCRService:
         # Step 5: Create new OAuth client credentials
         if self._settings.dcr_enabled:
             return await self._create_real_client(claims)
-        else:
-            return await self._return_static_credentials(claims)
+
+        # DCR disabled: no pre-seeded credentials found for this order.
+        # Credentials must be seeded in advance using seed_dcr_clients.py.
+        logger.warning(
+            "DCR disabled and no pre-seeded credentials for order: %s",
+            claims.order_id,
+        )
+        return DCRError(
+            error=DCRErrorCode.SERVER_ERROR,
+            error_description=(
+                f"No client credentials registered for order: {claims.order_id}. "
+                "Use seed_dcr_clients.py to pre-register credentials."
+            ),
+        )
 
     async def _validate_account(self, account_id: str) -> bool:
         """Validate that the Procurement Account ID is valid."""
@@ -275,54 +289,6 @@ class DCRService:
                 error=DCRErrorCode.SERVER_ERROR,
                 error_description=f"Failed to create client: {e}",
             )
-
-    async def _return_static_credentials(
-        self,
-        claims: GoogleJWTClaims,
-    ) -> DCRResponse | DCRError:
-        """Return static credentials when DCR is disabled.
-
-        Uses the pre-configured RED_HAT_SSO_CLIENT_ID and SECRET.
-
-        Args:
-            claims: Validated JWT claims.
-
-        Returns:
-            DCRResponse with static credentials.
-        """
-        logger.info(
-            "DCR disabled - returning static credentials for order: %s",
-            claims.order_id,
-        )
-
-        if not self._settings.red_hat_sso_client_id or not self._settings.red_hat_sso_client_secret:
-            return DCRError(
-                error=DCRErrorCode.SERVER_ERROR,
-                error_description="DCR disabled but RED_HAT_SSO_CLIENT_ID/SECRET not configured",
-            )
-
-        # Store the mapping in database for usage tracking
-        encrypted_secret = self._encrypt_secret(self._settings.red_hat_sso_client_secret)
-
-        await self._client_repository.create(
-            client_id=self._settings.red_hat_sso_client_id,
-            client_secret_encrypted=encrypted_secret,
-            order_id=claims.order_id,
-            account_id=claims.account_id,
-            redirect_uris=claims.auth_app_redirect_uris,
-            grant_types=["authorization_code", "refresh_token"],
-            metadata={
-                "iss": claims.iss,
-                "aud": claims.aud,
-                "static_credentials": True,
-            },
-        )
-
-        return DCRResponse(
-            client_id=self._settings.red_hat_sso_client_id,
-            client_secret=self._settings.red_hat_sso_client_secret,
-            client_secret_expires_at=0,
-        )
 
     async def get_client(self, client_id: str) -> RegisteredClient | None:
         """Get a registered client by client_id.

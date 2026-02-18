@@ -13,7 +13,7 @@ os.environ["LIGHTSPEED_CLIENT_SECRET"] = "test-client-secret"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["DEBUG"] = "true"
 os.environ["SKIP_JWT_VALIDATION"] = "true"
-os.environ["DCR_ENABLED"] = "false"  # Use static credentials for tests
+os.environ["DCR_ENABLED"] = "false"  # Use pre-seeded credentials for tests
 os.environ["RED_HAT_SSO_CLIENT_ID"] = "test-static-client-id"
 os.environ["RED_HAT_SSO_CLIENT_SECRET"] = "test-static-client-secret"
 
