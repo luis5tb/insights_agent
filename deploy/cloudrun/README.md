@@ -1180,8 +1180,11 @@ chmod +x cloud-sql-proxy
 # Start the proxy in a separate terminal
 ./cloud-sql-proxy --port 5432 ${GOOGLE_CLOUD_PROJECT}:${GOOGLE_CLOUD_LOCATION}:${DB_INSTANCE_NAME:-lightspeed-agent-db}
 
-# Set DATABASE_URL to connect through the proxy
-export DATABASE_URL="postgresql+asyncpg://insights:<DB_PASSWORD>@localhost:5432/lightspeed_agent"
+# Fetch the DATABASE_URL from Secret Manager and rewrite it to use the proxy
+CLOUD_DB_URL=$(gcloud secrets versions access latest \
+  --secret=database-url --project=$GOOGLE_CLOUD_PROJECT)
+DB_PASSWORD=$(echo "$CLOUD_DB_URL" | sed -n 's|.*://insights:\([^@]*\)@.*|\1|p')
+export DATABASE_URL="postgresql+asyncpg://insights:${DB_PASSWORD}@localhost:5432/lightspeed_agent"
 ```
 
 **Get the encryption key** from Secret Manager (must match the key used by
@@ -1297,7 +1300,11 @@ SKIP_JWT_VALIDATION=true"
 export TEST_ORDER_ID="order-$(uuidgen || python3 -c 'import uuid; print(uuid.uuid4())')"
 
 # Start the Cloud SQL Auth Proxy first (see Prerequisites above)
-export DATABASE_URL="postgresql+asyncpg://insights:<DB_PASSWORD>@localhost:5432/lightspeed_agent"
+# Fetch DATABASE_URL and DCR_ENCRYPTION_KEY (see Prerequisites above)
+CLOUD_DB_URL=$(gcloud secrets versions access latest \
+  --secret=database-url --project=$GOOGLE_CLOUD_PROJECT)
+DB_PASSWORD=$(echo "$CLOUD_DB_URL" | sed -n 's|.*://insights:\([^@]*\)@.*|\1|p')
+export DATABASE_URL="postgresql+asyncpg://insights:${DB_PASSWORD}@localhost:5432/lightspeed_agent"
 export DCR_ENCRYPTION_KEY=$(gcloud secrets versions access latest \
   --secret=dcr-encryption-key --project=$GOOGLE_CLOUD_PROJECT)
 
