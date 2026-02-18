@@ -175,7 +175,7 @@ mode (DCR_ENABLED=false) works without Keycloak.
          -H "Content-Type: application/json" \
          -d '{
            "client_name": "gemini-order-test-123",
-           "redirect_uris": ["http://localhost:8000/oauth/callback"],
+           "redirect_uris": ["https://gemini.google.com/callback"],
            "grant_types": ["authorization_code", "refresh_token"],
            "token_endpoint_auth_method": "client_secret_basic",
            "application_type": "web"

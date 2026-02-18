@@ -4,12 +4,13 @@ This document describes the authentication mechanisms used by the Lightspeed Age
 
 ## Overview
 
-The system uses four distinct authentication flows:
+The system uses three distinct authentication flows:
 
 1. **Dynamic Client Registration (DCR)** -- Handler creates per-order OAuth clients in Red Hat SSO
-2. **OAuth 2.0 Authorization Code** -- Users authenticate via Red Hat SSO to obtain access tokens
-3. **Token Introspection** -- Agent validates access tokens via Keycloak introspection endpoint and checks for `agent:insights` scope
-4. **MCP Service Account** -- Agent passes Lightspeed credentials to the MCP sidecar, which obtains its own OAuth2 token from sso.redhat.com to call console.redhat.com APIs
+2. **Token Introspection** -- Agent validates access tokens via Keycloak introspection endpoint (RFC 7662) and checks for `agent:insights` scope
+3. **MCP Service Account** -- Agent passes Lightspeed credentials to the MCP sidecar, which obtains its own OAuth2 token from sso.redhat.com to call console.redhat.com APIs
+
+Clients obtain access tokens directly from Red Hat SSO (Keycloak) using their DCR-issued credentials. The agent acts purely as a **Resource Server** — it validates incoming tokens but does not proxy or participate in the OAuth authorization flow.
 
 ## Authentication Architecture
 
@@ -17,61 +18,76 @@ The system uses four distinct authentication flows:
  Google Cloud Marketplace                                           End User / Gemini
  (Gemini Enterprise)                                                   (Client App)
    |                  |                                                     |
-   | 1. Pub/Sub       | 2. DCR Request                                      | 5. GET /oauth/authorize
-   |    event         |    (software_statement)                             |
-   v                  v                                                     v
-+--------------------------------------------------------+    +---------------------------+
-|            Marketplace Handler (8001)                  |    |  Lightspeed Agent (8000)  |
-|                                                        |    |                           |
-|  +---------------------------------------------------+ |    | +-------+  +-----------+  |
-|  |             Hybrid /dcr Endpoint                  | |    | | Agent |  | OAuth     |  |
-|  |                                                   | |    | | Card  |  | Endpoints |  |
-|  |  Pub/Sub path:         DCR path:                  | |    | +-------+  +-----+-----+  |
-|  |  - Decode msg          - Validate Google JWT  [3] | |    |                  |        |
-|  |  - Approve via         - Verify order in DB       | |    |  6. Redirect     |        |
-|  |    Procurement API     - Create OAuth client  [4] | |    |     to SSO       |        |
-|  |  - Store account/      - Return client_id +       | |    |                  v        |
-|  |    entitlement           client_secret            | |    |        +---------+------+ |
-|  +---+--------------------+----------+---------------+ |    |        | 7. Exchange    | |
-|      |                    |          |                 |    |        |    code for    | |
-|      v                    |          v                 |    |        |    tokens      | |
-|  +----------+             |   +-------------+          |    |        +--------+-------+ |
-|  |PostgreSQL|             |   | Red Hat SSO |          |    |                 |         |
-|  |(accounts,|             |   | (Keycloak)  |          |    | 8. Validate JWT |         |
-|  | orders,  |             |   | DCR endpoint|          |    |    on every     |         |
-|  | dcr      |             |   +-------------+          |    |    A2A request  |         |
-|  | clients) |             |          ^                 |    |   (introspect)  |         |
-|  +----------+             |          |                 |    |                 v         |
-+--------------------------------------------------------+    |        +---------+------+ |
-                            |          |                      |        | A2A Endpoint   | |
-                            v          |                      |        | POST /         | |
-                   +----------------+  |                      |        | (authenticated)| |
-                   | 3. Fetch       |  |                      |        +--------+-------+ |
-                   |    Google      |  |                      |                 |         |
-                   |    X.509       |  |                      |                 v         |
-                   |    certs       |  |                      |  +-----------------------------+
-                   +----------------+  |                      |  |  9. MCP Tool Calls          |
-                                       |                      |  |     lightspeed-client-id    |
-                          +------------+                      |  |     lightspeed-client-secret|
-                          |                                   |  +-------------+---------------+
-                          |  Red Hat SSO (sso.redhat.com)     |                |               |
-                          |  +-----------------------------+  |                v               |
-                          +->| - OIDC / OAuth2 provider    |  |  +----------------------------+|
-                             | - Token introspection       |<----| MCP Sidecar (8081)         ||
-                             | - DCR endpoint              |  |  | 10. OAuth2 token from SSO  ||
-                             +-----------------------------+  |  |     (Lightspeed SA creds)  ||
-                                                              |  +-------------+--------------+|
-                                                              |                |               |
-                                                              +---------------------------+---+
-                                                                               |
-                                                                               v
-                                                                  +------------------------+
-                                                                  | console.redhat.com     |
-                                                                  | 11. API calls with     |
-                                                                  |     Bearer token       |
-                                                                  | (Advisor, Inventory,   |
-                                                                  |  Vulnerability, Patch) |
-                                                                  +------------------------+
+   | 1. Pub/Sub       | 2. DCR Request                                      | 5. Obtain token
+   |    event         |    (software_statement)                             |    directly from
+   v                  v                                                     |    Red Hat SSO
++--------------------------------------------------------+                 |
+|            Marketplace Handler (8001)                  |                  |
+|                                                        |                  |
+|  +---------------------------------------------------+ |                  |
+|  |             Hybrid /dcr Endpoint                  | |                  |
+|  |                                                   | |                  |
+|  |  Pub/Sub path:         DCR path:                  | |                  |
+|  |  - Decode msg          - Validate Google JWT  [3] | |                  |
+|  |  - Approve via         - Verify order in DB       | |                  |
+|  |    Procurement API     - Create OAuth client  [4] | |                  |
+|  |  - Store account/      - Return client_id +       | |                  |
+|  |    entitlement           client_secret            | |                  |
+|  +---+--------------------+----------+---------------+ |                  |
+|      |                    |          |                 |                  |
+|      v                    |          v                 |                  |
+|  +----------+             |   +-------------+          |                  |
+|  |PostgreSQL|             |   | Red Hat SSO |          |                  |
+|  |(accounts,|             |   | (Keycloak)  |          |                  |
+|  | orders,  |             |   | DCR endpoint|          |                  |
+|  | dcr      |             |   +-------------+          |                  |
+|  | clients) |             |          ^                 |                  |
+|  +----------+             |          |                 |                  |
++--------------------------------------------------------+                  |
+                            |          |                                    |
+                            v          |                                    v
+                   +----------------+  |                      +---------------------------+
+                   | 3. Fetch       |  |                      |  Lightspeed Agent (8000)  |
+                   |    Google      |  |                      |                           |
+                   |    X.509       |  |                      | +-------+                 |
+                   |    certs       |  |                      | | Agent |                 |
+                   +----------------+  |                      | | Card  |                 |
+                                       |                      | +-------+                 |
+                          +------------+                      |                           |
+                          |                                   | 6. Validate token         |
+                          |  Red Hat SSO (sso.redhat.com)     |    on every A2A request   |
+                          |  +-----------------------------+  |   (introspect)            |
+                          +->| - OIDC / OAuth2 provider    |  |                 v         |
+                             | - Token introspection       |<---+  +---------+------+    |
+                             | - DCR endpoint              |  | |  | A2A Endpoint   |    |
+                             +-----------------------------+  | |  | POST /         |    |
+                                                              | |  | (authenticated)|    |
+                                                              | |  +--------+-------+    |
+                                                              | |           |             |
+                                                              | |           v             |
+                                                              | |  +-----------------------------+
+                                                              | |  |  7. MCP Tool Calls          |
+                                                              | |  |     lightspeed-client-id    |
+                                                              | |  |     lightspeed-client-secret|
+                                                              | |  +-------------+---------------+
+                                                              | |                |               |
+                                                              | |                v               |
+                                                              | |  +----------------------------+|
+                                                              | +--| MCP Sidecar (8081)         ||
+                                                              |    | 8. OAuth2 token from SSO   ||
+                                                              |    |    (Lightspeed SA creds)   ||
+                                                              |    +-------------+--------------+|
+                                                              |                  |               |
+                                                              +---------------------------+-----+
+                                                                                 |
+                                                                                 v
+                                                                    +------------------------+
+                                                                    | console.redhat.com     |
+                                                                    | 9. API calls with      |
+                                                                    |    Bearer token        |
+                                                                    | (Advisor, Inventory,   |
+                                                                    |  Vulnerability, Patch) |
+                                                                    +------------------------+
 ```
 
 **Flow summary:**
@@ -82,12 +98,11 @@ The system uses four distinct authentication flows:
 | 2 | Google -> Handler | DCR request with `software_statement` JWT |
 | 3 | Handler -> Google | Fetch X.509 certificates to validate JWT signature |
 | 4 | Handler -> Red Hat SSO | Create OAuth client via Keycloak DCR endpoint |
-| 5 | User -> Agent | Initiate OAuth authorization flow |
-| 6-7 | Agent <-> Red Hat SSO | Redirect to SSO, exchange authorization code for tokens |
-| 8 | Agent -> Red Hat SSO | Introspect token on every A2A request; check `agent:insights` scope |
-| 9 | Agent -> MCP Sidecar | Tool call with Lightspeed credentials in headers |
-| 10 | MCP Sidecar -> Red Hat SSO | Obtain OAuth2 token using Lightspeed service account |
-| 11 | MCP Sidecar -> console.redhat.com | Call Insights APIs with Bearer token |
+| 5 | Client -> Red Hat SSO | Client obtains access token directly from Keycloak (e.g., `client_credentials` grant) |
+| 6 | Agent -> Red Hat SSO | Introspect token on every A2A request; check `agent:insights` scope |
+| 7 | Agent -> MCP Sidecar | Tool call with Lightspeed credentials in headers |
+| 8 | MCP Sidecar -> Red Hat SSO | Obtain OAuth2 token using Lightspeed service account |
+| 9 | MCP Sidecar -> console.redhat.com | Call Insights APIs with Bearer token |
 
 ## Dynamic Client Registration (DCR)
 
@@ -170,149 +185,6 @@ The MCP sidecar authenticates to console.redhat.com using a Lightspeed service a
 
 The MCP sidecar uses these credentials to obtain an OAuth2 access token from sso.redhat.com, then calls console.redhat.com APIs (Advisor, Inventory, Vulnerability, etc.) with the Bearer token. See [MCP Integration](mcp-integration.md) for full details.
 
-## OAuth 2.0 Authorization Code Flow
-
-The agent implements the standard OAuth 2.0 Authorization Code Grant flow:
-
-```
-┌──────────┐                                    ┌──────────────┐
-│  Client  │                                    │ Insights     │
-│  App     │                                    │ Agent        │
-└────┬─────┘                                    └──────┬───────┘
-     │                                                 │
-     │  1. GET /oauth/authorize                        │
-     │  ─────────────────────────────────────────────► │
-     │                                                 │
-     │  2. Redirect to Red Hat SSO                     │
-     │  ◄───────────────────────────────────────────── │
-     │                                                 │
-     │         ┌─────────────────┐                     │
-     │         │   Red Hat SSO   │                     │
-     │         └────────┬────────┘                     │
-     │                  │                              │
-     │  3. Login page   │                              │
-     │  ◄───────────────┤                              │
-     │                  │                              │
-     │  4. User logs in │                              │
-     │  ────────────────►                              │
-     │                  │                              │
-     │  5. Redirect with authorization code            │
-     │  ◄───────────────┤                              │
-     │                  │                              │
-     │  6. GET /oauth/callback?code=...                │
-     │  ─────────────────────────────────────────────► │
-     │                                                 │
-     │                                    7. Exchange  │
-     │                                       code for  │
-     │                                       tokens    │
-     │                                                 │
-     │  8. Return tokens                               │
-     │  ◄───────────────────────────────────────────── │
-     │                                                 │
-```
-
-## Endpoints
-
-### GET /oauth/authorize
-
-Initiates the OAuth flow by redirecting to Red Hat SSO.
-
-**Query Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `response_type` | string | No | Must be "code" (default) |
-| `client_id` | string | No | Client ID (uses configured default) |
-| `redirect_uri` | string | No | Redirect URI after auth |
-| `scope` | string | No | OAuth scopes (default: "openid profile email") |
-| `state` | string | No | CSRF protection state |
-
-**Example:**
-
-```bash
-curl -L "http://localhost:8000/oauth/authorize?state=random123"
-```
-
-### GET /oauth/callback
-
-Handles the callback from Red Hat SSO after user authentication.
-
-**Query Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `code` | string | Yes | Authorization code from SSO |
-| `state` | string | Yes | State parameter for CSRF validation |
-
-**Response:**
-
-```json
-{
-  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "Bearer",
-  "expires_in": 3600,
-  "refresh_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "scope": "openid profile email"
-}
-```
-
-### POST /oauth/token
-
-Token endpoint for exchanging codes or refreshing tokens.
-
-**Request (Authorization Code):**
-
-```bash
-curl -X POST http://localhost:8000/oauth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=authorization_code" \
-  -d "code=AUTHORIZATION_CODE" \
-  -d "redirect_uri=http://localhost:8000/oauth/callback"
-```
-
-**Request (Refresh Token):**
-
-```bash
-curl -X POST http://localhost:8000/oauth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=refresh_token" \
-  -d "refresh_token=REFRESH_TOKEN"
-```
-
-**Response:**
-
-```json
-{
-  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "Bearer",
-  "expires_in": 3600,
-  "refresh_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-### GET /oauth/userinfo
-
-Returns user information for the authenticated user.
-
-**Request:**
-
-```bash
-curl http://localhost:8000/oauth/userinfo \
-  -H "Authorization: Bearer ACCESS_TOKEN"
-```
-
-**Response:**
-
-```json
-{
-  "sub": "f:12345678-1234-1234-1234-123456789abc:username",
-  "preferred_username": "user@example.com",
-  "email": "user@example.com",
-  "name": "John Doe",
-  "org_id": "12345678"
-}
-```
-
 ## Token Introspection
 
 All protected endpoints validate Bearer tokens via Keycloak token introspection
@@ -380,7 +252,7 @@ The agent extracts the following fields from the introspection response:
 All A2A endpoints require authentication:
 
 ```bash
-# Get access token first (via OAuth flow or service account)
+# Get access token first (via client_credentials grant or ocm CLI)
 ACCESS_TOKEN="your-access-token"
 
 # Call A2A endpoint
@@ -408,10 +280,6 @@ curl -X POST http://localhost:8000/ \
 | `GET /ready` | Public |
 | `GET /.well-known/agent.json` | Public |
 | `GET /usage` | Public |
-| `GET /oauth/authorize` | Public |
-| `GET /oauth/callback` | Public |
-| `POST /oauth/token` | Public |
-| `GET /oauth/userinfo` | Required |
 | `POST /` | Required (A2A JSON-RPC) |
 
 ## Red Hat SSO Configuration
@@ -422,12 +290,9 @@ curl -X POST http://localhost:8000/ \
 # Red Hat SSO issuer URL
 RED_HAT_SSO_ISSUER=https://sso.redhat.com/auth/realms/redhat-external
 
-# Resource Server credentials (used for token introspection and OAuth login)
+# Resource Server credentials (used for token introspection)
 RED_HAT_SSO_CLIENT_ID=your-client-id
 RED_HAT_SSO_CLIENT_SECRET=your-client-secret
-
-# Callback URL (must match registered redirect URI)
-RED_HAT_SSO_REDIRECT_URI=http://localhost:8000/oauth/callback
 
 # Required scope checked during token introspection (default: agent:insights)
 AGENT_REQUIRED_SCOPE=agent:insights
@@ -468,7 +333,7 @@ When validation is skipped, a default development user is created with the
 
 ## Local Testing Guide
 
-This section provides step-by-step instructions for testing OAuth authentication locally.
+This section provides step-by-step instructions for testing authentication locally.
 
 ### Prerequisites
 
@@ -480,7 +345,7 @@ Before testing, ensure you have:
 
 ### Option 1: Testing with Development Mode (No Real SSO)
 
-This is the easiest way to test the authentication flow without needing real Red Hat SSO credentials.
+This is the easiest way to test without needing real Red Hat SSO credentials.
 
 1. **Configure development mode** in `.env`:
    ```bash
@@ -491,7 +356,6 @@ This is the easiest way to test the authentication flow without needing real Red
    # These can be placeholder values in dev mode
    RED_HAT_SSO_CLIENT_ID=dev-client
    RED_HAT_SSO_CLIENT_SECRET=dev-secret
-   RED_HAT_SSO_REDIRECT_URI=http://localhost:8000/oauth/callback
    ```
 
 2. **Start the API server**:
@@ -505,23 +369,7 @@ This is the easiest way to test the authentication flow without needing real Red
    # Expected: {"status": "healthy"}
    ```
 
-4. **Test userinfo with any token** (dev mode accepts any token):
-   ```bash
-   curl http://localhost:8000/oauth/userinfo \
-     -H "Authorization: Bearer any-token-works-in-dev-mode"
-   ```
-
-   Expected response:
-   ```json
-   {
-     "sub": "dev-user",
-     "preferred_username": "developer",
-     "email": "dev@example.com",
-     "client_id": "dev-client"
-   }
-   ```
-
-5. **Test A2A endpoint with authentication**:
+4. **Test A2A endpoint with authentication** (dev mode accepts any token):
    ```bash
    curl -X POST http://localhost:8000/ \
      -H "Authorization: Bearer dev-token" \
@@ -553,7 +401,6 @@ For integration testing with real Red Hat SSO authentication:
    RED_HAT_SSO_ISSUER=https://sso.redhat.com/auth/realms/redhat-external
    RED_HAT_SSO_CLIENT_ID=your-registered-client-id
    RED_HAT_SSO_CLIENT_SECRET=your-client-secret
-   RED_HAT_SSO_REDIRECT_URI=http://localhost:8000/oauth/callback
    AGENT_REQUIRED_SCOPE=agent:insights
    ```
 
@@ -562,32 +409,24 @@ For integration testing with real Red Hat SSO authentication:
    python -m lightspeed_agent.main
    ```
 
-3. **Initiate the OAuth flow** - Open in browser:
-   ```
-   http://localhost:8000/oauth/authorize
-   ```
-
-   This will redirect you to Red Hat SSO login page.
-
-4. **Complete login** at Red Hat SSO:
-   - Enter your Red Hat credentials
-   - Authorize the application if prompted
-
-5. **Handle the callback**:
-   - After successful login, you'll be redirected to `/oauth/callback`
-   - The response will contain your access token and refresh token
-   - Save the access token for subsequent requests
-
-6. **Test authenticated endpoints**:
+3. **Obtain a token** from Red Hat SSO directly (e.g., using `ocm` CLI or `client_credentials` grant):
    ```bash
-   # Replace with your actual access token
-   ACCESS_TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+   # Option A: Using ocm CLI
+   ocm login --use-auth-code
+   ACCESS_TOKEN=$(ocm token)
 
-   # Test userinfo
-   curl http://localhost:8000/oauth/userinfo \
-     -H "Authorization: Bearer $ACCESS_TOKEN"
+   # Option B: Using client_credentials grant (for service accounts)
+   ACCESS_TOKEN=$(curl -s -X POST \
+     "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token" \
+     -d "client_id=YOUR_CLIENT_ID" \
+     -d "client_secret=YOUR_CLIENT_SECRET" \
+     -d "grant_type=client_credentials" \
+     -d "scope=openid agent:insights" \
+     | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+   ```
 
-   # Test A2A endpoint
+4. **Test the A2A endpoint**:
+   ```bash
    curl -X POST http://localhost:8000/ \
      -H "Authorization: Bearer $ACCESS_TOKEN" \
      -H "Content-Type: application/json" \
@@ -604,99 +443,37 @@ For integration testing with real Red Hat SSO authentication:
      }'
    ```
 
-### Option 3: Browser-Based Testing
-
-For a more interactive testing experience:
-
-1. **Start the server** with debug mode for detailed logging:
-   ```bash
-   DEBUG=true python -m lightspeed_agent.main
-   ```
-
-2. **Open browser developer tools** (F12) to monitor network requests
-
-3. **Navigate to the authorize endpoint**:
-   ```
-   http://localhost:8000/oauth/authorize?state=test123
-   ```
-
-4. **Follow the OAuth flow**:
-   - You'll be redirected to Red Hat SSO
-   - Login with your credentials
-   - Observe the redirect back to your callback URL
-   - Check the network tab for the token response
-
-5. **Use browser console to make authenticated requests**:
-   ```javascript
-   // After getting your token from the callback
-   const token = "your-access-token";
-
-   fetch("http://localhost:8000/oauth/userinfo", {
-     headers: { "Authorization": `Bearer ${token}` }
-   })
-   .then(r => r.json())
-   .then(console.log);
-   ```
-
-### Testing Token Refresh
-
-To test the token refresh flow:
-
-1. **Get initial tokens** via the authorization flow (see above)
-
-2. **Use the refresh token** to get new tokens:
-   ```bash
-   curl -X POST http://localhost:8000/oauth/token \
-     -H "Content-Type: application/x-www-form-urlencoded" \
-     -d "grant_type=refresh_token" \
-     -d "refresh_token=YOUR_REFRESH_TOKEN"
-   ```
-
-3. **Verify the new access token works**:
-   ```bash
-   curl http://localhost:8000/oauth/userinfo \
-     -H "Authorization: Bearer NEW_ACCESS_TOKEN"
-   ```
-
 ### Testing Error Scenarios
 
 Test how the system handles authentication errors:
 
 1. **Missing Authorization header**:
    ```bash
-   curl http://localhost:8000/oauth/userinfo
+   curl -X POST http://localhost:8000/ \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"test"}]}},"id":"1"}'
    # Expected: 401 Unauthorized
    ```
 
 2. **Invalid token**:
    ```bash
-   curl http://localhost:8000/oauth/userinfo \
-     -H "Authorization: Bearer invalid-token"
+   curl -X POST http://localhost:8000/ \
+     -H "Authorization: Bearer invalid-token" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"test"}]}},"id":"1"}'
    # Expected: 401 Unauthorized (in production mode)
    ```
 
-3. **Expired token** (use a known expired token):
+3. **Malformed Authorization header**:
    ```bash
-   curl http://localhost:8000/oauth/userinfo \
-     -H "Authorization: Bearer EXPIRED_TOKEN"
-   # Expected: 401 with "Token has expired" message
-   ```
-
-4. **Malformed Authorization header**:
-   ```bash
-   curl http://localhost:8000/oauth/userinfo \
-     -H "Authorization: InvalidFormat token123"
+   curl -X POST http://localhost:8000/ \
+     -H "Authorization: InvalidFormat token123" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"test"}]}},"id":"1"}'
    # Expected: 401 Unauthorized
    ```
 
 ### Troubleshooting
-
-#### "Invalid redirect URI" error
-
-Ensure `RED_HAT_SSO_REDIRECT_URI` in your `.env` matches exactly what's registered in Red Hat SSO:
-- Check for trailing slashes
-- Verify http vs https
-- Confirm the port number
 
 #### "Token validation failed" error
 

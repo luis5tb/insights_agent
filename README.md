@@ -410,7 +410,6 @@ podman kube down deploy/podman/my-secrets.yaml
 | Agent API | http://localhost:8000 | Main A2A endpoint |
 | Health Check | http://localhost:8000/health | Agent health status |
 | AgentCard | http://localhost:8000/.well-known/agent.json | A2A discovery |
-| OAuth Callback | http://localhost:8000/oauth/callback | OAuth redirect |
 | MCP Server | http://localhost:8081 | MCP server (internal) |
 | A2A Inspector | http://localhost:8080 | Web UI for agent interaction |
 
@@ -722,7 +721,7 @@ This mode exercises the full DCR flow -- real OAuth client creation in a locally
      -H "Content-Type: application/json" \
      -d '{
        "client_name": "gemini-order-test-123",
-       "redirect_uris": ["http://localhost:8000/oauth/callback"],
+       "redirect_uris": ["https://gemini.google.com/callback"],
        "grant_types": ["authorization_code", "refresh_token"],
        "token_endpoint_auth_method": "client_secret_basic",
        "application_type": "web"

@@ -52,10 +52,6 @@ class Settings(BaseSettings):
         default="",
         description="OAuth client secret for Red Hat SSO",
     )
-    red_hat_sso_redirect_uri: str = Field(
-        default="http://localhost:8000/oauth/callback",
-        description="OAuth redirect URI",
-    )
     # Red Hat Lightspeed MCP Configuration
     lightspeed_client_id: str = Field(
         default="",

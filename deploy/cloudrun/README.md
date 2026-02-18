@@ -272,9 +272,9 @@ export MARKETPLACE_HANDLER_URL="$HANDLER_URL"
 
 **Step 3: Deploy the agent**
 
-The deploy script automatically sets `AGENT_PROVIDER_URL`,
-`RED_HAT_SSO_REDIRECT_URI`, and `MARKETPLACE_HANDLER_URL` on the agent
-service using the actual Cloud Run URLs after deployment.
+The deploy script automatically sets `AGENT_PROVIDER_URL`
+and `MARKETPLACE_HANDLER_URL` on the agent service using the actual
+Cloud Run URLs after deployment.
 
 ```bash
 ./deploy/cloudrun/deploy.sh --service agent --allow-unauthenticated
@@ -542,57 +542,46 @@ Bearer token that is active and carries the `agent:insights` scope.
 │(Gemini)  │    │  (port 8000)  │    │  (Keycloak)  │    │  (port 8080) │    │ (Insights APIs)  │
 └────┬─────┘    └──────┬────────┘    └──────┬───────┘    └──────┬───────┘    └────────┬─────────┘
      │                 │                    │                   │                     │
-     │  ── OAuth Login Flow ──              │                   │                     │
+     │  ── Obtain Token (directly from SSO) ──                 │                     │
      │                 │                    │                   │                     │
-     │ 1. GET /oauth/authorize              │                   │                     │
-     ├────────────────►│                    │                   │                     │
-     │ 2. Redirect     │                    │                   │                     │
-     │◄────────────────┤                    │                   │                     │
-     │ 3. Login ───────────────────────────►│                   │                     │
-     │ 4. Redirect with code                │                   │                     │
+     │ 1. client_credentials grant         │                   │                     │
+     ├─────────────────────────────────────►│                   │                     │
+     │ 2. Access token                     │                   │                     │
      │◄────────────────────────────────────-┤                   │                     │
-     │ 5. POST /oauth/token (code)          │                   │                     │
-     ├────────────────►│ 6. Exchange code   │                   │                     │
-     │                 ├───────────────────►│                   │                     │
-     │                 │ 7. Access token    │                   │                     │
-     │                 │◄──────────────────-┤                   │                     │
-     │ 8. Token        │                    │                   │                     │
-     │◄────────────────┤                    │                   │                     │
      │                 │                    │                   │                     │
      │  ── A2A Request with Tool Call ──    │                   │                     │
      │                 │                    │                   │                     │
-     │ 9. POST / (A2A) │                    │                   │                     │
+     │ 3. POST / (A2A) │                    │                   │                     │
      │    Bearer token │                    │                   │                     │
-     ├────────────────►│ 10. Introspect     │                   │                     │
-     │                 │     token + check  │                   │                     │
-     │                 │     agent:insights │                   │                     │
+     ├────────────────►│ 4. Introspect      │                   │                     │
+     │                 │    token + check   │                   │                     │
+     │                 │    agent:insights  │                   │                     │
      │                 ├───────────────────►│                   │                     │
      │                 │                    │                   │                     │
-     │                 │ 11. MCP tool call  │                   │                     │
+     │                 │ 5. MCP tool call   │                   │                     │
      │                 │  + Bearer token (or Lightspeed creds)  │                     │
      │                 ├───────────────────────────────────────►│                     │
-     │                 │                    │                   │ 12. Insights API    │
-     │                 │                    │                   │     (using token)   │
+     │                 │                    │                   │ 6. Insights API     │
+     │                 │                    │                   │    (using token)    │
      │                 │                    │                   ├────────────────────►│
-     │                 │                    │                   │ 13. API response    │
+     │                 │                    │                   │ 7. API response     │
      │                 │                    │                   │◄────────────────────┤
-     │                 │ 14. Tool result    │                   │                     │
+     │                 │ 8. Tool result     │                   │                     │
      │                 │◄──────────────────────────────────────-┤                     │
-     │ 15. A2A Response│                    │                   │                     │
+     │ 9. A2A Response │                    │                   │                     │
      │◄────────────────┤                    │                   │                     │
 ```
 
 **Credential sets:**
-- **Red Hat SSO credentials** (`RED_HAT_SSO_CLIENT_ID/SECRET`): Used by the agent as Resource Server credentials for token introspection (step 10) and for the OAuth login flow (steps 1-8)
-- **MCP authentication** (step 11): By default the caller's Bearer token is forwarded. If `LIGHTSPEED_CLIENT_ID/SECRET` are configured, those are sent instead (see [MCP Authentication](#mcp-authentication))
+- **Red Hat SSO credentials** (`RED_HAT_SSO_CLIENT_ID/SECRET`): Used by the agent as Resource Server credentials for token introspection (step 4)
+- **MCP authentication** (step 5): By default the caller's Bearer token is forwarded. If `LIGHTSPEED_CLIENT_ID/SECRET` are configured, those are sent instead (see [MCP Authentication](#mcp-authentication))
 
 ### Configuration
 
 | Secret / Env Var | Description |
 |------------------|-------------|
-| `redhat-sso-client-id` | Resource Server client ID (used for introspection + OAuth login) |
+| `redhat-sso-client-id` | Resource Server client ID (used for token introspection) |
 | `redhat-sso-client-secret` | Resource Server client secret |
-| `RED_HAT_SSO_REDIRECT_URI` | OAuth redirect URI for the authorization code flow (must match the Cloud Run service URL, e.g. `https://<service-url>/oauth/callback`). Set automatically by `deploy.sh`. |
 | `MARKETPLACE_HANDLER_URL` | URL of the marketplace-handler service. Used to build the DCR endpoints in the AgentCard. If empty, falls back to `AGENT_PROVIDER_URL`. Set automatically by `deploy.sh`. |
 | `AGENT_REQUIRED_SCOPE` | OAuth scope required in tokens (default: `agent:insights`) |
 
@@ -625,7 +614,6 @@ After deployment, the following endpoints are available:
 | `GET /.well-known/agent.json` | A2A AgentCard (public) |
 | `POST /` | A2A JSON-RPC endpoint (message/send, message/stream) |
 | `GET /usage` | Aggregate usage statistics |
-| `GET /oauth/callback` | OAuth callback from Red Hat SSO |
 
 ## Testing the Deployment
 
@@ -792,32 +780,6 @@ export RED_HAT_TOKEN=$(ocm token)
 echo $RED_HAT_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq .
 ```
 
-**Option B: Using OAuth Flow**
-
-Initiate the OAuth flow through the agent:
-
-```bash
-# Start OAuth flow (open this URL in your browser)
-echo "http://localhost:8099/oauth/authorize?state=test123"
-```
-
-After logging in to Red Hat SSO, you'll be redirected to a callback URL with a code parameter. Extract the code and exchange it for tokens:
-
-```bash
-# Exchange authorization code for access token
-curl -X POST http://localhost:8099/oauth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=authorization_code" \
-  -d "code=YOUR_AUTHORIZATION_CODE" \
-  -d "redirect_uri=http://localhost:8099/oauth/callback"
-```
-
-Save the `access_token` from the response:
-
-```bash
-export RED_HAT_TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI..."
-```
-
 **4. Test the A2A endpoint:**
 
 The agent uses the A2A (Agent-to-Agent) protocol, which is based on JSON-RPC 2.0. All requests must include:
@@ -873,10 +835,6 @@ curl -X POST http://localhost:8099/ \
 **5. Test other endpoints:**
 
 ```bash
-# Get user information
-curl http://localhost:8099/oauth/userinfo \
-  -H "Authorization: Bearer $RED_HAT_TOKEN" | jq .
-
 # Check health endpoint (no auth required)
 curl http://localhost:8099/health | jq .
 

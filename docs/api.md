@@ -20,11 +20,11 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
 │  └─────────────┘  └──────────────────┘  └─────────────────┘                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Routers                                                                    │
-│  ┌──────────────────┐ ┌────────────┐ ┌─────────────┐ ┌────────────────┐     │
-│  │  A2A Protocol    │ │   OAuth    │ │     DCR     │ │  Marketplace   │     │
-│  │  (a2a_setup.py)  │ │  (auth/)   │ │   (dcr/)    │ │ (marketplace/) │     │
-│  │  POST /          │ │            │ │             │ │                │     │
-│  └────────┬─────────┘ └────────────┘ └─────────────┘ └────────────────┘     │
+│  ┌──────────────────┐ ┌─────────────┐ ┌────────────────┐                    │
+│  │  A2A Protocol    │ │     DCR     │ │  Marketplace   │                    │
+│  │  (a2a_setup.py)  │ │   (dcr/)    │ │ (marketplace/) │                    │
+│  │  POST /          │ │             │ │                │                    │
+│  └────────┬─────────┘ └─────────────┘ └────────────────┘                    │
 └───────────│─────────────────────────────────────────────────────────────────┘
             │
             ▼
@@ -362,8 +362,8 @@ Returns the AgentCard describing the agent's capabilities.
     "schemes": [
       {
         "scheme": "oauth2",
-        "authorizationUrl": "https://your-agent-url.com/oauth/authorize",
-        "tokenUrl": "https://your-agent-url.com/oauth/token",
+        "authorizationUrl": "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/auth",
+        "tokenUrl": "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token",
         "scopes": {
           "openid": "OpenID Connect",
           "profile": "User profile",
@@ -608,26 +608,6 @@ Cancel a running task.
   }
 }
 ```
-
-## OAuth Endpoints
-
-See [Authentication](authentication.md) for detailed OAuth documentation.
-
-### GET /oauth/authorize
-
-Initiate OAuth 2.0 authorization flow.
-
-### GET /oauth/callback
-
-Handle OAuth callback with authorization code.
-
-### POST /oauth/token
-
-Exchange authorization code or refresh token for access tokens.
-
-### GET /oauth/userinfo
-
-Get user information for authenticated user.
 
 ## Dynamic Client Registration (DCR)
 

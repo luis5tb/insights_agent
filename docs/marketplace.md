@@ -47,10 +47,10 @@ The system uses a **two-service architecture** to handle marketplace integration
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                     Lightspeed Agent (Port 8000)                            │
 │                      ──────────────────────────                             │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
-│  │   A2A Protocol  │  │  Usage Metering │  │   OAuth Callback            │  │
-│  │   (JSON-RPC)    │  │   & Reporting   │  │   /oauth/callback           │  │
-│  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
+│  ┌─────────────────┐  ┌─────────────────┐                                   │
+│  │   A2A Protocol  │  │  Usage Metering │                                   │
+│  │   (JSON-RPC)    │  │   & Reporting   │                                   │
+│  └─────────────────┘  └─────────────────┘                                   │
 │                              │                                              │
 │                              ▼                                              │
 │                    ┌─────────────────┐                                      │

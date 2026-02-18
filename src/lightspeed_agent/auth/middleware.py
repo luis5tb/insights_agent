@@ -52,16 +52,12 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         "/redoc",
         "/.well-known/agent.json",
         "/.well-known/agent-card.json",
-        "/oauth/authorize",
-        "/oauth/callback",
-        "/oauth/token",
         "/oauth/register",  # DCR endpoint uses software_statement JWT
         "/marketplace/pubsub",  # Pub/Sub uses Google-signed tokens
     }
 
     # Path prefixes that are public
     PUBLIC_PREFIXES = (
-        "/oauth/",
         "/marketplace/",
     )
 

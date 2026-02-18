@@ -79,11 +79,6 @@ spec:
             # Red Hat SSO Configuration
             - name: RED_HAT_SSO_ISSUER
               value: "https://sso.redhat.com/auth/realms/redhat-external"
-            # OAuth redirect URI for the authorization code flow.
-            # Must match the Cloud Run service URL. Updated automatically
-            # by deploy.sh after deployment (same as AGENT_PROVIDER_URL).
-            - name: RED_HAT_SSO_REDIRECT_URI
-              value: "https://lightspeed-agent.example.com/oauth/callback"
             # OAuth scope required in access tokens (checked via introspection).
             # Set to empty string to disable scope checking.
             - name: AGENT_REQUIRED_SCOPE

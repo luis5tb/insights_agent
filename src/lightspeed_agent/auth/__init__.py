@@ -1,8 +1,8 @@
 """Authentication and authorization module.
 
-This module implements OAuth 2.0 with Red Hat SSO as the identity provider.
-Bearer tokens are validated via Keycloak token introspection (RFC 7662) and
-checked for the required ``agent:insights`` scope.
+This module validates Bearer tokens via Keycloak token introspection (RFC 7662)
+and checks for the required ``agent:insights`` scope.  The agent acts as a
+Resource Server — it does not proxy OAuth flows.
 """
 
 from lightspeed_agent.auth.dependencies import (
@@ -20,12 +20,7 @@ from lightspeed_agent.auth.middleware import AuthenticationMiddleware
 from lightspeed_agent.auth.models import (
     AuthenticatedUser,
     JWTClaims,
-    OAuthError,
-    TokenResponse,
-    TokenType,
 )
-from lightspeed_agent.auth.oauth import OAuthClient, get_oauth_client
-from lightspeed_agent.auth.router import router as oauth_router
 
 __all__ = [
     # Dependencies
@@ -42,12 +37,4 @@ __all__ = [
     # Models
     "AuthenticatedUser",
     "JWTClaims",
-    "OAuthError",
-    "TokenResponse",
-    "TokenType",
-    # OAuth
-    "OAuthClient",
-    "get_oauth_client",
-    # Router
-    "oauth_router",
 ]

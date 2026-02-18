@@ -1,25 +1,8 @@
 """Pydantic models for authentication and authorization."""
 
 from datetime import datetime
-from enum import Enum
 
 from pydantic import BaseModel, Field
-
-
-class TokenType(str, Enum):
-    """Token type enumeration."""
-
-    BEARER = "Bearer"
-
-
-class TokenResponse(BaseModel):
-    """OAuth 2.0 token response."""
-
-    access_token: str = Field(..., description="The access token")
-    token_type: TokenType = Field(default=TokenType.BEARER, description="Token type")
-    expires_in: int = Field(..., description="Token expiration time in seconds")
-    refresh_token: str | None = Field(default=None, description="Refresh token")
-    scope: str | None = Field(default=None, description="Token scope")
 
 
 class JWTClaims(BaseModel):
@@ -61,13 +44,4 @@ class AuthenticatedUser(BaseModel):
         description="Raw access token for forwarding to downstream services",
         exclude=True,  # Exclude from serialization for security
     )
-
-
-class OAuthError(BaseModel):
-    """OAuth 2.0 error response."""
-
-    error: str = Field(..., description="Error code")
-    error_description: str | None = Field(default=None, description="Error description")
-    error_uri: str | None = Field(default=None, description="Error URI")
-
 

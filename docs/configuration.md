@@ -36,9 +36,8 @@ GOOGLE_CLOUD_LOCATION=us-central1
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RED_HAT_SSO_ISSUER` | `https://sso.redhat.com/auth/realms/redhat-external` | SSO issuer URL |
-| `RED_HAT_SSO_CLIENT_ID` | - | Resource Server client ID (used for introspection + OAuth login) |
+| `RED_HAT_SSO_CLIENT_ID` | - | Resource Server client ID (used for token introspection) |
 | `RED_HAT_SSO_CLIENT_SECRET` | - | Resource Server client secret |
-| `RED_HAT_SSO_REDIRECT_URI` | `http://localhost:8000/oauth/callback` | OAuth redirect URI |
 | `AGENT_REQUIRED_SCOPE` | `agent:insights` | OAuth scope required in access tokens |
 
 **Example:**
@@ -47,7 +46,6 @@ GOOGLE_CLOUD_LOCATION=us-central1
 RED_HAT_SSO_ISSUER=https://sso.redhat.com/auth/realms/redhat-external
 RED_HAT_SSO_CLIENT_ID=my-client-id
 RED_HAT_SSO_CLIENT_SECRET=my-client-secret
-RED_HAT_SSO_REDIRECT_URI=https://myagent.example.com/oauth/callback
 ```
 
 ### Red Hat Lightspeed MCP

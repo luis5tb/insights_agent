@@ -52,13 +52,13 @@ The system consists of **two separate services**:
 │                  (Cloud Run - Deployed After Provisioning)                      │
 │  ┌───────────────────────────────────────────────────────────────────────────┐  │
 │  │                           FastAPI Application                             │  │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │  │
-│  │  │   A2A API   │  │  OAuth API  │  │ Agent Card  │  │  Health/Ready   │   │  │
-│  │  │     /       │  │  /oauth/*   │  │ /.well-     │  │  /health        │   │  │
-│  │  │  (JSON-RPC) │  │  (callback) │  │  known/     │  │  /ready         │   │  │
-│  │  └──────┬──────┘  └──────┬──────┘  │  agent.json │  └─────────────────┘   │  │
-│  │         │                │         └─────────────┘                        │  │
-│  │         ▼                ▼                                                │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐                    │  │
+│  │  │   A2A API   │  │ Agent Card  │  │  Health/Ready   │                    │  │
+│  │  │     /       │  │ /.well-     │  │  /health        │                    │  │
+│  │  │  (JSON-RPC) │  │  known/     │  │  /ready         │                    │  │
+│  │  └──────┬──────┘  │  agent.json │  └─────────────────┘                    │  │
+│  │         │         └─────────────┘                                         │  │
+│  │         ▼                                                                 │  │
 │  │  ┌─────────────────────────────────────────────────────────────────┐      │  │
 │  │  │                     Authentication Layer                        │      │  │
 │  │  │              (JWT Validation via Red Hat SSO)                   │      │  │
@@ -123,7 +123,6 @@ The main AI agent FastAPI application, providing:
 
 - **A2A Endpoints**: Agent-to-Agent protocol implementation (JSON-RPC)
 - **Agent Card**: `/.well-known/agent.json` with capabilities and DCR extension
-- **OAuth Endpoints**: Authorization Code callback for user authentication
 - **Health Endpoints**: Kubernetes-compatible health and readiness checks
 
 ### Authentication Layer
@@ -214,17 +213,16 @@ This flow happens when an admin configures the agent in Gemini Enterprise:
                     └─────────────────┘                       └─────────────────┘
 ```
 
-### Flow 3: User Authentication (OAuth)
+### Flow 3: Client Authentication
 
-This flow happens when a user interacts with the agent:
+Clients obtain access tokens directly from Red Hat SSO (Keycloak) using their
+DCR-issued credentials. The agent does not participate in token issuance — it
+acts purely as a Resource Server.
 
 ```
-1. User/Gemini initiates OAuth flow with client credentials
-2. User redirected to Red Hat SSO for authentication
-3. User authenticates with Red Hat account
-4. SSO redirects to Agent /oauth/callback with code
-5. Agent exchanges code for tokens
-6. Tokens returned to client for API access
+1. Client authenticates directly with Red Hat SSO (e.g., client_credentials grant)
+2. Red Hat SSO issues access token with agent:insights scope
+3. Client uses the token for A2A requests to the agent
 ```
 
 ### Flow 4: User Query (A2A)
@@ -252,8 +250,6 @@ src/lightspeed_agent/
 │       └── agent_card.py      # AgentCard builder
 ├── auth/                       # Authentication (shared)
 │   ├── introspection.py       # Token introspection (RFC 7662)
-│   ├── oauth.py               # OAuth client
-│   ├── router.py              # OAuth endpoints (callback)
 │   ├── middleware.py           # Auth middleware
 │   ├── dependencies.py        # FastAPI dependencies
 │   └── models.py              # Auth data models
@@ -348,7 +344,6 @@ Certain endpoints must be publicly accessible per A2A protocol:
 | Service | Endpoint | Reason |
 |---------|----------|--------|
 | Agent | `/.well-known/agent.json` | A2A discovery (no auth per spec) |
-| Agent | `/oauth/callback` | OAuth redirect from SSO |
 | Handler | `/dcr` | Pub/Sub push and DCR requests |
 | Handler | `/health` | Health checks |
 

@@ -382,7 +382,7 @@ case "$DEPLOY_SERVICE" in
         echo ""
         show_service_info "$SERVICE_NAME"
 
-        # Update AGENT_PROVIDER_URL, RED_HAT_SSO_REDIRECT_URI, and MARKETPLACE_HANDLER_URL
+        # Update AGENT_PROVIDER_URL and MARKETPLACE_HANDLER_URL
         service_url=$(gcloud run services describe "$SERVICE_NAME" \
             --region="$REGION" \
             --project="$PROJECT_ID" \
@@ -393,7 +393,7 @@ case "$DEPLOY_SERVICE" in
             --format='value(status.url)' 2>/dev/null || echo "")
 
         if [[ -n "$service_url" ]]; then
-            env_vars="AGENT_PROVIDER_URL=$service_url,RED_HAT_SSO_REDIRECT_URI=$service_url/oauth/callback"
+            env_vars="AGENT_PROVIDER_URL=$service_url"
             if [[ -n "$handler_url" ]]; then
                 env_vars="$env_vars,MARKETPLACE_HANDLER_URL=$handler_url"
             else
@@ -430,7 +430,7 @@ case "$DEPLOY_SERVICE" in
         echo ""
         show_service_info "$SERVICE_NAME"
 
-        # Update AGENT_PROVIDER_URL, RED_HAT_SSO_REDIRECT_URI, and MARKETPLACE_HANDLER_URL
+        # Update AGENT_PROVIDER_URL and MARKETPLACE_HANDLER_URL
         service_url=$(gcloud run services describe "$SERVICE_NAME" \
             --region="$REGION" \
             --project="$PROJECT_ID" \
@@ -441,7 +441,7 @@ case "$DEPLOY_SERVICE" in
             --format='value(status.url)' 2>/dev/null || echo "")
 
         if [[ -n "$service_url" ]]; then
-            env_vars="AGENT_PROVIDER_URL=$service_url,RED_HAT_SSO_REDIRECT_URI=$service_url/oauth/callback"
+            env_vars="AGENT_PROVIDER_URL=$service_url"
             if [[ -n "$handler_url" ]]; then
                 env_vars="$env_vars,MARKETPLACE_HANDLER_URL=$handler_url"
             else

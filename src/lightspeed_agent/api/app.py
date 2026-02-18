@@ -3,7 +3,6 @@
 This is the A2A agent service that handles:
 - A2A protocol requests (message/send, message/stream)
 - AgentCard discovery (/.well-known/agent.json)
-- OAuth user authentication flow
 
 Note: DCR and Marketplace provisioning are handled by the separate
 marketplace-handler service. See lightspeed_agent.marketplace.
@@ -18,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from lightspeed_agent.api.a2a.a2a_setup import setup_a2a_routes
 from lightspeed_agent.api.a2a.agent_card import get_agent_card_dict
 from lightspeed_agent.api.a2a.usage_plugin import get_aggregate_usage
-from lightspeed_agent.auth import AuthenticationMiddleware, oauth_router
+from lightspeed_agent.auth import AuthenticationMiddleware
 from lightspeed_agent.config import get_settings
 from lightspeed_agent.ratelimit import RateLimitMiddleware
 
@@ -120,11 +119,6 @@ def create_app() -> FastAPI:
     async def agent_card_alias() -> dict:
         """AgentCard endpoint (alias for agent.json)."""
         return get_agent_card_dict()
-
-    # Include OAuth 2.0 router for user authentication
-    # Provides: /oauth/authorize, /oauth/callback, /oauth/token, /oauth/userinfo
-    # Note: DCR (/oauth/register, /dcr) is handled by the marketplace-handler service
-    app.include_router(oauth_router)
 
     # Usage statistics endpoint
     # Returns aggregate token and request counts tracked by UsageTrackingPlugin
