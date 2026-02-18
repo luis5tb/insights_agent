@@ -3,13 +3,14 @@
 import os
 from typing import TYPE_CHECKING, Callable
 
-from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import (
     SseConnectionParams,
     StdioConnectionParams,
     StreamableHTTPServerParams,
 )
 from mcp import StdioServerParameters
+
+from lightspeed_agent.tools.schema_sanitizer import SanitizedMcpToolset as McpToolset
 
 from lightspeed_agent.config import get_settings
 from lightspeed_agent.tools.mcp_config import MCPServerConfig, setup_mcp_environment
