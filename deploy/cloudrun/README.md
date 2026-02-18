@@ -1112,6 +1112,10 @@ gcloud iam service-accounts create dcr-test \
   --display-name "DCR test signer" \
   --project=$GOOGLE_CLOUD_PROJECT
 
+# NOTE: GCP may need a few seconds to propagate the new service account.
+# If the next command fails with NOT_FOUND, wait ~10 seconds and retry.
+sleep 10
+
 gcloud iam service-accounts keys create dcr-test-key.json \
   --iam-account=dcr-test@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com \
   --project=$GOOGLE_CLOUD_PROJECT

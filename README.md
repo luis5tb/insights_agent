@@ -517,6 +517,9 @@ Both modes require `SKIP_JWT_VALIDATION=true` on the marketplace handler so it a
      --project=<PROJECT>
    ```
 
+   > **Note:** GCP may need a few seconds to propagate the new service account.
+   > If the next commands fail with `NOT_FOUND`, wait ~10 seconds and retry.
+
 2. **Choose a signing method** for the test script:
 
    **Method A -- Local key file (recommended, no extra IAM permissions):**

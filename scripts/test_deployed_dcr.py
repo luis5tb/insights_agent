@@ -38,6 +38,9 @@ Method A: Local key file (recommended -- no IAM permissions needed)
                --display-name "DCR test signer" \
                --project=<PROJECT>
 
+       NOTE: GCP may need a few seconds to propagate the new service account.
+       If the next command fails with NOT_FOUND, wait ~10 seconds and retry.
+
     2. Download a key file:
            gcloud iam service-accounts keys create dcr-test-key.json \
                --iam-account=dcr-test@<PROJECT>.iam.gserviceaccount.com \
