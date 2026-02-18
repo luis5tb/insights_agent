@@ -43,7 +43,7 @@ The Lightspeed Agent is an A2A-ready (Agent-to-Agent) service that provides AI-p
 | Topic | Description |
 |-------|-------------|
 | [AgentCard](api.md#get-well-knownagentjson) | A2A agent discovery |
-| [OAuth Flow](authentication.md#oauth-20-authorization-code-flow) | Authentication setup |
+| [Authentication](authentication.md#token-introspection) | Token validation setup |
 | [Environment Variables](configuration.md#environment-variables) | Configuration reference |
 | [Health Checks](api.md#health-endpoints) | Monitoring endpoints |
 | [Metering](metering.md#local-testing) | Usage tracking and testing |
