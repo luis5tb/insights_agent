@@ -155,7 +155,7 @@ DCR allows Google Cloud Marketplace customers to automatically register as OAuth
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DCR_ENABLED` | `true` | Enable/disable DCR functionality |
+| `DCR_ENABLED` | `true` | `true`: real DCR via Red Hat SSO (Keycloak). `false`: accepts static `client_id`/`client_secret` from the DCR request body, validates them against the token endpoint, and stores them. |
 | `DCR_INITIAL_ACCESS_TOKEN` | - | Initial access token for Red Hat SSO DCR endpoint |
 | `DCR_ENCRYPTION_KEY` | - | Fernet key for encrypting stored client secrets |
 | `DCR_CLIENT_NAME_PREFIX` | `gemini-order-` | Prefix for generated client names |

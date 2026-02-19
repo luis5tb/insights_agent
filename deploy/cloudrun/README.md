@@ -1064,29 +1064,30 @@ This setting is also configurable in `service.yaml` via the
 This section explains how to test the DCR (Dynamic Client Registration) flow
 against a deployed marketplace handler. Two options are available:
 
-- **Option A: Pre-seeded Credentials** — no Keycloak needed, credentials are
-  seeded into the database in advance using `seed_dcr_clients.py`
+- **Option A: Static Credentials** — no Keycloak needed, caller provides
+  `client_id` and `client_secret` in the DCR request body
 - **Option B: Real DCR with Keycloak on Cloud Run** — exercises the full flow
   with a temporary Keycloak instance creating real OAuth clients
 
 ```
-Option A: Pre-seeded Credentials         Option B: Real DCR with Keycloak
+Option A: Static Credentials              Option B: Real DCR with Keycloak
 
 ┌──────────────┐                         ┌──────────────┐
 │  Test Script │                         │  Test Script │
 │  (local)     │                         │  (local)     │
 └──────┬───────┘                         └──────┬───────┘
        │ POST /dcr                              │ POST /dcr
-       │ (software_statement JWT)               │ (software_statement JWT)
-       │ + Cloud Run ID token                   │ + Cloud Run ID token
+       │ (software_statement JWT                │ (software_statement JWT)
+       │  + client_id + client_secret)          │ + Cloud Run ID token
+       │ + Cloud Run ID token                   │
        ▼                                        ▼
 ┌──────────────────────┐                 ┌──────────────────────┐
 │  Marketplace Handler │                 │  Marketplace Handler │
 │  (Cloud Run)         │                 │  (Cloud Run)         │
 │                      │                 │                      │
 │  DCR_ENABLED=false   │                 │  DCR_ENABLED=true    │
-│  Returns pre-seeded  │                 │                      │
-│  credentials from DB │                 └──────────┬───────────┘
+│  Validates, stores   │                 │                      │
+│  and returns creds   │                 └──────────┬───────────┘
 └──────────────────────┘                            │ POST /clients-registrations
                                                     │ (Bearer IAT)
                                                     ▼
@@ -1121,159 +1122,12 @@ gcloud iam service-accounts keys create dcr-test-key.json \
   --project=$GOOGLE_CLOUD_PROJECT
 ```
 
-### Seeding Per-Customer DCR Credentials
+### Option A: Static Credentials (No Keycloak)
 
-> **Note:** This section only applies when DCR is disabled (`DCR_ENABLED=false`).
-> When DCR is enabled, credentials are created automatically via Keycloak and
-> seeding is not needed.
-
-When running with `DCR_ENABLED=false` (no live Keycloak DCR), the handler
-requires that client credentials are pre-registered in the database for
-each customer. The `seed_dcr_clients.py` admin script allows you to seed
-per-customer Keycloak client credentials (created out-of-band) into the
-database. DCR requests for orders without pre-seeded credentials will
-fail with an error.
-
-#### How It Works
-
-The Marketplace purchase and DCR credential request are two separate
-processes handled by different endpoints:
-
-1. **Purchase** — Customer buys through Google Cloud Marketplace. A Pub/Sub
-   event is sent to the marketplace-handler (`POST /dcr` →
-   `_handle_pubsub_event`), which approves the account and stores the
-   order/account information.
-
-2. **DCR request** — Later, Google Gemini sends a separate HTTP request
-   (`POST /dcr` or `POST /oauth/register` → `_handle_dcr_request`) with a
-   `software_statement` JWT containing the `order_id`. The handler checks
-   the database for pre-seeded credentials for that order. If none are
-   found, the request fails with an error.
-
-The admin seeds credentials **between** these two events:
-
-```
-Customer purchases         Admin seeds             Gemini sends
-on Marketplace             credentials             DCR request
-      │                        │                        │
-      ▼                        ▼                        ▼
-  Pub/Sub event ──►  Admin sees order  ──►  get_by_order_id() finds
-  approves account   creates Keycloak      seeded record, returns
-  stores order_id    client, runs          per-customer credentials
-                     seed_dcr_clients.py
-```
-
-DCR requests for orders that have **not** been seeded will fail with an
-error indicating that no credentials are registered for that order.
-
-#### Prerequisites
-
-**Connect to Cloud SQL from your local machine** using the Cloud SQL Auth
-Proxy:
-
-```bash
-# Install Cloud SQL Auth Proxy (if not already installed)
-curl -o cloud-sql-proxy \
-  https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.3/cloud-sql-proxy.linux.amd64
-chmod +x cloud-sql-proxy
-
-# Start the proxy in a separate terminal
-./cloud-sql-proxy --port 5432 ${GOOGLE_CLOUD_PROJECT}:${GOOGLE_CLOUD_LOCATION}:${DB_INSTANCE_NAME:-lightspeed-agent-db}
-
-# Fetch the DATABASE_URL from Secret Manager and rewrite it to use the proxy
-CLOUD_DB_URL=$(gcloud secrets versions access latest \
-  --secret=database-url --project=$GOOGLE_CLOUD_PROJECT)
-DB_PASSWORD=$(echo "$CLOUD_DB_URL" | sed -n 's|.*://insights:\([^@]*\)@.*|\1|p')
-export DATABASE_URL="postgresql+asyncpg://insights:${DB_PASSWORD}@localhost:5432/lightspeed_agent"
-```
-
-**Get the encryption key** from Secret Manager (must match the key used by
-the running service):
-
-```bash
-export DCR_ENCRYPTION_KEY=$(gcloud secrets versions access latest \
-  --secret=dcr-encryption-key --project=$GOOGLE_CLOUD_PROJECT)
-```
-
-#### Usage
-
-**Seed a single entry:**
-
-```bash
-python scripts/seed_dcr_clients.py seed \
-  --client-id "customer-a-uuid" \
-  --client-secret "customer-a-secret" \
-  --order-id "order-12345" \
-  --account-id "account-67890"
-```
-
-**Seed from a JSON file:**
-
-```bash
-python scripts/seed_dcr_clients.py seed --file customers.json
-```
-
-Where `customers.json` contains:
-
-```json
-[
-  {
-    "client_id": "customer-a-uuid",
-    "client_secret": "customer-a-plaintext-secret",
-    "order_id": "order-001",
-    "account_id": "account-001",
-    "redirect_uris": ["https://gemini.google.com/callback"],
-    "grant_types": ["authorization_code", "refresh_token"]
-  },
-  {
-    "client_id": "customer-b-uuid",
-    "client_secret": "customer-b-plaintext-secret",
-    "order_id": "order-002",
-    "account_id": "account-002"
-  }
-]
-```
-
-Only `client_id`, `client_secret`, `order_id`, and `account_id` are
-required. `redirect_uris` defaults to `[]` and `grant_types` defaults to
-`["authorization_code", "refresh_token"]`.
-
-**Dry run** (validate without inserting):
-
-```bash
-python scripts/seed_dcr_clients.py seed --file customers.json --dry-run
-```
-
-**List existing entries** (secrets are never displayed):
-
-```bash
-python scripts/seed_dcr_clients.py list
-python scripts/seed_dcr_clients.py list --format json
-python scripts/seed_dcr_clients.py list --show-metadata
-```
-
-**Delete an entry:**
-
-```bash
-python scripts/seed_dcr_clients.py delete --order-id order-12345
-python scripts/seed_dcr_clients.py delete --client-id customer-a-uuid --confirm
-```
-
-#### Security Notes
-
-- **Never commit** JSON files containing plaintext client secrets to
-  version control.
-- The `DCR_ENCRYPTION_KEY` must match the key configured on the running
-  Cloud Run service. If the keys differ, the service will fail to decrypt
-  the seeded secrets when returning them during DCR requests.
-- Clean up the Cloud SQL Auth Proxy connection when done.
-
-### Option A: Pre-seeded Credentials (No Keycloak)
-
-This mode skips Keycloak entirely. Credentials must be pre-seeded into the
-database using `seed_dcr_clients.py` before DCR requests are made (see the
-section above for Cloud SQL proxy setup and seeding instructions). DCR
-requests for orders without pre-seeded credentials will fail with an error.
+This mode skips Keycloak client creation. The caller provides `client_id` and
+`client_secret` in the DCR request body alongside the `software_statement`.
+The handler validates them (skipped with `SKIP_JWT_VALIDATION=true`), encrypts
+and stores them linked to the order, and returns them. No pre-seeding required.
 
 **1. Configure the handler:**
 
@@ -1293,30 +1147,7 @@ DCR_ENABLED=false,\
 SKIP_JWT_VALIDATION=true"
 ```
 
-**2. Seed test credentials:**
-
-```bash
-# Choose a fixed order ID so the seed and test script use the same value
-export TEST_ORDER_ID="order-$(uuidgen || python3 -c 'import uuid; print(uuid.uuid4())')"
-
-# Start the Cloud SQL Auth Proxy first (see Prerequisites above)
-# Fetch DATABASE_URL and DCR_ENCRYPTION_KEY (see Prerequisites above)
-CLOUD_DB_URL=$(gcloud secrets versions access latest \
-  --secret=database-url --project=$GOOGLE_CLOUD_PROJECT)
-DB_PASSWORD=$(echo "$CLOUD_DB_URL" | sed -n 's|.*://insights:\([^@]*\)@.*|\1|p')
-export DATABASE_URL="postgresql+asyncpg://insights:${DB_PASSWORD}@localhost:5432/lightspeed_agent"
-export DCR_ENCRYPTION_KEY=$(gcloud secrets versions access latest \
-  --secret=dcr-encryption-key --project=$GOOGLE_CLOUD_PROJECT)
-
-# Seed credentials for the test order
-python scripts/seed_dcr_clients.py seed \
-  --client-id "test-client-id" \
-  --client-secret "test-client-secret" \
-  --order-id "$TEST_ORDER_ID" \
-  --account-id "test-procurement-account-001"
-```
-
-**3. Run the test script:**
+**2. Run the test script with static credentials:**
 
 ```bash
 HANDLER_URL=$(gcloud run services describe marketplace-handler \
@@ -1326,19 +1157,21 @@ HANDLER_URL=$(gcloud run services describe marketplace-handler \
 
 export MARKETPLACE_HANDLER_URL=$HANDLER_URL
 export TEST_SA_KEY_FILE=dcr-test-key.json
-# TEST_ORDER_ID is already exported from step 2 — the test script will
-# use it instead of generating a random UUID
+export TEST_CLIENT_ID=test-client-id
+export TEST_CLIENT_SECRET=test-client-secret
 # Don't set SKIP_CLOUD_RUN_AUTH -- script fetches an ID token automatically
 
 python scripts/test_deployed_dcr.py
 ```
 
+The script sends `client_id` and `client_secret` in the request body. The
+handler stores them and returns them. The second request verifies idempotency
+(same credentials returned for the same order).
+
 > **Note:** If the handler was deployed with `--allow-unauthenticated`, you can
 > set `export SKIP_CLOUD_RUN_AUTH=true` to skip ID token authentication.
 
-The response will contain the pre-seeded credentials for the test order.
-
-**4. Restore production configuration:**
+**3. Restore production configuration:**
 
 ```bash
 gcloud run services update marketplace-handler \
@@ -1347,6 +1180,32 @@ gcloud run services update marketplace-handler \
   --update-env-vars="\
 DCR_ENABLED=true,\
 SKIP_JWT_VALIDATION=false"
+```
+
+#### Admin Tool: seed_dcr_clients.py
+
+The `seed_dcr_clients.py` script is still available as an admin tool for
+managing DCR client records in the database (listing, deleting, or bulk
+inserting credentials). It is no longer required as a prerequisite for the
+static credentials flow.
+
+```bash
+# Connect to Cloud SQL first (requires Cloud SQL Auth Proxy)
+./cloud-sql-proxy --port 5432 ${GOOGLE_CLOUD_PROJECT}:${GOOGLE_CLOUD_LOCATION}:${DB_INSTANCE_NAME:-lightspeed-agent-db}
+
+# Fetch DATABASE_URL and DCR_ENCRYPTION_KEY from Secret Manager
+CLOUD_DB_URL=$(gcloud secrets versions access latest \
+  --secret=database-url --project=$GOOGLE_CLOUD_PROJECT)
+DB_PASSWORD=$(echo "$CLOUD_DB_URL" | sed -n 's|.*://insights:\([^@]*\)@.*|\1|p')
+export DATABASE_URL="postgresql+asyncpg://insights:${DB_PASSWORD}@localhost:5432/lightspeed_agent"
+export DCR_ENCRYPTION_KEY=$(gcloud secrets versions access latest \
+  --secret=dcr-encryption-key --project=$GOOGLE_CLOUD_PROJECT)
+
+# List existing entries
+python scripts/seed_dcr_clients.py list
+
+# Delete an entry
+python scripts/seed_dcr_clients.py delete --order-id order-12345 --confirm
 ```
 
 ### Option B: Real DCR with Keycloak on Cloud Run
