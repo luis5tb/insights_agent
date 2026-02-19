@@ -193,10 +193,6 @@ class DCRService:
         Returns:
             True if the credentials are valid, False otherwise.
         """
-        if self._settings.skip_jwt_validation:
-            logger.warning("Skipping credential validation - development mode")
-            return True
-
         token_url = self._settings.keycloak_token_endpoint
         logger.info("Validating static credentials for client_id=%s", client_id)
 

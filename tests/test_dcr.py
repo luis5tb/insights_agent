@@ -1,6 +1,7 @@
 """Tests for Dynamic Client Registration (DCR) implementation."""
 
 import time
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -176,7 +177,9 @@ class TestDCRService:
             google=GoogleClaims(order="valid-order-789"),
         )
 
-        result = await service._store_static_credentials(request, claims)
+        # Mock credential validation (no real Red Hat SSO in tests)
+        with patch.object(service, "_validate_credentials", new_callable=AsyncMock, return_value=True):
+            result = await service._store_static_credentials(request, claims)
 
         assert isinstance(result, DCRResponse)
         assert result.client_id == "static-client-123"
