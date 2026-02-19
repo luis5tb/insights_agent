@@ -38,12 +38,16 @@ def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
-        _engine = create_async_engine(
-            settings.database_url,
-            pool_size=settings.database_pool_size,
-            max_overflow=settings.database_pool_max_overflow,
-            echo=settings.debug,
-        )
+        engine_kwargs: dict = {"echo": settings.debug}
+        if settings.database_url.startswith("sqlite"):
+            from sqlalchemy.pool import StaticPool
+
+            engine_kwargs["poolclass"] = StaticPool
+            engine_kwargs["connect_args"] = {"check_same_thread": False}
+        else:
+            engine_kwargs["pool_size"] = settings.database_pool_size
+            engine_kwargs["max_overflow"] = settings.database_pool_max_overflow
+        _engine = create_async_engine(settings.database_url, **engine_kwargs)
         logger.info("Created database engine for %s", settings.database_url.split("@")[-1])
     return _engine
 

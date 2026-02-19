@@ -66,6 +66,20 @@ class TestModels:
         request = DCRRequest(software_statement="eyJ...")
 
         assert request.software_statement == "eyJ..."
+        assert request.client_id is None
+        assert request.client_secret is None
+
+    def test_dcr_request_with_static_credentials(self):
+        """Test DCR request model with static credentials."""
+        request = DCRRequest(
+            software_statement="eyJ...",
+            client_id="static-client-id",
+            client_secret="static-client-secret",
+        )
+
+        assert request.software_statement == "eyJ..."
+        assert request.client_id == "static-client-id"
+        assert request.client_secret == "static-client-secret"
 
     def test_dcr_response(self):
         """Test DCR response model."""
@@ -140,10 +154,82 @@ class TestDCRService:
         )
 
     @pytest.mark.asyncio
-    async def test_dcr_disabled_no_seeded_credentials(self, service):
-        """Test that DCR_ENABLED=false returns error when no pre-seeded credentials exist."""
-        # Verify _return_static_credentials has been removed
-        assert not hasattr(service, "_return_static_credentials")
+    async def test_dcr_disabled_stores_static_credentials(self, service):
+        """Test that DCR_ENABLED=false stores static credentials from the request."""
+        # _store_static_credentials should exist for handling static credentials
+        assert hasattr(service, "_store_static_credentials")
+
+    @pytest.mark.asyncio
+    async def test_store_static_credentials_success(self, service):
+        """Test storing static credentials when both client_id and secret are provided."""
+        request = DCRRequest(
+            software_statement="dummy",
+            client_id="static-client-123",
+            client_secret="static-secret-456",
+        )
+        claims = GoogleJWTClaims(
+            iss="https://example.com",
+            iat=int(time.time()),
+            exp=int(time.time()) + 3600,
+            aud="https://example.com",
+            sub="valid-account-123",
+            google=GoogleClaims(order="valid-order-789"),
+        )
+
+        result = await service._store_static_credentials(request, claims)
+
+        assert isinstance(result, DCRResponse)
+        assert result.client_id == "static-client-123"
+        assert result.client_secret == "static-secret-456"
+        assert result.client_secret_expires_at == 0
+
+        # Verify credentials were stored in the repository
+        stored = await service._client_repository.get_by_order_id("valid-order-789")
+        assert stored is not None
+        assert stored.client_id == "static-client-123"
+
+    @pytest.mark.asyncio
+    async def test_store_static_credentials_missing_client_id(self, service):
+        """Test error when client_id is missing in static mode."""
+        request = DCRRequest(
+            software_statement="dummy",
+            client_secret="secret-only",
+        )
+        claims = GoogleJWTClaims(
+            iss="https://example.com",
+            iat=int(time.time()),
+            exp=int(time.time()) + 3600,
+            aud="https://example.com",
+            sub="valid-account-123",
+            google=GoogleClaims(order="order-no-client-id"),
+        )
+
+        result = await service._store_static_credentials(request, claims)
+
+        assert isinstance(result, DCRError)
+        assert result.error == DCRErrorCode.INVALID_CLIENT_METADATA
+        assert "client_id" in result.error_description
+
+    @pytest.mark.asyncio
+    async def test_store_static_credentials_missing_secret(self, service):
+        """Test error when client_secret is missing in static mode."""
+        request = DCRRequest(
+            software_statement="dummy",
+            client_id="client-only",
+        )
+        claims = GoogleJWTClaims(
+            iss="https://example.com",
+            iat=int(time.time()),
+            exp=int(time.time()) + 3600,
+            aud="https://example.com",
+            sub="valid-account-123",
+            google=GoogleClaims(order="order-no-secret"),
+        )
+
+        result = await service._store_static_credentials(request, claims)
+
+        assert isinstance(result, DCRError)
+        assert result.error == DCRErrorCode.INVALID_CLIENT_METADATA
 
     @pytest.mark.asyncio
     async def test_get_client(self, service):
@@ -208,15 +294,16 @@ class TestDCRRepository:
 class TestDCRRouter:
     """Tests for DCR API endpoints."""
 
-    @pytest.fixture
-    def client(self, db_session):
-        """Create test client with database initialized."""
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(db_session.__anext__())
-        app = create_app()
+    @pytest_asyncio.fixture
+    async def client(self, db_session):
+        """Create test client with marketplace handler app."""
+        from lightspeed_agent.marketplace.app import create_app as create_marketplace_app
+
+        app = create_marketplace_app()
         return TestClient(app)
 
-    def test_register_endpoint_invalid_jwt(self, client):
+    @pytest.mark.asyncio
+    async def test_register_endpoint_invalid_jwt(self, client):
         """Test register endpoint with invalid JWT."""
         response = client.post(
             "/oauth/register",
@@ -227,7 +314,8 @@ class TestDCRRouter:
         data = response.json()
         assert data["error"] == "invalid_software_statement"
 
-    def test_register_endpoint_missing_software_statement(self, client):
+    @pytest.mark.asyncio
+    async def test_register_endpoint_missing_software_statement(self, client):
         """Test register endpoint with missing software_statement."""
         response = client.post(
             "/oauth/register",
@@ -236,13 +324,15 @@ class TestDCRRouter:
 
         assert response.status_code == 422  # Validation error
 
-    def test_get_client_not_found(self, client):
+    @pytest.mark.asyncio
+    async def test_get_client_not_found(self, client):
         """Test getting nonexistent client."""
         response = client.get("/oauth/register/nonexistent-client")
 
         assert response.status_code == 404
 
-    def test_dcr_endpoint_alias(self, client):
+    @pytest.mark.asyncio
+    async def test_dcr_endpoint_alias(self, client):
         """Test /dcr endpoint (Google-compatible alias)."""
         response = client.post(
             "/dcr",
@@ -273,11 +363,9 @@ class TestAgentCardDCRExtension:
         assert "endpoint" in dcr_ext.params
         assert "/oauth/register" in dcr_ext.params["endpoint"]
 
-    def test_agent_card_endpoint_returns_dcr(self, db_session):
+    @pytest.mark.asyncio
+    async def test_agent_card_endpoint_returns_dcr(self, db_session):
         """Test that AgentCard endpoint includes DCR extension."""
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(db_session.__anext__())
-
         app = create_app()
         client = TestClient(app)
 

@@ -141,9 +141,9 @@ The `software_statement` JWT from Google contains:
 | Mode | Setting | Behavior |
 |------|---------|----------|
 | **Real DCR** | `DCR_ENABLED=true` (default) | Creates actual OAuth clients in Red Hat SSO via Keycloak DCR |
-| **Static credentials** | `DCR_ENABLED=false` | Returns `RED_HAT_SSO_CLIENT_ID` / `RED_HAT_SSO_CLIENT_SECRET` for all requests |
+| **Static credentials** | `DCR_ENABLED=false` | Accepts `client_id` and `client_secret` from the DCR request body, validates them against the Red Hat SSO token endpoint, stores them linked to the order, and returns them |
 
-Real DCR requires a `DCR_INITIAL_ACCESS_TOKEN` from the Red Hat SSO admin. Static mode is suitable for development or when using a pre-registered OAuth client.
+Real DCR requires a `DCR_INITIAL_ACCESS_TOKEN` from the Red Hat SSO admin. Static mode requires the caller to provide pre-registered OAuth credentials in the request body alongside the `software_statement`.
 
 ### DCR Configuration
 

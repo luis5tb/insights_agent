@@ -6,9 +6,14 @@ This module handles:
 - Order tracking for usage metering
 
 The marketplace handler service is run via: python -m lightspeed_agent.marketplace
+
+Note: ``create_app`` is intentionally NOT re-exported here to avoid a
+circular import (marketplace.app → marketplace.router → dcr → dcr.service
+→ marketplace).  Import it directly::
+
+    from lightspeed_agent.marketplace.app import create_app
 """
 
-from lightspeed_agent.marketplace.app import create_app
 from lightspeed_agent.marketplace.models import (
     Account,
     AccountState,
@@ -29,8 +34,6 @@ from lightspeed_agent.marketplace.service import (
 )
 
 __all__ = [
-    # App
-    "create_app",
     # Models
     "Account",
     "AccountState",
