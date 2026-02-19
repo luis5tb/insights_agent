@@ -5,6 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -86,6 +87,23 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
+def _migrate_dcr_clients_pk(sync_conn) -> None:
+    """Migrate dcr_clients table PK from client_id to order_id if needed.
+
+    The original schema used client_id as the primary key, but order_id is the
+    correct PK since the same client_id can serve multiple orders. This drops
+    the old table so create_all recreates it with the correct schema.
+    """
+    inspector = sa_inspect(sync_conn)
+    if "dcr_clients" not in inspector.get_table_names():
+        return
+    pk = inspector.get_pk_constraint("dcr_clients")
+    pk_cols = pk.get("constrained_columns", [])
+    if pk_cols == ["client_id"]:
+        logger.info("Migrating dcr_clients: PK is client_id (old schema), dropping table")
+        sync_conn.execute(text("DROP TABLE dcr_clients"))
+
+
 async def init_database(max_retries: int = 30, retry_delay: float = 2.0) -> None:
     """Initialize the database, creating all tables.
 
@@ -105,6 +123,8 @@ async def init_database(max_retries: int = 30, retry_delay: float = 2.0) -> None
     for attempt in range(1, max_retries + 1):
         try:
             async with engine.begin() as conn:
+                # Migrate dcr_clients PK from client_id to order_id if needed
+                await conn.run_sync(_migrate_dcr_clients_pk)
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("Database tables created/verified")
             return

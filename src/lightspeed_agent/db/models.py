@@ -87,13 +87,13 @@ class DCRClientModel(Base):
 
     __tablename__ = "dcr_clients"
 
-    client_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    order_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     client_secret_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     registration_access_token_encrypted: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
-    order_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     account_id: Mapped[str] = mapped_column(String(255), nullable=False)
     redirect_uris: Mapped[list[str] | None] = mapped_column(
         StringList,
