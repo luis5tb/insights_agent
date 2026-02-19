@@ -552,7 +552,7 @@ Both modes require `SKIP_JWT_VALIDATION=true` on the marketplace handler so it a
 
 #### Option A: Static Credentials (No Keycloak)
 
-This mode skips Keycloak entirely. The handler returns pre-configured credentials for every DCR request.
+This mode skips Keycloak client creation. Instead, the caller provides pre-registered `client_id` and `client_secret` in the DCR request body alongside the `software_statement`. The handler validates them (skipped with `SKIP_JWT_VALIDATION=true`), stores them linked to the order, and returns them.
 
 1. **Copy the secrets template and edit it:**
    ```bash
@@ -562,8 +562,6 @@ This mode skips Keycloak entirely. The handler returns pre-configured credential
    Edit `deploy/podman/my-secrets.yaml` and set at minimum:
    ```yaml
    stringData:
-     RED_HAT_SSO_CLIENT_ID: "my-test-client"
-     RED_HAT_SSO_CLIENT_SECRET: "my-test-secret"
      DCR_ENCRYPTION_KEY: "<your-fernet-key>"
      MARKETPLACE_DATABASE_URL: "postgresql+asyncpg://insights:insights@localhost:5432/lightspeed_agent"
      MARKETPLACE_DB_PASSWORD: "insights"
@@ -583,18 +581,22 @@ This mode skips Keycloak entirely. The handler returns pre-configured credential
      deploy/podman/marketplace-handler-pod.yaml
    ```
 
-4. **Run the test script:**
+4. **Run the test script with static credentials:**
    ```bash
    # Method A (key file):
    export TEST_SA_KEY_FILE=dcr-test-key.json
+   export TEST_CLIENT_ID=my-test-client
+   export TEST_CLIENT_SECRET=my-test-secret
    python scripts/test_dcr.py
 
    # Method B (IAM API):
    export TEST_SERVICE_ACCOUNT=dcr-test@<PROJECT>.iam.gserviceaccount.com
+   export TEST_CLIENT_ID=my-test-client
+   export TEST_CLIENT_SECRET=my-test-secret
    python scripts/test_dcr.py
    ```
 
-   The response will contain the static `my-test-client` / `my-test-secret` credentials.
+   The script sends `client_id` and `client_secret` in the request body. The handler stores them and returns them. The second request verifies idempotency (same credentials returned for the same order).
 
 5. **Clean up:**
    ```bash
@@ -750,8 +752,10 @@ The test script at `scripts/test_dcr.py` is configurable via environment variabl
 | `TEST_ORDER_ID` | random UUID | Marketplace order ID |
 | `TEST_ACCOUNT_ID` | `test-procurement-account-001` | Procurement account ID |
 | `TEST_REDIRECT_URIS` | `https://gemini.google.com/callback` | Comma-separated redirect URIs |
+| `TEST_CLIENT_ID` | | Static OAuth client ID (for `DCR_ENABLED=false` mode) |
+| `TEST_CLIENT_SECRET` | | Static OAuth client secret (for `DCR_ENABLED=false` mode) |
 
-The script sends two identical requests to verify idempotency — per Google's DCR spec, the handler must return the same `client_id`/`client_secret` for the same order.
+The script sends two identical requests to verify idempotency — per Google's DCR spec, the handler must return the same `client_id`/`client_secret` for the same order. When `TEST_CLIENT_ID` and `TEST_CLIENT_SECRET` are set, the script includes them in the request body for static credentials mode.
 
 ### Pod Services
 

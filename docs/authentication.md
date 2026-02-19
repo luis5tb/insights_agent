@@ -162,10 +162,10 @@ RED_HAT_SSO_ISSUER="https://sso.redhat.com/auth/realms/redhat-external"
 
 For local testing without admin access to the production Red Hat SSO, see the [Testing DCR Locally](../README.md#testing-dcr-locally) section in the README. It covers:
 
-- **Static credentials mode** -- no Keycloak needed
+- **Static credentials mode** -- caller provides `client_id` and `client_secret` in the request body (no Keycloak needed)
 - **Local Keycloak in Podman** -- full DCR flow against a local instance
 
-A test script is available at `scripts/test_dcr.py` that signs a software_statement JWT with a GCP service account you control. When the handler runs with `SKIP_JWT_VALIDATION=true`, it accepts JWTs from any service account (not just Google's production account).
+A test script is available at `scripts/test_dcr.py` that signs a software_statement JWT with a GCP service account you control. For static credentials mode, set `TEST_CLIENT_ID` and `TEST_CLIENT_SECRET` to include them in the request body. When the handler runs with `SKIP_JWT_VALIDATION=true`, it accepts JWTs from any service account and skips credential validation against Red Hat SSO.
 
 ### Security Considerations
 
