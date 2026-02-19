@@ -1159,6 +1159,8 @@ export MARKETPLACE_HANDLER_URL=$HANDLER_URL
 export TEST_SA_KEY_FILE=dcr-test-key.json
 export TEST_CLIENT_ID=test-client-id
 export TEST_CLIENT_SECRET=test-client-secret
+# Generate a fresh order ID for each test run
+export TEST_ORDER_ID="order-$(uuidgen || python3 -c 'import uuid; print(uuid.uuid4())')"
 # Don't set SKIP_CLOUD_RUN_AUTH -- script fetches an ID token automatically
 
 python scripts/test_deployed_dcr.py
@@ -1548,6 +1550,8 @@ HANDLER_URL=$(gcloud run services describe marketplace-handler \
 # Run with key file signing
 export MARKETPLACE_HANDLER_URL=$HANDLER_URL
 export TEST_SA_KEY_FILE=dcr-test-key.json
+# Generate a fresh order ID for each test run
+export TEST_ORDER_ID="order-$(uuidgen || python3 -c 'import uuid; print(uuid.uuid4())')"
 # Don't set SKIP_CLOUD_RUN_AUTH -- script fetches an ID token automatically
 
 python scripts/test_deployed_dcr.py

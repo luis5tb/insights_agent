@@ -12,7 +12,11 @@ from sqlalchemy import (
     Text,
     func,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
+
+# Use ARRAY(String) on PostgreSQL, JSON on SQLite (for tests)
+StringList = ARRAY(String).with_variant(JSON, "sqlite")
 
 from lightspeed_agent.db.base import Base
 
@@ -92,11 +96,11 @@ class DCRClientModel(Base):
     order_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     account_id: Mapped[str] = mapped_column(String(255), nullable=False)
     redirect_uris: Mapped[list[str] | None] = mapped_column(
-        JSON,
+        StringList,
         nullable=True,
     )
     grant_types: Mapped[list[str] | None] = mapped_column(
-        JSON,
+        StringList,
         default=lambda: ["authorization_code", "refresh_token"],
     )
     keycloak_client_uuid: Mapped[str | None] = mapped_column(String(255), nullable=True)
