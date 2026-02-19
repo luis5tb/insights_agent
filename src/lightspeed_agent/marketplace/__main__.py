@@ -34,7 +34,7 @@ def main():
     logging.info(f"Starting Marketplace Handler on {host}:{port}")
 
     uvicorn.run(
-        "lightspeed_agent.marketplace:create_app",
+        "lightspeed_agent.marketplace.app:create_app",
         host=host,
         port=port,
         factory=True,
